@@ -1,15 +1,11 @@
-[build-system]
-requires = ["hatchling>=1.27,<2"]
-build-backend = "hatchling.build"
-
 [project]
 name = "language-models-experiments"
-version = "0.1.0"
+version = "0.1.1"
 requires-python = ">=3.14"
 dependencies = [
     "click>=8.3.2,<9",
     "datasets>=4.0.0,<5",
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/language_models_experiments"]
+[tool.uv]
+package = false
