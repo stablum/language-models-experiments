@@ -370,14 +370,18 @@ wheels = [
 
 [[package]]
 name = "language-models-experiments"
-version = "0.0.3"
-source = { virtual = "." }
+version = "0.1.0"
+source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "datasets" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "datasets", specifier = ">=4.0.0,<5" }]
+requires-dist = [
+    { name = "click", specifier = ">=8.3.2,<9" },
+    { name = "datasets", specifier = ">=4.0.0,<5" },
+]
 
 [[package]]
 name = "markdown-it-py"
