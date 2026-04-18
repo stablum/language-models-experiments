@@ -84,6 +84,20 @@ def mean(total: int, count: int) -> float:
     return total / count if count else 0.0
 
 
+def distribution_metrics(
+    values: list[int],
+    total: int,
+) -> list[tuple[str, float, str]]:
+    sorted_values = sorted(values)
+    return [
+        ("min", sorted_values[0] if sorted_values else 0, ",.0f"),
+        ("mean", mean(total, len(values)), ",.2f"),
+        ("median", percentile(sorted_values, 50), ",.0f"),
+        ("p95", percentile(sorted_values, 95), ",.0f"),
+        ("max", sorted_values[-1] if sorted_values else 0, ",.0f"),
+    ]
+
+
 def iter_rows(
     dataset: Iterable[Mapping[str, Any]],
     limit: int | None,
@@ -124,13 +138,9 @@ def scan_text_column(
 
 
 def print_distribution(label: str, values: list[int], total: int) -> None:
-    sorted_values = sorted(values)
     print(f"{label} per row:")
-    print(f"  min:    {sorted_values[0] if sorted_values else 0:,.0f}")
-    print(f"  mean:   {mean(total, len(values)):,.2f}")
-    print(f"  median: {percentile(sorted_values, 50):,.0f}")
-    print(f"  p95:    {percentile(sorted_values, 95):,.0f}")
-    print(f"  max:    {sorted_values[-1] if sorted_values else 0:,.0f}")
+    for metric, value, format_spec in distribution_metrics(values, total):
+        print(f"  {metric + ':':<7} {value:{format_spec}}")
 
 
 def print_corpus_report(
