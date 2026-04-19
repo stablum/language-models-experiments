@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import click
 
+from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import (
     DEFAULT_CORPUS_NAME,
     corpus_names,
@@ -54,6 +55,13 @@ from src.corpora.stats import print_corpus_report, scan_text_column
     show_default=True,
     help="Characters to show from each longest-row preview.",
 )
+@click.option(
+    "--text-normalization",
+    type=click.Choice(TEXT_NORMALIZATION_MODES),
+    default=DEFAULT_TEXT_NORMALIZATION,
+    show_default=True,
+    help="Text normalization applied before computing stats.",
+)
 def main(
     corpus: str,
     dataset_id: str | None,
@@ -63,6 +71,7 @@ def main(
     limit: int | None,
     top_n_lengths: int,
     preview_chars: int,
+    text_normalization: str,
 ) -> None:
     corpus_definition = get_corpus(corpus)
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
@@ -81,6 +90,7 @@ def main(
         limit=limit,
         top_n_lengths=top_n_lengths,
         preview_chars=preview_chars,
+        text_normalization=text_normalization,
     )
 
     print_corpus_report(
@@ -92,6 +102,7 @@ def main(
         features=getattr(dataset, "features", None),
         stats=stats,
     )
+    click.echo(f"Text normalization: {text_normalization}")
 
 
 if __name__ == "__main__":

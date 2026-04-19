@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 
+from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
 from src.corpora.text import iter_text_column
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
@@ -91,6 +92,13 @@ from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
     show_default=True,
     help="Absolute discount value for models that use it.",
 )
+@click.option(
+    "--text-normalization",
+    type=click.Choice(TEXT_NORMALIZATION_MODES),
+    default=DEFAULT_TEXT_NORMALIZATION,
+    show_default=True,
+    help="Text normalization applied before model training.",
+)
 def main(
     model_name: str,
     corpus: str,
@@ -106,6 +114,7 @@ def main(
     bigram_weight: float,
     trigram_weight: float,
     discount: float,
+    text_normalization: str,
 ) -> None:
     corpus_definition = get_corpus(corpus)
     model_definition = get_model(model_name)
@@ -122,6 +131,7 @@ def main(
         "bigram_weight": bigram_weight,
         "trigram_weight": trigram_weight,
         "discount": discount,
+        "text_normalization": text_normalization,
     }
     model_definition.validate_options(model_options)
 
@@ -143,6 +153,7 @@ def main(
     click.echo(f"Dataset: {resolved_dataset_id}")
     click.echo(f"Split: {resolved_split}")
     click.echo(f"Text column: {resolved_text_column}")
+    click.echo(f"Text normalization: {text_normalization}")
     if limit is not None:
         click.echo(f"Limit: first {limit:,} rows")
     for label, value in model_definition.summary_items(summary):

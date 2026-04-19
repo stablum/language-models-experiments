@@ -10,6 +10,7 @@ from typing import Any
 
 import sentencepiece as spm
 
+from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TextNormalization
 from src.models.ngram import NgramEvaluationSummary, candidate_token_count, load_pieces
 from src.models.ngram import resolve_stored_path
 from src.models.trigram_common import (
@@ -38,6 +39,7 @@ class TrigramTrainingSummary:
     unigram_weight: float
     bigram_weight: float
     trigram_weight: float
+    text_normalization: str
 
 
 @dataclass(frozen=True)
@@ -65,6 +67,7 @@ class TrigramModel(BaseTrigramModel):
     unigram_total: int
     bigram_transitions: dict[int, tuple[tuple[int, int], ...]]
     trigram_transitions: dict[Context, tuple[tuple[int, int], ...]]
+    text_normalization: str = "none"
 
     def evaluation_summary(self, **kwargs: Any) -> TrigramEvaluationSummary:
         return TrigramEvaluationSummary(
@@ -184,6 +187,7 @@ def load_trigram_model(model_path: Path) -> TrigramModel:
         unigram_total=int(data["unigram_count"]),
         bigram_transitions=parse_bigram_transitions(data),
         trigram_transitions=parse_trigram_transitions(data),
+        text_normalization=str(data.get("text_normalization", "none")),
     )
 
 
@@ -196,6 +200,7 @@ def train_trigram_model(
     unigram_weight: float = 0.1,
     bigram_weight: float = 0.3,
     trigram_weight: float = 0.6,
+    text_normalization: TextNormalization = DEFAULT_TEXT_NORMALIZATION,
 ) -> TrigramTrainingSummary:
     normalized_weights = normalize_interpolation_weights(
         unigram_weight=unigram_weight,
@@ -203,7 +208,11 @@ def train_trigram_model(
         trigram_weight=trigram_weight,
     )
     processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
-    counts = collect_trigram_counts(texts, processor)
+    counts = collect_trigram_counts(
+        texts,
+        processor,
+        text_normalization=text_normalization,
+    )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     model = {
@@ -212,6 +221,7 @@ def train_trigram_model(
         "tokenizer_model": str(tokenizer_model),
         "vocab_size": processor.get_piece_size(),
         "smoothing": smoothing,
+        "text_normalization": text_normalization,
         "interpolation_weights": {
             "unigram": normalized_weights[0],
             "bigram": normalized_weights[1],
@@ -240,4 +250,5 @@ def train_trigram_model(
         unigram_weight=normalized_weights[0],
         bigram_weight=normalized_weights[1],
         trigram_weight=normalized_weights[2],
+        text_normalization=text_normalization,
     )

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 
+from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
 from src.corpora.text import iter_text_column
 from src.tokenizers.sentencepiece_training import train_sentencepiece
@@ -75,6 +76,13 @@ from src.tokenizers.sentencepiece_training import train_sentencepiece
     default=None,
     help="Maximum sentence length passed to SentencePiece.",
 )
+@click.option(
+    "--text-normalization",
+    type=click.Choice(TEXT_NORMALIZATION_MODES),
+    default=DEFAULT_TEXT_NORMALIZATION,
+    show_default=True,
+    help="Text normalization applied before tokenizer training.",
+)
 def main(
     corpus: str,
     dataset_id: str | None,
@@ -88,6 +96,7 @@ def main(
     character_coverage: float,
     hard_vocab_limit: bool,
     max_sentence_length: int | None,
+    text_normalization: str,
 ) -> None:
     corpus_definition = get_corpus(corpus)
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
@@ -118,12 +127,14 @@ def main(
         character_coverage=character_coverage,
         hard_vocab_limit=hard_vocab_limit,
         max_sentence_length=max_sentence_length,
+        text_normalization=text_normalization,
     )
 
     click.echo(f"Corpus: {corpus}")
     click.echo(f"Dataset: {resolved_dataset_id}")
     click.echo(f"Split: {resolved_split}")
     click.echo(f"Text column: {resolved_text_column}")
+    click.echo(f"Text normalization: {text_normalization}")
     if limit is not None:
         click.echo(f"Limit: first {limit:,} rows")
     click.echo(f"Model: {model_path}")

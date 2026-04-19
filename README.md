@@ -39,6 +39,8 @@ For quick checks:
 uv run python -m src.cli.corpus_stats --streaming --limit 1000
 ```
 
+Stats use the deliberately lossy `lossy-ascii` text normalization by default. It lowercases text, strips accents, maps common Unicode punctuation to ASCII, drops characters that still are not ASCII, and collapses whitespace. Use `--text-normalization none` to inspect the raw corpus text instead.
+
 ## SentencePiece Tokenizer
 
 Train a 1000-vocabulary SentencePiece tokenizer:
@@ -54,6 +56,8 @@ artifacts/tokenizers/babylm-2026-strict-small-sentencepiece-1000.model
 artifacts/tokenizers/babylm-2026-strict-small-sentencepiece-1000.vocab
 ```
 
+Tokenizer training uses `--text-normalization lossy-ascii` by default. This keeps the learned vocabulary English-focused and ASCII-only apart from SentencePiece's internal word-boundary marker. Pass `--text-normalization none` when you intentionally want the tokenizer to learn from the original Unicode text.
+
 ## N-Gram Models
 
 Train a very simple autoregressive token bigram model from the SentencePiece tokenizer:
@@ -68,7 +72,7 @@ Default output:
 artifacts/models/babylm-2026-strict-small-sentencepiece-bigram.json
 ```
 
-The model stores readable indented JSON with sparse transition counts for `P(next_token | previous_token)`, plus tokenizer metadata and an add-k smoothing value. It is meant as a simple baseline, not a serious neural language model.
+The model stores readable indented JSON with sparse transition counts for `P(next_token | previous_token)`, plus tokenizer metadata, text-normalization metadata, and an add-k smoothing value. It is meant as a simple baseline, not a serious neural language model.
 
 Train an interpolated trigram model:
 
@@ -132,7 +136,7 @@ uv run python -m src.cli.query --model bigram --prompt "Once upon" --decoding mo
 
 The same query and evaluation commands work with `--model trigram`, `--model trigram-absolute-discount`, or `--model trigram-kneser-ney` after training that model.
 
-The query command also prints the most likely next tokens for the prompt, with special tokens shown as labels such as `[EOS]`. The bigram model conditions on the last prompt token; the trigram models condition on the last two prompt tokens. `--decoding most-probable` chooses the highest-probability next token at each step.
+The query command normalizes prompts with the mode stored in the model file. It also prints the most likely next tokens for the prompt, with special tokens shown as labels such as `[EOS]`. The bigram model conditions on the last prompt token; the trigram models condition on the last two prompt tokens. `--decoding most-probable` chooses the highest-probability next token at each step.
 
 Evaluate a trained model:
 

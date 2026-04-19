@@ -11,6 +11,8 @@ from typing import Literal
 
 import sentencepiece as spm
 
+from src.corpora.normalization import TextNormalization, normalize_text
+
 
 DecodingMode = Literal["sample", "most-probable"]
 
@@ -38,9 +40,10 @@ class NgramQueryResult:
     generated_token_ids: list[int]
     token_ids: list[int]
     next_token_predictions: list[NgramPrediction]
+    text_normalization: str = "none"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class NgramEvaluationSummary:
     model_path: Path
     tokenizer_model: Path
@@ -52,6 +55,7 @@ class NgramEvaluationSummary:
     top_k_correct_next_token_count: int
     negative_log_likelihood: float
     zero_probability_count: int
+    text_normalization: str = "none"
 
     @property
     def next_token_accuracy(self) -> float | None:
@@ -92,7 +96,13 @@ def divide_or_none(numerator: int, denominator: int) -> float | None:
     return numerator / denominator
 
 
-def encode_prompt(processor: spm.SentencePieceProcessor, prompt: str) -> list[int]:
+def encode_prompt(
+    processor: spm.SentencePieceProcessor,
+    prompt: str,
+    *,
+    text_normalization: TextNormalization = "none",
+) -> list[int]:
+    prompt = normalize_text(prompt, text_normalization)
     if not prompt:
         return []
     return processor.encode(prompt, out_type=int)
@@ -205,11 +215,13 @@ def iter_sentencepiece_token_sequences(
     *,
     bos_count: int,
     min_length: int,
+    text_normalization: TextNormalization = "none",
 ) -> Iterator[list[int]]:
     bos_id = processor.bos_id()
     eos_id = processor.eos_id()
 
     for text in texts:
+        text = normalize_text(text, text_normalization)
         for line in text.splitlines():
             sentence = line.strip()
             if not sentence:

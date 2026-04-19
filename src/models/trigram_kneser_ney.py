@@ -11,6 +11,7 @@ from typing import Any
 
 import sentencepiece as spm
 
+from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TextNormalization
 from src.models.ngram import NgramEvaluationSummary, candidate_token_count, load_pieces
 from src.models.ngram import resolve_stored_path
 from src.models.trigram_common import (
@@ -41,6 +42,7 @@ class KneserNeyTrigramTrainingSummary:
     continuation_unigram_count: int
     continuation_bigram_type_count: int
     discount: float
+    text_normalization: str
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,7 @@ class KneserNeyTrigramModel(BaseTrigramModel):
     unigram_total: int
     bigram_transitions: dict[int, tuple[tuple[int, int], ...]]
     trigram_transitions: dict[Context, tuple[tuple[int, int], ...]]
+    text_normalization: str = "none"
 
     def evaluation_summary(self, **kwargs: Any) -> KneserNeyTrigramEvaluationSummary:
         return KneserNeyTrigramEvaluationSummary(
@@ -209,6 +212,7 @@ def load_kneser_ney_trigram_model(model_path: Path) -> KneserNeyTrigramModel:
         unigram_total=int(data["kneser_ney_unigram_count"]),
         bigram_transitions=parse_token_transitions(data, "kneser_ney_bigram_transitions"),
         trigram_transitions=parse_context_transitions(data, "trigram_transitions"),
+        text_normalization=str(data.get("text_normalization", "none")),
     )
 
 
@@ -218,9 +222,14 @@ def train_kneser_ney_trigram_model(
     tokenizer_model: Path,
     output_path: Path,
     discount: float = 0.75,
+    text_normalization: TextNormalization = DEFAULT_TEXT_NORMALIZATION,
 ) -> KneserNeyTrigramTrainingSummary:
     processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
-    counts = collect_trigram_counts(texts, processor)
+    counts = collect_trigram_counts(
+        texts,
+        processor,
+        text_normalization=text_normalization,
+    )
     continuation_counts = collect_kneser_ney_continuation_counts(
         counts.trigram_transitions,
     )
@@ -232,6 +241,7 @@ def train_kneser_ney_trigram_model(
         "tokenizer_model": str(tokenizer_model),
         "vocab_size": processor.get_piece_size(),
         "discount": discount,
+        "text_normalization": text_normalization,
         "bos_id": processor.bos_id(),
         "eos_id": processor.eos_id(),
         "unk_id": processor.unk_id(),
@@ -260,6 +270,7 @@ def train_kneser_ney_trigram_model(
         continuation_unigram_count=continuation_counts.unigram_count,
         continuation_bigram_type_count=continuation_counts.bigram_type_count,
         discount=discount,
+        text_normalization=text_normalization,
     )
 
 

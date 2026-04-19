@@ -10,6 +10,7 @@ from typing import Any
 
 import sentencepiece as spm
 
+from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TextNormalization
 from src.models.ngram import NgramEvaluationSummary, candidate_token_count, load_pieces
 from src.models.ngram import resolve_stored_path
 from src.models.trigram_common import (
@@ -35,6 +36,7 @@ class AbsoluteDiscountTrigramTrainingSummary:
     bigram_transition_count: int
     trigram_transition_count: int
     discount: float
+    text_normalization: str
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,7 @@ class AbsoluteDiscountTrigramModel(BaseTrigramModel):
     pieces: tuple[str, ...]
     bigram_transitions: dict[int, tuple[tuple[int, int], ...]]
     trigram_transitions: dict[Context, tuple[tuple[int, int], ...]]
+    text_normalization: str = "none"
 
     def evaluation_summary(self, **kwargs: Any) -> AbsoluteDiscountTrigramEvaluationSummary:
         return AbsoluteDiscountTrigramEvaluationSummary(
@@ -163,6 +166,7 @@ def load_absolute_discount_trigram_model(model_path: Path) -> AbsoluteDiscountTr
         pieces=load_pieces(data, processor, vocab_size),
         bigram_transitions=parse_bigram_transitions(data),
         trigram_transitions=parse_trigram_transitions(data),
+        text_normalization=str(data.get("text_normalization", "none")),
     )
 
 
@@ -173,9 +177,14 @@ def train_absolute_discount_trigram_model(
     output_path: Path,
     smoothing: float = 0.1,
     discount: float = 0.75,
+    text_normalization: TextNormalization = DEFAULT_TEXT_NORMALIZATION,
 ) -> AbsoluteDiscountTrigramTrainingSummary:
     processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
-    counts = collect_trigram_counts(texts, processor)
+    counts = collect_trigram_counts(
+        texts,
+        processor,
+        text_normalization=text_normalization,
+    )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     model = {
@@ -184,6 +193,7 @@ def train_absolute_discount_trigram_model(
         "tokenizer_model": str(tokenizer_model),
         "vocab_size": processor.get_piece_size(),
         "smoothing": smoothing,
+        "text_normalization": text_normalization,
         "discount": discount,
         "bos_id": processor.bos_id(),
         "eos_id": processor.eos_id(),
@@ -206,4 +216,5 @@ def train_absolute_discount_trigram_model(
         bigram_transition_count=counts.bigram_transition_count,
         trigram_transition_count=counts.trigram_transition_count,
         discount=discount,
+        text_normalization=text_normalization,
     )
