@@ -39,6 +39,9 @@ class BigramQueryResult:
     model_path: Path
     tokenizer_model: Path
     decoding: DecodingMode
+    bos_id: int
+    eos_id: int
+    unk_id: int
     prompt: str
     prompt_token_ids: list[int]
     continuation_text: str
@@ -136,6 +139,9 @@ class BigramModel:
             model_path=self.model_path,
             tokenizer_model=self.tokenizer_model,
             decoding=decoding,
+            bos_id=self.bos_id,
+            eos_id=self.eos_id,
+            unk_id=self.unk_id,
             prompt=prompt,
             prompt_token_ids=prompt_token_ids,
             continuation_text=continuation_text,

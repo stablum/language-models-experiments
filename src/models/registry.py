@@ -10,6 +10,7 @@ from typing import Any
 import click
 
 from src.models.bigram import (
+    BigramPrediction,
     BigramQueryResult,
     BigramTrainingSummary,
     load_bigram_model,
@@ -139,11 +140,30 @@ def format_bigram_query(result: BigramQueryResult) -> list[str]:
 
     lines.extend(["", "Top next tokens:"])
     lines.extend(
-        f"  {prediction.token_id:>4} {ascii(prediction.piece)} "
+        f"  {prediction.token_id:>4} {format_prediction_piece(prediction, result)} "
         f"count={prediction.count:,} p={prediction.probability:.4%}"
         for prediction in result.next_token_predictions
     )
     return lines
+
+
+def format_prediction_piece(
+    prediction: BigramPrediction,
+    result: BigramQueryResult,
+) -> str:
+    special_label = special_token_label(prediction.token_id, result)
+    if special_label is not None:
+        return special_label
+    return ascii(prediction.piece)
+
+
+def special_token_label(token_id: int, result: BigramQueryResult) -> str | None:
+    special_tokens = {
+        result.bos_id: "[BOS]",
+        result.eos_id: "[EOS]",
+        result.unk_id: "[UNK]",
+    }
+    return special_tokens.get(token_id) if token_id >= 0 else None
 
 
 def format_console_text(text: str) -> str:
