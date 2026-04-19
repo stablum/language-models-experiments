@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from language_models_experiments.corpora.babylm_2026_strict_small import (
+from src.corpora.babylm_2026_strict_small import (
     DATASET_ID as BABYLM_DATASET_ID,
     DEFAULT_SPLIT as BABYLM_DEFAULT_SPLIT,
     TEXT_COLUMN as BABYLM_TEXT_COLUMN,

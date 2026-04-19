@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import click
 
-from language_models_experiments.corpora.registry import (
+from src.corpora.registry import (
     DEFAULT_CORPUS_NAME,
     corpus_names,
     get_corpus,
 )
-from language_models_experiments.corpora.stats import print_corpus_report, scan_text_column
+from src.corpora.stats import print_corpus_report, scan_text_column
 
 
 @click.command(
