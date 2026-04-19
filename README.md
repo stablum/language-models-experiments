@@ -98,6 +98,20 @@ artifacts/models/babylm-2026-strict-small-sentencepiece-trigram-absolute-discoun
 
 The absolute-discount trigram model subtracts a fixed discount from observed trigram and bigram counts, then backs off to the lower-order distribution with the reserved probability mass. The default discount is `0.75`; adjust it with `--discount`.
 
+Train an interpolated Kneser-Ney trigram model:
+
+```powershell
+uv run python -m src.cli.train --model trigram-kneser-ney --streaming
+```
+
+Default output:
+
+```text
+artifacts/models/babylm-2026-strict-small-sentencepiece-trigram-kneser-ney.json
+```
+
+This is the recursive discounted/interpolated model usually called interpolated Kneser-Ney smoothing. It discounts the trigram distribution, interpolates with a lower-order Kneser-Ney bigram distribution built from continuation counts, then recursively discounts and interpolates that lower-order distribution down to a uniform base. The default discount is `0.75`; adjust it with `--discount`.
+
 Query a trained model and generate a short sample:
 
 ```powershell
@@ -116,7 +130,7 @@ Ask for the most probable continuation after a prompt:
 uv run python -m src.cli.query --model bigram --prompt "Once upon" --decoding most-probable --max-tokens 80
 ```
 
-The same query and evaluation commands work with `--model trigram` or `--model trigram-absolute-discount` after training that model.
+The same query and evaluation commands work with `--model trigram`, `--model trigram-absolute-discount`, or `--model trigram-kneser-ney` after training that model.
 
 The query command also prints the most likely next tokens for the prompt, with special tokens shown as labels such as `[EOS]`. The bigram model conditions on the last prompt token; the trigram models condition on the last two prompt tokens. `--decoding most-probable` chooses the highest-probability next token at each step.
 
@@ -140,7 +154,7 @@ To add another corpus, add a loader module under `src/corpora/` and register a n
 
 ## Models
 
-The model training, query, and evaluation CLIs are model-generic. `bigram`, `trigram`, and `trigram-absolute-discount` are currently registered.
+The model training, query, and evaluation CLIs are model-generic. `bigram`, `trigram`, `trigram-absolute-discount`, and `trigram-kneser-ney` are currently registered.
 
 To add another model, add its code under `src/models/` and register a new `ModelDefinition` in `src/models/registry.py`.
 

@@ -328,47 +328,81 @@ def trigram_counts_payload(counts: TrigramCounts) -> dict[str, object]:
         "unigram_count": counts.unigram_count,
         "bigram_transition_count": counts.bigram_transition_count,
         "trigram_transition_count": counts.trigram_transition_count,
-        "unigrams": sorted(counts.unigram_counts.items()),
-        "bigram_transitions": {
-            str(previous_id): sorted(next_counts.items())
-            for previous_id, next_counts in sorted(counts.bigram_transitions.items())
-        },
-        "trigram_transitions": {
-            context_key(previous_previous_id, previous_id): sorted(next_counts.items())
-            for (
-                previous_previous_id,
-                previous_id,
-            ), next_counts in sorted(counts.trigram_transitions.items())
-        },
+        "unigrams": token_counts_payload(counts.unigram_counts),
+        "bigram_transitions": token_transition_payload(counts.bigram_transitions),
+        "trigram_transitions": context_transition_payload(counts.trigram_transitions),
     }
 
 
 def parse_unigram_counts(data: dict[str, object]) -> dict[int, int]:
-    return {
-        int(token_id): int(count)
-        for token_id, count in data["unigrams"]
-    }
+    return parse_token_counts(data, "unigrams")
 
 
 def parse_bigram_transitions(data: dict[str, object]) -> dict[int, tuple[tuple[int, int], ...]]:
+    return parse_token_transitions(data, "bigram_transitions")
+
+
+def parse_trigram_transitions(
+    data: dict[str, object],
+) -> dict[Context, tuple[tuple[int, int], ...]]:
+    return parse_context_transitions(data, "trigram_transitions")
+
+
+def token_counts_payload(counts: Counter[int] | dict[int, int]) -> list[tuple[int, int]]:
+    return sorted(counts.items())
+
+
+def token_transition_payload(
+    transitions: defaultdict[int, Counter[int]] | dict[int, Counter[int]],
+) -> dict[str, list[tuple[int, int]]]:
+    return {
+        str(previous_id): sorted(next_counts.items())
+        for previous_id, next_counts in sorted(transitions.items())
+    }
+
+
+def context_transition_payload(
+    transitions: defaultdict[Context, Counter[int]] | dict[Context, Counter[int]],
+) -> dict[str, list[tuple[int, int]]]:
+    return {
+        context_key(previous_previous_id, previous_id): sorted(next_counts.items())
+        for (
+            previous_previous_id,
+            previous_id,
+        ), next_counts in sorted(transitions.items())
+    }
+
+
+def parse_token_counts(data: dict[str, object], key: str) -> dict[int, int]:
+    return {
+        int(token_id): int(count)
+        for token_id, count in data[key]
+    }
+
+
+def parse_token_transitions(
+    data: dict[str, object],
+    key: str,
+) -> dict[int, tuple[tuple[int, int], ...]]:
     return {
         int(previous_id): tuple(
             (int(next_id), int(count))
             for next_id, count in next_counts
         )
-        for previous_id, next_counts in data["bigram_transitions"].items()
+        for previous_id, next_counts in data[key].items()
     }
 
 
-def parse_trigram_transitions(
+def parse_context_transitions(
     data: dict[str, object],
+    key: str,
 ) -> dict[Context, tuple[tuple[int, int], ...]]:
     return {
         parse_context_key(context_key): tuple(
             (int(next_id), int(count))
             for next_id, count in next_counts
         )
-        for context_key, next_counts in data["trigram_transitions"].items()
+        for context_key, next_counts in data[key].items()
     }
 
 

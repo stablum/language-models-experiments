@@ -31,6 +31,12 @@ from src.models.trigram_absolute_discount import (
     load_absolute_discount_trigram_model,
     train_absolute_discount_trigram_model,
 )
+from src.models.trigram_kneser_ney import (
+    KneserNeyTrigramEvaluationSummary,
+    KneserNeyTrigramTrainingSummary,
+    load_kneser_ney_trigram_model,
+    train_kneser_ney_trigram_model,
+)
 
 
 ModelOptions = Mapping[str, Any]
@@ -59,6 +65,7 @@ class ModelDefinition:
 DEFAULT_MODEL_NAME = "bigram"
 TRIGRAM_MODEL_NAME = "trigram"
 ABSOLUTE_DISCOUNT_TRIGRAM_MODEL_NAME = "trigram-absolute-discount"
+KNESER_NEY_TRIGRAM_MODEL_NAME = "trigram-kneser-ney"
 
 
 def default_bigram_tokenizer_model(corpus: str) -> Path:
@@ -87,6 +94,14 @@ def default_absolute_discount_trigram_output(corpus: str) -> Path:
 
 def default_absolute_discount_trigram_model(corpus: str) -> Path:
     return default_absolute_discount_trigram_output(corpus)
+
+
+def default_kneser_ney_trigram_output(corpus: str) -> Path:
+    return Path("artifacts", "models", f"{corpus}-sentencepiece-trigram-kneser-ney.json")
+
+
+def default_kneser_ney_trigram_model(corpus: str) -> Path:
+    return default_kneser_ney_trigram_output(corpus)
 
 
 def resolve_bigram_tokenizer_model(options: ModelOptions) -> Path:
@@ -119,6 +134,14 @@ def resolve_absolute_discount_trigram_output(options: ModelOptions) -> Path:
 
 def resolve_absolute_discount_trigram_model(options: ModelOptions) -> Path:
     return options["model_path"] or default_absolute_discount_trigram_model(options["corpus"])
+
+
+def resolve_kneser_ney_trigram_output(options: ModelOptions) -> Path:
+    return options["output"] or default_kneser_ney_trigram_output(options["corpus"])
+
+
+def resolve_kneser_ney_trigram_model(options: ModelOptions) -> Path:
+    return options["model_path"] or default_kneser_ney_trigram_model(options["corpus"])
 
 
 def validate_bigram_options(options: ModelOptions) -> None:
@@ -184,6 +207,24 @@ def validate_absolute_discount_trigram_query_options(options: ModelOptions) -> N
         )
 
 
+def validate_kneser_ney_trigram_options(options: ModelOptions) -> None:
+    tokenizer_model = resolve_trigram_tokenizer_model(options)
+    if not tokenizer_model.exists():
+        raise click.ClickException(
+            f"Tokenizer model not found: {tokenizer_model}. "
+            "Train it first with src.cli.train_sentencepiece."
+        )
+
+
+def validate_kneser_ney_trigram_query_options(options: ModelOptions) -> None:
+    model_path = resolve_kneser_ney_trigram_model(options)
+    if not model_path.exists():
+        raise click.ClickException(
+            f"Interpolated Kneser-Ney trigram model not found: {model_path}. "
+            "Train it first with src.cli.train."
+        )
+
+
 def train_bigram_from_options(
     texts: Iterable[str],
     options: ModelOptions,
@@ -220,6 +261,18 @@ def train_absolute_discount_trigram_from_options(
         tokenizer_model=resolve_trigram_tokenizer_model(options),
         output_path=resolve_absolute_discount_trigram_output(options),
         smoothing=options["smoothing"],
+        discount=options["discount"],
+    )
+
+
+def train_kneser_ney_trigram_from_options(
+    texts: Iterable[str],
+    options: ModelOptions,
+) -> KneserNeyTrigramTrainingSummary:
+    return train_kneser_ney_trigram_model(
+        texts,
+        tokenizer_model=resolve_trigram_tokenizer_model(options),
+        output_path=resolve_kneser_ney_trigram_output(options),
         discount=options["discount"],
     )
 
@@ -262,6 +315,18 @@ def query_absolute_discount_trigram_from_options(options: ModelOptions) -> Trigr
     )
 
 
+def query_kneser_ney_trigram_from_options(options: ModelOptions) -> TrigramQueryResult:
+    model = load_kneser_ney_trigram_model(resolve_kneser_ney_trigram_model(options))
+    return model.query(
+        prompt=options["prompt"],
+        max_tokens=options["max_tokens"],
+        top_k=options["top_k"],
+        decoding=options["decoding"],
+        temperature=options["temperature"],
+        seed=options["seed"],
+    )
+
+
 def evaluate_bigram_from_options(
     texts: Iterable[str],
     options: ModelOptions,
@@ -285,6 +350,14 @@ def evaluate_absolute_discount_trigram_from_options(
     model = load_absolute_discount_trigram_model(
         resolve_absolute_discount_trigram_model(options)
     )
+    return model.evaluate(texts, top_k=options["top_k"])
+
+
+def evaluate_kneser_ney_trigram_from_options(
+    texts: Iterable[str],
+    options: ModelOptions,
+) -> KneserNeyTrigramEvaluationSummary:
+    model = load_kneser_ney_trigram_model(resolve_kneser_ney_trigram_model(options))
     return model.evaluate(texts, top_k=options["top_k"])
 
 
@@ -336,6 +409,24 @@ def format_absolute_discount_trigram_summary(
     ]
 
 
+def format_kneser_ney_trigram_summary(
+    summary: KneserNeyTrigramTrainingSummary,
+) -> list[tuple[str, str]]:
+    return [
+        ("Tokenizer", str(summary.tokenizer_model)),
+        ("Interpolated Kneser-Ney trigram model", str(summary.output_path)),
+        ("Vocabulary size", f"{summary.vocab_size:,}"),
+        ("Sequences", f"{summary.sequence_count:,}"),
+        ("Tokens", f"{summary.token_count:,}"),
+        ("Unigrams", f"{summary.unigram_count:,}"),
+        ("Bigram transitions", f"{summary.bigram_transition_count:,}"),
+        ("Trigram transitions", f"{summary.trigram_transition_count:,}"),
+        ("Continuation unigrams", f"{summary.continuation_unigram_count:,}"),
+        ("Continuation bigram types", f"{summary.continuation_bigram_type_count:,}"),
+        ("Discount", f"{summary.discount:.3f}"),
+    ]
+
+
 def format_bigram_evaluation(summary: BigramEvaluationSummary) -> list[tuple[str, str]]:
     return [
         ("Model file", str(summary.model_path)),
@@ -371,6 +462,17 @@ def format_absolute_discount_trigram_evaluation(
     ]
 
 
+def format_kneser_ney_trigram_evaluation(
+    summary: KneserNeyTrigramEvaluationSummary,
+) -> list[tuple[str, str]]:
+    return [
+        ("Model file", str(summary.model_path)),
+        ("Tokenizer", str(summary.tokenizer_model)),
+        ("Discount", f"{summary.discount:.3f}"),
+        *format_ngram_evaluation_metrics(summary),
+    ]
+
+
 def format_bigram_query(result: BigramQueryResult) -> list[str]:
     return format_ngram_query(result)
 
@@ -380,6 +482,10 @@ def format_trigram_query(result: TrigramQueryResult) -> list[str]:
 
 
 def format_absolute_discount_trigram_query(result: TrigramQueryResult) -> list[str]:
+    return format_ngram_query(result)
+
+
+def format_kneser_ney_trigram_query(result: TrigramQueryResult) -> list[str]:
     return format_ngram_query(result)
 
 
@@ -525,6 +631,18 @@ MODELS = {
         evaluate=evaluate_absolute_discount_trigram_from_options,
         validate_evaluation_options=validate_absolute_discount_trigram_query_options,
         evaluation_items=format_absolute_discount_trigram_evaluation,
+    ),
+    KNESER_NEY_TRIGRAM_MODEL_NAME: ModelDefinition(
+        name=KNESER_NEY_TRIGRAM_MODEL_NAME,
+        train=train_kneser_ney_trigram_from_options,
+        validate_options=validate_kneser_ney_trigram_options,
+        summary_items=format_kneser_ney_trigram_summary,
+        query=query_kneser_ney_trigram_from_options,
+        validate_query_options=validate_kneser_ney_trigram_query_options,
+        query_lines=format_kneser_ney_trigram_query,
+        evaluate=evaluate_kneser_ney_trigram_from_options,
+        validate_evaluation_options=validate_kneser_ney_trigram_query_options,
+        evaluation_items=format_kneser_ney_trigram_evaluation,
     )
 }
 
