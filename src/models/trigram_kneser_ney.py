@@ -12,8 +12,7 @@ from typing import Any
 import sentencepiece as spm
 
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TextNormalization
-from src.models.ngram import NgramEvaluationSummary, candidate_token_count, load_pieces
-from src.models.ngram import resolve_stored_path
+from src.models import ngram
 from src.models.trigram_common import (
     BaseTrigramModel,
     Context,
@@ -46,7 +45,7 @@ class KneserNeyTrigramTrainingSummary:
 
 
 @dataclass(frozen=True)
-class KneserNeyTrigramEvaluationSummary(NgramEvaluationSummary):
+class KneserNeyTrigramEvaluationSummary(ngram.NgramEvaluationSummary):
     discount: float
 
 
@@ -175,7 +174,7 @@ class KneserNeyTrigramModel(BaseTrigramModel):
         return discounted_probability + interpolation_weight * lower_order_probability
 
     def unigram_probability(self, token_id: int) -> float:
-        candidate_count = candidate_token_count(self.vocab_size, self.bos_id)
+        candidate_count = ngram.candidate_token_count(self.vocab_size, self.bos_id)
         if candidate_count <= 0:
             return 0.0
 
@@ -194,7 +193,7 @@ def load_kneser_ney_trigram_model(model_path: Path) -> KneserNeyTrigramModel:
     if data.get("model_type") != "interpolated_kneser_ney_trigram":
         raise ValueError(f"Not an interpolated Kneser-Ney trigram model: {model_path}")
 
-    tokenizer_model = resolve_stored_path(Path(data["tokenizer_model"]), model_path)
+    tokenizer_model = ngram.resolve_stored_path(Path(data["tokenizer_model"]), model_path)
     processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
     vocab_size = int(data["vocab_size"])
 
@@ -207,7 +206,7 @@ def load_kneser_ney_trigram_model(model_path: Path) -> KneserNeyTrigramModel:
         bos_id=int(data["bos_id"]),
         eos_id=int(data["eos_id"]),
         unk_id=int(data["unk_id"]),
-        pieces=load_pieces(data, processor, vocab_size),
+        pieces=ngram.load_pieces(data, processor, vocab_size),
         unigram_counts=parse_token_counts(data, "kneser_ney_unigrams"),
         unigram_total=int(data["kneser_ney_unigram_count"]),
         bigram_transitions=parse_token_transitions(data, "kneser_ney_bigram_transitions"),

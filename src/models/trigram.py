@@ -11,8 +11,7 @@ from typing import Any
 import sentencepiece as spm
 
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TextNormalization
-from src.models.ngram import NgramEvaluationSummary, candidate_token_count, load_pieces
-from src.models.ngram import resolve_stored_path
+from src.models import ngram
 from src.models.trigram_common import (
     BaseTrigramModel,
     Context,
@@ -43,7 +42,7 @@ class TrigramTrainingSummary:
 
 
 @dataclass(frozen=True)
-class TrigramEvaluationSummary(NgramEvaluationSummary):
+class TrigramEvaluationSummary(ngram.NgramEvaluationSummary):
     unigram_weight: float
     bigram_weight: float
     trigram_weight: float
@@ -126,7 +125,7 @@ class TrigramModel(BaseTrigramModel):
     def unigram_probability(self, token_id: int) -> float:
         denominator = (
             self.unigram_total
-            + self.smoothing * candidate_token_count(self.vocab_size, self.bos_id)
+            + self.smoothing * ngram.candidate_token_count(self.vocab_size, self.bos_id)
         )
         if denominator <= 0:
             return 0.0
@@ -139,7 +138,7 @@ class TrigramModel(BaseTrigramModel):
         counts: dict[int, int],
         total: int,
     ) -> float:
-        denominator = total + self.smoothing * candidate_token_count(
+        denominator = total + self.smoothing * ngram.candidate_token_count(
             self.vocab_size,
             self.bos_id,
         )
@@ -165,7 +164,7 @@ def load_trigram_model(model_path: Path) -> TrigramModel:
     if data.get("model_type") != "interpolated_trigram":
         raise ValueError(f"Not an interpolated trigram model: {model_path}")
 
-    tokenizer_model = resolve_stored_path(Path(data["tokenizer_model"]), model_path)
+    tokenizer_model = ngram.resolve_stored_path(Path(data["tokenizer_model"]), model_path)
     processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
     vocab_size = int(data["vocab_size"])
     weights = data["interpolation_weights"]
@@ -182,7 +181,7 @@ def load_trigram_model(model_path: Path) -> TrigramModel:
         bos_id=int(data["bos_id"]),
         eos_id=int(data["eos_id"]),
         unk_id=int(data["unk_id"]),
-        pieces=load_pieces(data, processor, vocab_size),
+        pieces=ngram.load_pieces(data, processor, vocab_size),
         unigram_counts=parse_unigram_counts(data),
         unigram_total=int(data["unigram_count"]),
         bigram_transitions=parse_bigram_transitions(data),

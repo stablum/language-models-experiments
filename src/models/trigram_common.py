@@ -12,23 +12,12 @@ from typing import Any
 import sentencepiece as spm
 
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TextNormalization
-from src.models.ngram import (
-    DecodingMode,
-    NgramEvaluationSummary,
-    NgramPrediction,
-    NgramQueryResult,
-    candidate_token_ids,
-    decode_continuation,
-    encode_prompt,
-    iter_sentencepiece_token_sequences,
-    seeded_rng,
-    select_next_token,
-)
+from src.models import ngram
 
 
 Context = tuple[int, int]
-TrigramPrediction = NgramPrediction
-TrigramQueryResult = NgramQueryResult
+TrigramPrediction = ngram.NgramPrediction
+TrigramQueryResult = ngram.NgramQueryResult
 
 
 @dataclass(frozen=True)
@@ -70,7 +59,7 @@ class BaseTrigramModel:
     text_normalization: str
 
     def encode_prompt(self, prompt: str) -> list[int]:
-        return encode_prompt(
+        return ngram.encode_prompt(
             self.processor,
             prompt,
             text_normalization=self.text_normalization,
@@ -90,7 +79,7 @@ class BaseTrigramModel:
                 count=trigram_counts.get(token_id, 0),
                 probability=self.transition_probability(token_id, context),
             )
-            for token_id in candidate_token_ids(self.vocab_size, self.bos_id)
+            for token_id in ngram.candidate_token_ids(self.vocab_size, self.bos_id)
         ]
         predictions.sort(key=lambda prediction: (-prediction.probability, prediction.token_id))
         return predictions[:top_k] if top_k > 0 else predictions
@@ -101,19 +90,19 @@ class BaseTrigramModel:
         prompt: str = "",
         max_tokens: int = 80,
         top_k: int = 10,
-        decoding: DecodingMode = "sample",
+        decoding: ngram.DecodingMode = "sample",
         temperature: float = 1.0,
         seed: int | None = None,
     ) -> TrigramQueryResult:
         prompt_token_ids = self.encode_prompt(prompt)
         context = self.context_for_tokens(prompt_token_ids)
         next_token_predictions = self.next_token_predictions(context, top_k=top_k)
-        rng = seeded_rng(seed)
+        rng = ngram.seeded_rng(seed)
         token_ids = list(prompt_token_ids)
         generated_token_ids: list[int] = []
 
         for _ in range(max_tokens):
-            next_id = select_next_token(
+            next_id = ngram.select_next_token(
                 self.next_token_predictions(context, top_k=0),
                 eos_id=self.eos_id,
                 decoding=decoding,
@@ -129,7 +118,7 @@ class BaseTrigramModel:
 
         prompt_text = self.processor.decode(prompt_token_ids)
         generated_text = self.processor.decode(token_ids)
-        continuation_text = decode_continuation(
+        continuation_text = ngram.decode_continuation(
             self.processor,
             generated_text=generated_text,
             prompt_text=prompt_text,
@@ -159,7 +148,7 @@ class BaseTrigramModel:
         *,
         top_k: int = 5,
         text_normalization: TextNormalization | None = None,
-    ) -> NgramEvaluationSummary:
+    ) -> ngram.NgramEvaluationSummary:
         row_cache: dict[Context, TrigramEvaluationRow] = {}
         sequence_count = 0
         token_count = 0
@@ -213,8 +202,8 @@ class BaseTrigramModel:
             text_normalization=resolved_text_normalization,
         )
 
-    def evaluation_summary(self, **kwargs: Any) -> NgramEvaluationSummary:
-        return NgramEvaluationSummary(
+    def evaluation_summary(self, **kwargs: Any) -> ngram.NgramEvaluationSummary:
+        return ngram.NgramEvaluationSummary(
             model_path=self.model_path,
             tokenizer_model=self.tokenizer_model,
             **kwargs,
@@ -272,7 +261,7 @@ class BaseTrigramModel:
         trigram_total: int,
     ) -> list[int]:
         return sorted(
-            candidate_token_ids(self.vocab_size, self.bos_id),
+            ngram.candidate_token_ids(self.vocab_size, self.bos_id),
             key=lambda token_id: (
                 -self.transition_probability(
                     token_id,
@@ -432,7 +421,7 @@ def iter_trigram_token_sequences(
     *,
     text_normalization: TextNormalization = "none",
 ) -> Iterator[list[int]]:
-    yield from iter_sentencepiece_token_sequences(
+    yield from ngram.iter_sentencepiece_token_sequences(
         texts,
         processor,
         bos_count=2,

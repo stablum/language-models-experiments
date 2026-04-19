@@ -12,20 +12,7 @@ from pathlib import Path
 import sentencepiece as spm
 
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TextNormalization
-from src.models.ngram import (
-    DecodingMode,
-    NgramEvaluationSummary,
-    NgramPrediction,
-    NgramQueryResult,
-    candidate_token_ids,
-    decode_continuation,
-    encode_prompt,
-    iter_sentencepiece_token_sequences,
-    load_pieces,
-    resolve_stored_path,
-    seeded_rng,
-    select_next_token,
-)
+from src.models import ngram
 
 
 @dataclass(frozen=True)
@@ -39,9 +26,9 @@ class BigramTrainingSummary:
     text_normalization: str
 
 
-BigramPrediction = NgramPrediction
-BigramQueryResult = NgramQueryResult
-BigramEvaluationSummary = NgramEvaluationSummary
+BigramPrediction = ngram.NgramPrediction
+BigramQueryResult = ngram.NgramQueryResult
+BigramEvaluationSummary = ngram.NgramEvaluationSummary
 
 
 @dataclass(frozen=True)
@@ -67,7 +54,7 @@ class BigramModel:
     text_normalization: str = "none"
 
     def encode_prompt(self, prompt: str) -> list[int]:
-        return encode_prompt(
+        return ngram.encode_prompt(
             self.processor,
             prompt,
             text_normalization=self.text_normalization,
@@ -79,7 +66,7 @@ class BigramModel:
         *,
         top_k: int,
     ) -> list[BigramPrediction]:
-        candidate_ids = candidate_token_ids(self.vocab_size, self.bos_id)
+        candidate_ids = ngram.candidate_token_ids(self.vocab_size, self.bos_id)
         observed = dict(self.transitions.get(previous_id, ()))
         denominator = sum(observed.get(token_id, 0) for token_id in candidate_ids)
         denominator += self.smoothing * len(candidate_ids)
@@ -106,19 +93,19 @@ class BigramModel:
         prompt: str = "",
         max_tokens: int = 80,
         top_k: int = 10,
-        decoding: DecodingMode = "sample",
+        decoding: ngram.DecodingMode = "sample",
         temperature: float = 1.0,
         seed: int | None = None,
     ) -> BigramQueryResult:
         prompt_token_ids = self.encode_prompt(prompt)
         previous_id = prompt_token_ids[-1] if prompt_token_ids else self.bos_id
         next_token_predictions = self.next_token_predictions(previous_id, top_k=top_k)
-        rng = seeded_rng(seed)
+        rng = ngram.seeded_rng(seed)
         token_ids = list(prompt_token_ids)
         generated_token_ids: list[int] = []
 
         for _ in range(max_tokens):
-            next_id = select_next_token(
+            next_id = ngram.select_next_token(
                 self.next_token_predictions(previous_id, top_k=0),
                 eos_id=self.eos_id,
                 decoding=decoding,
@@ -134,7 +121,7 @@ class BigramModel:
 
         prompt_text = self.processor.decode(prompt_token_ids)
         generated_text = self.processor.decode(token_ids)
-        continuation_text = decode_continuation(
+        continuation_text = ngram.decode_continuation(
             self.processor,
             generated_text=generated_text,
             prompt_text=prompt_text,
@@ -165,7 +152,7 @@ class BigramModel:
         top_k: int = 5,
         text_normalization: TextNormalization | None = None,
     ) -> BigramEvaluationSummary:
-        candidate_ids = candidate_token_ids(self.vocab_size, self.bos_id)
+        candidate_ids = ngram.candidate_token_ids(self.vocab_size, self.bos_id)
         candidate_id_set = set(candidate_ids)
         row_cache: dict[int, BigramEvaluationRow] = {}
         sequence_count = 0
@@ -283,10 +270,10 @@ def load_bigram_model(model_path: Path) -> BigramModel:
     if data.get("model_type") != "autoregressive_bigram":
         raise ValueError(f"Not an autoregressive bigram model: {model_path}")
 
-    tokenizer_model = resolve_stored_path(Path(data["tokenizer_model"]), model_path)
+    tokenizer_model = ngram.resolve_stored_path(Path(data["tokenizer_model"]), model_path)
     processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
     vocab_size = int(data["vocab_size"])
-    pieces = load_pieces(data, processor, vocab_size)
+    pieces = ngram.load_pieces(data, processor, vocab_size)
     transitions = {
         int(previous_id): tuple(
             (int(next_id), int(count))
@@ -316,7 +303,7 @@ def iter_token_sequences(
     *,
     text_normalization: TextNormalization = "none",
 ) -> Iterator[list[int]]:
-    yield from iter_sentencepiece_token_sequences(
+    yield from ngram.iter_sentencepiece_token_sequences(
         texts,
         processor,
         bos_count=1,
