@@ -59,7 +59,7 @@ artifacts/tokenizers/babylm-2026-strict-small-sentencepiece-1000.vocab
 Train a very simple autoregressive token bigram model from the SentencePiece tokenizer:
 
 ```powershell
-uv run python -m src.cli.train_bigram --streaming
+uv run python -m src.cli.train --model bigram --streaming
 ```
 
 Default output:
@@ -79,6 +79,12 @@ babylm-2026-strict-small
 ```
 
 To add another corpus, add a loader module under `src/corpora/` and register a new `CorpusDefinition` in `src/corpora/registry.py`.
+
+## Models
+
+The model-training CLI is model-generic. `bigram` is currently registered as the first trainable model.
+
+To add another model, add its training code under `src/models/` and register a new `ModelDefinition` in `src/models/registry.py`.
 
 ## Generated Files
 

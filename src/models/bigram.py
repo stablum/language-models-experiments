@@ -14,6 +14,7 @@ import sentencepiece as spm
 @dataclass(frozen=True)
 class BigramTrainingSummary:
     output_path: Path
+    tokenizer_model: Path
     vocab_size: int
     sequence_count: int
     token_count: int
@@ -90,6 +91,7 @@ def train_bigram_model(
 
     return BigramTrainingSummary(
         output_path=output_path,
+        tokenizer_model=tokenizer_model,
         vocab_size=processor.get_piece_size(),
         sequence_count=sequence_count,
         token_count=token_count,
