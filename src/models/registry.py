@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any
 import click
 
 from src.models.bigram import (
+    BigramEvaluationSummary,
     BigramPrediction,
     BigramQueryResult,
     BigramTrainingSummary,
@@ -21,6 +23,7 @@ from src.models.bigram import (
 ModelOptions = Mapping[str, Any]
 ModelTrainer = Callable[[Iterable[str], ModelOptions], Any]
 ModelQuery = Callable[[ModelOptions], Any]
+ModelEvaluator = Callable[[Iterable[str], ModelOptions], Any]
 ModelOptionValidator = Callable[[ModelOptions], None]
 SummaryFormatter = Callable[[Any], list[tuple[str, str]]]
 QueryFormatter = Callable[[Any], list[str]]
@@ -35,6 +38,9 @@ class ModelDefinition:
     query: ModelQuery | None = None
     validate_query_options: ModelOptionValidator | None = None
     query_lines: QueryFormatter | None = None
+    evaluate: ModelEvaluator | None = None
+    validate_evaluation_options: ModelOptionValidator | None = None
+    evaluation_items: SummaryFormatter | None = None
 
 
 DEFAULT_MODEL_NAME = "bigram"
@@ -106,6 +112,14 @@ def query_bigram_from_options(options: ModelOptions) -> BigramQueryResult:
     )
 
 
+def evaluate_bigram_from_options(
+    texts: Iterable[str],
+    options: ModelOptions,
+) -> BigramEvaluationSummary:
+    model = load_bigram_model(resolve_bigram_model(options))
+    return model.evaluate(texts, top_k=options["top_k"])
+
+
 def format_bigram_summary(summary: BigramTrainingSummary) -> list[tuple[str, str]]:
     return [
         ("Tokenizer", str(summary.tokenizer_model)),
@@ -114,6 +128,34 @@ def format_bigram_summary(summary: BigramTrainingSummary) -> list[tuple[str, str
         ("Sequences", f"{summary.sequence_count:,}"),
         ("Tokens", f"{summary.token_count:,}"),
         ("Transitions", f"{summary.transition_count:,}"),
+    ]
+
+
+def format_bigram_evaluation(summary: BigramEvaluationSummary) -> list[tuple[str, str]]:
+    return [
+        ("Model file", str(summary.model_path)),
+        ("Tokenizer", str(summary.tokenizer_model)),
+        ("Sequences", f"{summary.sequence_count:,}"),
+        ("Tokens", f"{summary.token_count:,}"),
+        ("Transitions", f"{summary.transition_count:,}"),
+        (
+            "Next-token accuracy",
+            format_rate(summary.correct_next_token_count, summary.transition_count),
+        ),
+        (
+            f"Top-{summary.top_k} accuracy",
+            format_rate(summary.top_k_correct_next_token_count, summary.transition_count),
+        ),
+        (
+            "Average NLL",
+            format_metric(summary.average_negative_log_likelihood, suffix=" nats/token"),
+        ),
+        (
+            "Cross entropy",
+            format_metric(summary.cross_entropy_bits, suffix=" bits/token"),
+        ),
+        ("Perplexity", format_metric(summary.perplexity)),
+        ("Zero-probability transitions", f"{summary.zero_probability_count:,}"),
     ]
 
 
@@ -166,6 +208,20 @@ def special_token_label(token_id: int, result: BigramQueryResult) -> str | None:
     return special_tokens.get(token_id) if token_id >= 0 else None
 
 
+def format_rate(numerator: int, denominator: int) -> str:
+    if denominator == 0:
+        return "n/a"
+    return f"{numerator:,}/{denominator:,} ({numerator / denominator:.2%})"
+
+
+def format_metric(value: float | None, *, suffix: str = "") -> str:
+    if value is None:
+        return "n/a"
+    if math.isinf(value):
+        return f"inf{suffix}"
+    return f"{value:,.4f}{suffix}"
+
+
 def format_console_text(text: str) -> str:
     return text.encode("ascii", errors="backslashreplace").decode("ascii")
 
@@ -179,6 +235,9 @@ MODELS = {
         query=query_bigram_from_options,
         validate_query_options=validate_bigram_query_options,
         query_lines=format_bigram_query,
+        evaluate=evaluate_bigram_from_options,
+        validate_evaluation_options=validate_bigram_query_options,
+        evaluation_items=format_bigram_evaluation,
     )
 }
 

@@ -90,6 +90,14 @@ uv run python -m src.cli.query --model bigram --prompt "Once upon" --decoding mo
 
 The query command also prints the most likely next tokens for the prompt, with special tokens shown as labels such as `[EOS]`. Because the current model is a bigram, generation only conditions on the last prompt token at each step. `--decoding most-probable` chooses the highest-probability next token at each step.
 
+Evaluate a trained model:
+
+```powershell
+uv run python -m src.cli.evaluate --model bigram --streaming --limit 1000
+```
+
+The evaluation command reports next-token accuracy, top-k accuracy, average negative log-likelihood, cross-entropy, and perplexity. Use `--split` when a corpus has a held-out validation or test split; evaluating on the training split is mainly a sanity check.
+
 ## Corpora
 
 The CLI is corpus-generic. BabyLM 2026 Strict-Small is currently registered as:
@@ -102,7 +110,7 @@ To add another corpus, add a loader module under `src/corpora/` and register a n
 
 ## Models
 
-The model training and query CLIs are model-generic. `bigram` is currently registered as the first trainable and queryable model.
+The model training, query, and evaluation CLIs are model-generic. `bigram` is currently registered as the first trainable, queryable, and evaluable model.
 
 To add another model, add its code under `src/models/` and register a new `ModelDefinition` in `src/models/registry.py`.
 

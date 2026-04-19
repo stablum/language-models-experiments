@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import random
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
@@ -49,6 +50,60 @@ class BigramQueryResult:
     generated_token_ids: list[int]
     token_ids: list[int]
     next_token_predictions: list[BigramPrediction]
+
+
+@dataclass(frozen=True)
+class BigramEvaluationSummary:
+    model_path: Path
+    tokenizer_model: Path
+    top_k: int
+    sequence_count: int
+    token_count: int
+    transition_count: int
+    correct_next_token_count: int
+    top_k_correct_next_token_count: int
+    negative_log_likelihood: float
+    zero_probability_count: int
+
+    @property
+    def next_token_accuracy(self) -> float | None:
+        return divide_or_none(self.correct_next_token_count, self.transition_count)
+
+    @property
+    def top_k_accuracy(self) -> float | None:
+        return divide_or_none(self.top_k_correct_next_token_count, self.transition_count)
+
+    @property
+    def average_negative_log_likelihood(self) -> float | None:
+        if self.transition_count == 0:
+            return None
+        if self.zero_probability_count:
+            return math.inf
+        return self.negative_log_likelihood / self.transition_count
+
+    @property
+    def cross_entropy_bits(self) -> float | None:
+        average_nll = self.average_negative_log_likelihood
+        if average_nll is None:
+            return None
+        return average_nll / math.log(2)
+
+    @property
+    def perplexity(self) -> float | None:
+        average_nll = self.average_negative_log_likelihood
+        if average_nll is None:
+            return None
+        if math.isinf(average_nll):
+            return math.inf
+        return math.exp(average_nll)
+
+
+@dataclass(frozen=True)
+class BigramEvaluationRow:
+    counts: dict[int, int]
+    denominator: float
+    greedy_token_id: int
+    top_k_token_ids: frozenset[int]
 
 
 @dataclass(frozen=True)
@@ -151,6 +206,118 @@ class BigramModel:
             next_token_predictions=next_token_predictions,
         )
 
+    def evaluate(
+        self,
+        texts: Iterable[str],
+        *,
+        top_k: int = 5,
+    ) -> BigramEvaluationSummary:
+        candidate_ids = self._candidate_token_ids()
+        candidate_id_set = set(candidate_ids)
+        row_cache: dict[int, BigramEvaluationRow] = {}
+        sequence_count = 0
+        token_count = 0
+        transition_count = 0
+        correct_next_token_count = 0
+        top_k_correct_next_token_count = 0
+        negative_log_likelihood = 0.0
+        zero_probability_count = 0
+
+        for token_ids in iter_token_sequences(texts, self.processor):
+            sequence_count += 1
+            token_count += len(token_ids)
+
+            for previous_id, next_id in zip(token_ids, token_ids[1:]):
+                transition_count += 1
+                row = row_cache.get(previous_id)
+                if row is None:
+                    row = self.evaluation_row(
+                        previous_id,
+                        candidate_ids=candidate_ids,
+                        candidate_id_set=candidate_id_set,
+                        top_k=top_k,
+                    )
+                    row_cache[previous_id] = row
+
+                if next_id == row.greedy_token_id:
+                    correct_next_token_count += 1
+                if next_id in row.top_k_token_ids:
+                    top_k_correct_next_token_count += 1
+
+                probability = self.transition_probability(
+                    next_id,
+                    row=row,
+                    candidate_id_set=candidate_id_set,
+                )
+                if probability <= 0:
+                    zero_probability_count += 1
+                else:
+                    negative_log_likelihood -= math.log(probability)
+
+        return BigramEvaluationSummary(
+            model_path=self.model_path,
+            tokenizer_model=self.tokenizer_model,
+            top_k=top_k,
+            sequence_count=sequence_count,
+            token_count=token_count,
+            transition_count=transition_count,
+            correct_next_token_count=correct_next_token_count,
+            top_k_correct_next_token_count=top_k_correct_next_token_count,
+            negative_log_likelihood=negative_log_likelihood,
+            zero_probability_count=zero_probability_count,
+        )
+
+    def evaluation_row(
+        self,
+        previous_id: int,
+        *,
+        candidate_ids: tuple[int, ...],
+        candidate_id_set: set[int],
+        top_k: int,
+    ) -> BigramEvaluationRow:
+        counts = {
+            token_id: count
+            for token_id, count in self.transitions.get(previous_id, ())
+            if token_id in candidate_id_set
+        }
+        denominator = sum(counts.values()) + self.smoothing * len(candidate_ids)
+        ranked_token_ids = self.ranked_token_ids(
+            counts=counts,
+            candidate_ids=candidate_ids,
+        )
+        fallback_token_id = self.eos_id if self.eos_id >= 0 else 0
+        greedy_token_id = ranked_token_ids[0] if ranked_token_ids else fallback_token_id
+        return BigramEvaluationRow(
+            counts=counts,
+            denominator=denominator,
+            greedy_token_id=greedy_token_id,
+            top_k_token_ids=frozenset(ranked_token_ids[:top_k]) if top_k > 0 else frozenset(),
+        )
+
+    def ranked_token_ids(
+        self,
+        *,
+        counts: dict[int, int],
+        candidate_ids: tuple[int, ...],
+    ) -> list[int]:
+        if self.smoothing > 0:
+            return sorted(
+                candidate_ids,
+                key=lambda token_id: (-(counts.get(token_id, 0) + self.smoothing), token_id),
+            )
+        return sorted(counts, key=lambda token_id: (-counts[token_id], token_id))
+
+    def transition_probability(
+        self,
+        next_id: int,
+        *,
+        row: BigramEvaluationRow,
+        candidate_id_set: set[int],
+    ) -> float:
+        if row.denominator <= 0 or next_id not in candidate_id_set:
+            return 0.0
+        return (row.counts.get(next_id, 0) + self.smoothing) / row.denominator
+
     def next_generated_token(
         self,
         previous_id: int,
@@ -218,6 +385,12 @@ class BigramModel:
             for token_id in range(self.vocab_size)
             if token_id != self.bos_id
         )
+
+
+def divide_or_none(numerator: int, denominator: int) -> float | None:
+    if denominator == 0:
+        return None
+    return numerator / denominator
 
 
 def load_bigram_model(model_path: Path) -> BigramModel:
