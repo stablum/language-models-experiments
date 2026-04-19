@@ -56,11 +56,18 @@ from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
     help="Number of likely next tokens to print for the prompt.",
 )
 @click.option(
+    "--decoding",
+    type=click.Choice(("sample", "most-probable")),
+    default="sample",
+    show_default=True,
+    help="Generate by sampling or by choosing the most probable next token.",
+)
+@click.option(
     "--temperature",
     type=click.FloatRange(min=0.0),
     default=1.0,
     show_default=True,
-    help="Sampling temperature. Use 0 for greedy decoding.",
+    help="Sampling temperature. Ignored for most-probable decoding.",
 )
 @click.option(
     "--seed",
@@ -75,6 +82,7 @@ def main(
     prompt: str,
     max_tokens: int,
     top_k: int,
+    decoding: str,
     temperature: float,
     seed: int | None,
 ) -> None:
@@ -88,6 +96,7 @@ def main(
         "prompt": prompt,
         "max_tokens": max_tokens,
         "top_k": top_k,
+        "decoding": decoding,
         "temperature": temperature,
         "seed": seed,
     }

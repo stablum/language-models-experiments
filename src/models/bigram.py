@@ -8,8 +8,12 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import sentencepiece as spm
+
+
+DecodingMode = Literal["sample", "most-probable"]
 
 
 @dataclass(frozen=True)
@@ -34,8 +38,10 @@ class BigramPrediction:
 class BigramQueryResult:
     model_path: Path
     tokenizer_model: Path
+    decoding: DecodingMode
     prompt: str
     prompt_token_ids: list[int]
+    continuation_text: str
     generated_text: str
     generated_token_ids: list[int]
     token_ids: list[int]
@@ -93,6 +99,7 @@ class BigramModel:
         prompt: str = "",
         max_tokens: int = 80,
         top_k: int = 10,
+        decoding: DecodingMode = "sample",
         temperature: float = 1.0,
         seed: int | None = None,
     ) -> BigramQueryResult:
@@ -104,7 +111,12 @@ class BigramModel:
         generated_token_ids: list[int] = []
 
         for _ in range(max_tokens):
-            next_id = self.sample_next_token(previous_id, rng=rng, temperature=temperature)
+            next_id = self.next_generated_token(
+                previous_id,
+                decoding=decoding,
+                rng=rng,
+                temperature=temperature,
+            )
             if next_id == self.eos_id:
                 break
 
@@ -112,16 +124,50 @@ class BigramModel:
             token_ids.append(next_id)
             previous_id = next_id
 
+        prompt_text = self.processor.decode(prompt_token_ids)
+        generated_text = self.processor.decode(token_ids)
+        continuation_text = self.decode_continuation(
+            generated_text=generated_text,
+            prompt_text=prompt_text,
+            generated_token_ids=generated_token_ids,
+        )
+
         return BigramQueryResult(
             model_path=self.model_path,
             tokenizer_model=self.tokenizer_model,
+            decoding=decoding,
             prompt=prompt,
             prompt_token_ids=prompt_token_ids,
-            generated_text=self.processor.decode(token_ids),
+            continuation_text=continuation_text,
+            generated_text=generated_text,
             generated_token_ids=generated_token_ids,
             token_ids=token_ids,
             next_token_predictions=next_token_predictions,
         )
+
+    def next_generated_token(
+        self,
+        previous_id: int,
+        *,
+        decoding: DecodingMode,
+        rng: random.Random,
+        temperature: float,
+    ) -> int:
+        if decoding == "most-probable":
+            return self.most_probable_next_token(previous_id)
+        if decoding == "sample":
+            return self.sample_next_token(
+                previous_id,
+                rng=rng,
+                temperature=temperature,
+            )
+        raise ValueError(f"Unsupported decoding mode: {decoding}")
+
+    def most_probable_next_token(self, previous_id: int) -> int:
+        predictions = self.next_token_predictions(previous_id, top_k=1)
+        if not predictions:
+            return self.eos_id if self.eos_id >= 0 else 0
+        return predictions[0].token_id
 
     def sample_next_token(
         self,
@@ -148,6 +194,17 @@ class BigramModel:
             weights=weights,
             k=1,
         )[0]
+
+    def decode_continuation(
+        self,
+        *,
+        generated_text: str,
+        prompt_text: str,
+        generated_token_ids: list[int],
+    ) -> str:
+        if prompt_text and generated_text.startswith(prompt_text):
+            return generated_text[len(prompt_text):]
+        return self.processor.decode(generated_token_ids)
 
     def _candidate_token_ids(self) -> tuple[int, ...]:
         return tuple(

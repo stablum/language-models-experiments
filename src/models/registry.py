@@ -99,6 +99,7 @@ def query_bigram_from_options(options: ModelOptions) -> BigramQueryResult:
         prompt=options["prompt"],
         max_tokens=options["max_tokens"],
         top_k=options["top_k"],
+        decoding=options["decoding"],
         temperature=options["temperature"],
         seed=options["seed"],
     )
@@ -116,12 +117,20 @@ def format_bigram_summary(summary: BigramTrainingSummary) -> list[tuple[str, str
 
 
 def format_bigram_query(result: BigramQueryResult) -> list[str]:
+    continuation_label = (
+        "Most probable continuation:"
+        if result.decoding == "most-probable"
+        else "Sampled continuation:"
+    )
     lines = [
         f"Model file: {result.model_path}",
         f"Tokenizer: {result.tokenizer_model}",
+        f"Decoding: {result.decoding}",
         f"Prompt tokens: {len(result.prompt_token_ids):,}",
         f"Generated tokens: {len(result.generated_token_ids):,}",
-        "Generated text:",
+        continuation_label,
+        format_console_text(result.continuation_text) if result.continuation_text else "(empty)",
+        "Full text:",
         format_console_text(result.generated_text) if result.generated_text else "(empty)",
     ]
 

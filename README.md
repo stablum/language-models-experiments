@@ -82,7 +82,13 @@ Condition the sample on a prompt:
 uv run python -m src.cli.query --model bigram --prompt "Once upon" --max-tokens 80 --seed 1
 ```
 
-The query command also prints the most likely next tokens for the prompt. Because the current model is a bigram, generation only conditions on the last prompt token at each step.
+Ask for the most probable continuation after a prompt:
+
+```powershell
+uv run python -m src.cli.query --model bigram --prompt "Once upon" --decoding most-probable --max-tokens 80
+```
+
+The query command also prints the most likely next tokens for the prompt. Because the current model is a bigram, generation only conditions on the last prompt token at each step. `--decoding most-probable` chooses the highest-probability next token at each step.
 
 ## Corpora
 
