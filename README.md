@@ -70,6 +70,20 @@ artifacts/models/babylm-2026-strict-small-sentencepiece-bigram.json
 
 The model stores readable indented JSON with sparse transition counts for `P(next_token | previous_token)`, plus tokenizer metadata and an add-k smoothing value. It is meant as a simple baseline, not a serious neural language model.
 
+Query a trained model and generate a short sample:
+
+```powershell
+uv run python -m src.cli.query --model bigram --max-tokens 80 --seed 1
+```
+
+Condition the sample on a prompt:
+
+```powershell
+uv run python -m src.cli.query --model bigram --prompt "Once upon" --max-tokens 80 --seed 1
+```
+
+The query command also prints the most likely next tokens for the prompt. Because the current model is a bigram, generation only conditions on the last prompt token at each step.
+
 ## Corpora
 
 The CLI is corpus-generic. BabyLM 2026 Strict-Small is currently registered as:
@@ -82,9 +96,9 @@ To add another corpus, add a loader module under `src/corpora/` and register a n
 
 ## Models
 
-The model-training CLI is model-generic. `bigram` is currently registered as the first trainable model.
+The model training and query CLIs are model-generic. `bigram` is currently registered as the first trainable and queryable model.
 
-To add another model, add its training code under `src/models/` and register a new `ModelDefinition` in `src/models/registry.py`.
+To add another model, add its code under `src/models/` and register a new `ModelDefinition` in `src/models/registry.py`.
 
 ## Generated Files
 
