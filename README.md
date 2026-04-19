@@ -156,6 +156,8 @@ To add another corpus, add a loader module under `src/corpora/` and register a n
 
 The model training, query, and evaluation CLIs are model-generic. `bigram`, `trigram`, `trigram-absolute-discount`, and `trigram-kneser-ney` are currently registered.
 
+See [MODELS.md](MODELS.md) for the probability formulas and brief model descriptions.
+
 To add another model, add its code under `src/models/` and register a new `ModelDefinition` in `src/models/registry.py`.
 
 ## Generated Files
