@@ -54,7 +54,7 @@ artifacts/tokenizers/babylm-2026-strict-small-sentencepiece-1000.model
 artifacts/tokenizers/babylm-2026-strict-small-sentencepiece-1000.vocab
 ```
 
-## Bigram Model
+## N-Gram Models
 
 Train a very simple autoregressive token bigram model from the SentencePiece tokenizer:
 
@@ -69,6 +69,20 @@ artifacts/models/babylm-2026-strict-small-sentencepiece-bigram.json
 ```
 
 The model stores readable indented JSON with sparse transition counts for `P(next_token | previous_token)`, plus tokenizer metadata and an add-k smoothing value. It is meant as a simple baseline, not a serious neural language model.
+
+Train an interpolated trigram model:
+
+```powershell
+uv run python -m src.cli.train --model trigram --streaming
+```
+
+Default output:
+
+```text
+artifacts/models/babylm-2026-strict-small-sentencepiece-trigram.json
+```
+
+The trigram model estimates `P(next_token | previous_previous_token, previous_token)` with linear interpolation over add-k smoothed unigram, bigram, and trigram probabilities. The default weights are `0.1 / 0.3 / 0.6`; adjust them with `--unigram-weight`, `--bigram-weight`, and `--trigram-weight`.
 
 Query a trained model and generate a short sample:
 
@@ -88,7 +102,9 @@ Ask for the most probable continuation after a prompt:
 uv run python -m src.cli.query --model bigram --prompt "Once upon" --decoding most-probable --max-tokens 80
 ```
 
-The query command also prints the most likely next tokens for the prompt, with special tokens shown as labels such as `[EOS]`. Because the current model is a bigram, generation only conditions on the last prompt token at each step. `--decoding most-probable` chooses the highest-probability next token at each step.
+The same query and evaluation commands work with `--model trigram` after training a trigram model.
+
+The query command also prints the most likely next tokens for the prompt, with special tokens shown as labels such as `[EOS]`. The bigram model conditions on the last prompt token; the trigram model conditions on the last two prompt tokens. `--decoding most-probable` chooses the highest-probability next token at each step.
 
 Evaluate a trained model:
 
@@ -110,7 +126,7 @@ To add another corpus, add a loader module under `src/corpora/` and register a n
 
 ## Models
 
-The model training, query, and evaluation CLIs are model-generic. `bigram` is currently registered as the first trainable, queryable, and evaluable model.
+The model training, query, and evaluation CLIs are model-generic. `bigram` and `trigram` are currently registered.
 
 To add another model, add its code under `src/models/` and register a new `ModelDefinition` in `src/models/registry.py`.
 

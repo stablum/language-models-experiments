@@ -63,6 +63,27 @@ from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
     show_default=True,
     help="Add-k smoothing value for models that use it.",
 )
+@click.option(
+    "--unigram-weight",
+    type=click.FloatRange(min=0.0),
+    default=0.1,
+    show_default=True,
+    help="Interpolation weight for unigram probabilities in models that use it.",
+)
+@click.option(
+    "--bigram-weight",
+    type=click.FloatRange(min=0.0),
+    default=0.3,
+    show_default=True,
+    help="Interpolation weight for bigram probabilities in models that use it.",
+)
+@click.option(
+    "--trigram-weight",
+    type=click.FloatRange(min=0.0),
+    default=0.6,
+    show_default=True,
+    help="Interpolation weight for trigram probabilities in models that use it.",
+)
 def main(
     model_name: str,
     corpus: str,
@@ -74,6 +95,9 @@ def main(
     tokenizer_model: Path | None,
     output: Path | None,
     smoothing: float,
+    unigram_weight: float,
+    bigram_weight: float,
+    trigram_weight: float,
 ) -> None:
     corpus_definition = get_corpus(corpus)
     model_definition = get_model(model_name)
@@ -86,6 +110,9 @@ def main(
         "tokenizer_model": tokenizer_model,
         "output": output,
         "smoothing": smoothing,
+        "unigram_weight": unigram_weight,
+        "bigram_weight": bigram_weight,
+        "trigram_weight": trigram_weight,
     }
     model_definition.validate_options(model_options)
 
