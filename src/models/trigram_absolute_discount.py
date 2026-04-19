@@ -20,7 +20,6 @@ from src.models.trigram_common import (
     collect_trigram_counts,
     parse_bigram_transitions,
     parse_trigram_transitions,
-    parse_unigram_counts,
     trigram_counts_payload,
 )
 
@@ -55,8 +54,6 @@ class AbsoluteDiscountTrigramModel(BaseTrigramModel):
     eos_id: int
     unk_id: int
     pieces: tuple[str, ...]
-    unigram_counts: dict[int, int]
-    unigram_total: int
     bigram_transitions: dict[int, tuple[tuple[int, int], ...]]
     trigram_transitions: dict[Context, tuple[tuple[int, int], ...]]
 
@@ -100,7 +97,6 @@ class AbsoluteDiscountTrigramModel(BaseTrigramModel):
 
         return self.trigram_probability(
             next_id,
-            previous_id=previous_id,
             bigram_counts=bigram_counts,
             trigram_counts=trigram_counts,
             bigram_total=bigram_total,
@@ -111,15 +107,13 @@ class AbsoluteDiscountTrigramModel(BaseTrigramModel):
         self,
         token_id: int,
         *,
-        previous_id: int,
         bigram_counts: dict[int, int],
         trigram_counts: dict[int, int],
         bigram_total: int,
         trigram_total: int,
     ) -> float:
-        lower_order_probability = self.bigram_probability(
+        lower_order_probability = self.lower_order_probability(
             token_id,
-            previous_id=previous_id,
             counts=bigram_counts,
             total=bigram_total,
         )
@@ -131,36 +125,20 @@ class AbsoluteDiscountTrigramModel(BaseTrigramModel):
         backoff_weight = self.discount * len(trigram_counts) / trigram_total
         return discounted_probability + backoff_weight * lower_order_probability
 
-    def bigram_probability(
+    def lower_order_probability(
         self,
         token_id: int,
         *,
-        previous_id: int,
-        counts: dict[int, int] | None = None,
-        total: int | None = None,
+        counts: dict[int, int],
+        total: int,
     ) -> float:
-        if counts is None:
-            counts = dict(self.bigram_transitions.get(previous_id, ()))
-        if total is None:
-            total = sum(counts.values())
-
-        lower_order_probability = self.unigram_probability(token_id)
-        if total <= 0:
-            return lower_order_probability
-
-        observed_count = counts.get(token_id, 0)
-        discounted_probability = max(observed_count - self.discount, 0.0) / total
-        backoff_weight = self.discount * len(counts) / total
-        return discounted_probability + backoff_weight * lower_order_probability
-
-    def unigram_probability(self, token_id: int) -> float:
-        denominator = (
-            self.unigram_total
-            + self.smoothing * candidate_token_count(self.vocab_size, self.bos_id)
+        denominator = total + self.smoothing * candidate_token_count(
+            self.vocab_size,
+            self.bos_id,
         )
         if denominator <= 0:
             return 0.0
-        return (self.unigram_counts.get(token_id, 0) + self.smoothing) / denominator
+        return (counts.get(token_id, 0) + self.smoothing) / denominator
 
 
 def load_absolute_discount_trigram_model(model_path: Path) -> AbsoluteDiscountTrigramModel:
@@ -183,8 +161,6 @@ def load_absolute_discount_trigram_model(model_path: Path) -> AbsoluteDiscountTr
         eos_id=int(data["eos_id"]),
         unk_id=int(data["unk_id"]),
         pieces=load_pieces(data, processor, vocab_size),
-        unigram_counts=parse_unigram_counts(data),
-        unigram_total=int(data["unigram_count"]),
         bigram_transitions=parse_bigram_transitions(data),
         trigram_transitions=parse_trigram_transitions(data),
     )

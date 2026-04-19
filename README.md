@@ -96,7 +96,7 @@ Default output:
 artifacts/models/babylm-2026-strict-small-sentencepiece-trigram-absolute-discount.json
 ```
 
-The absolute-discount trigram model subtracts a fixed discount from observed trigram and bigram counts, then backs off to the lower-order distribution with the reserved probability mass. The default discount is `0.75`; adjust it with `--discount`.
+The absolute-discount trigram model subtracts a fixed discount from observed trigram counts, then backs off to an ordinary add-k smoothed bigram distribution with the reserved probability mass. The default discount is `0.75`; adjust it with `--discount`.
 
 Train an interpolated Kneser-Ney trigram model:
 

@@ -150,39 +150,14 @@ This model is smooth everywhere when the smoothing constant is positive, but the
 
 Registered name: `trigram-absolute-discount`.
 
-This model uses recursive absolute discounting with ordinary lower-order counts. At each observed context, a fixed discount is subtracted from every positive count. The removed probability mass is assigned to the lower-order model.
+This model applies absolute discounting only to the trigram row. At each observed trigram context, a fixed discount is subtracted from every positive trigram count. The removed probability mass is assigned to an ordinary add-k smoothed bigram model.
 
-The unigram base is add-k smoothed:
-
-```math
-P_{\mathrm{AD},1}(w)
-=
-\frac{c(w) + k}{\sum_{x \in \mathcal{V}_\star} c(x) + k|\mathcal{V}_\star|}.
-```
-
-For observed bigram contexts,
+The lower-order add-k bigram distribution is
 
 ```math
-P_{\mathrm{AD},2}(w \mid v)
+P_{+2}(w \mid v)
 =
-\frac{\max(c(v,w)-D,0)}{c(v,\cdot)}
-+ \gamma(v)P_{\mathrm{AD},1}(w),
-```
-
-where
-
-```math
-\gamma(v)
-=
-\frac{D N_+(v,\cdot)}{c(v,\cdot)}.
-```
-
-For unseen bigram contexts, the model backs off completely:
-
-```math
-P_{\mathrm{AD},2}(w \mid v)
-=
-P_{\mathrm{AD},1}(w).
+\frac{c(v,w) + k}{c(v,\cdot) + k|\mathcal{V}_\star|}.
 ```
 
 For observed trigram contexts,
@@ -191,7 +166,7 @@ For observed trigram contexts,
 P_{\mathrm{AD},3}(w \mid u,v)
 =
 \frac{\max(c(u,v,w)-D,0)}{c(u,v,\cdot)}
-+ \gamma(u,v)P_{\mathrm{AD},2}(w \mid v),
++ \gamma(u,v)P_{+2}(w \mid v),
 ```
 
 where
@@ -202,12 +177,12 @@ where
 \frac{D N_+(u,v,\cdot)}{c(u,v,\cdot)}.
 ```
 
-For unseen trigram contexts, the model backs off to the discounted bigram:
+For unseen trigram contexts, the model backs off to the ordinary add-k bigram:
 
 ```math
 P_{\mathrm{AD},3}(w \mid u,v)
 =
-P_{\mathrm{AD},2}(w \mid v).
+P_{+2}(w \mid v).
 ```
 
 This keeps the model normalized because the discounted mass is
@@ -218,10 +193,12 @@ This keeps the model normalized because the discounted mass is
 \frac{D N_+(h,\cdot)}{c(h,\cdot)}.
 ```
 
-The important distinction from Kneser-Ney is that the lower-order model still uses ordinary counts:
+The important distinction from recursive models is that the lower-order model is not itself discounted:
 
 ```math
-c(v,w), \qquad c(w).
+P_{+2}(w \mid v)
+\neq
+P_{\mathrm{AD},2}(w \mid v).
 ```
 
 ## Interpolated Kneser-Ney Trigram
