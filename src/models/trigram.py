@@ -4,17 +4,30 @@ from __future__ import annotations
 
 import json
 import math
-import random
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
 import sentencepiece as spm
 
+from src.models.ngram import (
+    DecodingMode,
+    NgramEvaluationSummary,
+    NgramPrediction,
+    NgramQueryResult,
+    candidate_token_count,
+    candidate_token_ids,
+    decode_continuation,
+    encode_prompt,
+    iter_sentencepiece_token_sequences,
+    load_pieces,
+    resolve_stored_path,
+    seeded_rng,
+    select_next_token,
+)
 
-DecodingMode = Literal["sample", "most-probable"]
+
 Context = tuple[int, int]
 
 
@@ -33,70 +46,15 @@ class TrigramTrainingSummary:
     trigram_weight: float
 
 
-@dataclass(frozen=True)
-class TrigramPrediction:
-    token_id: int
-    piece: str
-    count: int
-    probability: float
+TrigramPrediction = NgramPrediction
+TrigramQueryResult = NgramQueryResult
 
 
 @dataclass(frozen=True)
-class TrigramQueryResult:
-    model_path: Path
-    tokenizer_model: Path
-    decoding: DecodingMode
-    bos_id: int
-    eos_id: int
-    unk_id: int
-    prompt: str
-    prompt_token_ids: list[int]
-    continuation_text: str
-    generated_text: str
-    generated_token_ids: list[int]
-    token_ids: list[int]
-    next_token_predictions: list[TrigramPrediction]
-
-
-@dataclass(frozen=True)
-class TrigramEvaluationSummary:
-    model_path: Path
-    tokenizer_model: Path
-    top_k: int
-    sequence_count: int
-    token_count: int
-    transition_count: int
-    correct_next_token_count: int
-    top_k_correct_next_token_count: int
-    negative_log_likelihood: float
-    zero_probability_count: int
+class TrigramEvaluationSummary(NgramEvaluationSummary):
     unigram_weight: float
     bigram_weight: float
     trigram_weight: float
-
-    @property
-    def average_negative_log_likelihood(self) -> float | None:
-        if self.transition_count == 0:
-            return None
-        if self.zero_probability_count:
-            return math.inf
-        return self.negative_log_likelihood / self.transition_count
-
-    @property
-    def cross_entropy_bits(self) -> float | None:
-        average_nll = self.average_negative_log_likelihood
-        if average_nll is None:
-            return None
-        return average_nll / math.log(2)
-
-    @property
-    def perplexity(self) -> float | None:
-        average_nll = self.average_negative_log_likelihood
-        if average_nll is None:
-            return None
-        if math.isinf(average_nll):
-            return math.inf
-        return math.exp(average_nll)
 
 
 @dataclass(frozen=True)
@@ -129,9 +87,7 @@ class TrigramModel:
     trigram_transitions: dict[Context, tuple[tuple[int, int], ...]]
 
     def encode_prompt(self, prompt: str) -> list[int]:
-        if not prompt:
-            return []
-        return self.processor.encode(prompt, out_type=int)
+        return encode_prompt(self.processor, prompt)
 
     def next_token_predictions(
         self,
@@ -139,7 +95,7 @@ class TrigramModel:
         *,
         top_k: int,
     ) -> list[TrigramPrediction]:
-        candidate_ids = self._candidate_token_ids()
+        candidate_ids = candidate_token_ids(self.vocab_size, self.bos_id)
         trigram_counts = dict(self.trigram_transitions.get(context, ()))
         predictions = [
             TrigramPrediction(
@@ -166,13 +122,14 @@ class TrigramModel:
         prompt_token_ids = self.encode_prompt(prompt)
         context = self.context_for_tokens(prompt_token_ids)
         next_token_predictions = self.next_token_predictions(context, top_k=top_k)
-        rng = random.Random(seed)
+        rng = seeded_rng(seed)
         token_ids = list(prompt_token_ids)
         generated_token_ids: list[int] = []
 
         for _ in range(max_tokens):
-            next_id = self.next_generated_token(
-                context,
+            next_id = select_next_token(
+                self.next_token_predictions(context, top_k=0),
+                eos_id=self.eos_id,
                 decoding=decoding,
                 rng=rng,
                 temperature=temperature,
@@ -186,7 +143,8 @@ class TrigramModel:
 
         prompt_text = self.processor.decode(prompt_token_ids)
         generated_text = self.processor.decode(token_ids)
-        continuation_text = self.decode_continuation(
+        continuation_text = decode_continuation(
+            self.processor,
             generated_text=generated_text,
             prompt_text=prompt_text,
             generated_token_ids=generated_token_ids,
@@ -305,7 +263,7 @@ class TrigramModel:
         trigram_total: int,
     ) -> list[int]:
         return sorted(
-            self._candidate_token_ids(),
+            candidate_token_ids(self.vocab_size, self.bos_id),
             key=lambda token_id: (
                 -self.transition_probability(
                     token_id,
@@ -364,7 +322,10 @@ class TrigramModel:
         )
 
     def unigram_probability(self, token_id: int) -> float:
-        denominator = self.unigram_total + self.smoothing * self._candidate_token_count()
+        denominator = (
+            self.unigram_total
+            + self.smoothing * candidate_token_count(self.vocab_size, self.bos_id)
+        )
         if denominator <= 0:
             return 0.0
         return (self.unigram_counts.get(token_id, 0) + self.smoothing) / denominator
@@ -376,60 +337,13 @@ class TrigramModel:
         counts: dict[int, int],
         total: int,
     ) -> float:
-        denominator = total + self.smoothing * self._candidate_token_count()
+        denominator = total + self.smoothing * candidate_token_count(
+            self.vocab_size,
+            self.bos_id,
+        )
         if denominator <= 0:
             return 0.0
         return (counts.get(token_id, 0) + self.smoothing) / denominator
-
-    def next_generated_token(
-        self,
-        context: Context,
-        *,
-        decoding: DecodingMode,
-        rng: random.Random,
-        temperature: float,
-    ) -> int:
-        if decoding == "most-probable":
-            return self.most_probable_next_token(context)
-        if decoding == "sample":
-            return self.sample_next_token(
-                context,
-                rng=rng,
-                temperature=temperature,
-            )
-        raise ValueError(f"Unsupported decoding mode: {decoding}")
-
-    def most_probable_next_token(self, context: Context) -> int:
-        predictions = self.next_token_predictions(context, top_k=1)
-        if not predictions:
-            return self.eos_id if self.eos_id >= 0 else 0
-        return predictions[0].token_id
-
-    def sample_next_token(
-        self,
-        context: Context,
-        *,
-        rng: random.Random,
-        temperature: float,
-    ) -> int:
-        predictions = self.next_token_predictions(context, top_k=0)
-        if not predictions:
-            return self.eos_id if self.eos_id >= 0 else 0
-
-        if temperature == 0:
-            return predictions[0].token_id
-        if temperature < 0:
-            raise ValueError("temperature must be non-negative")
-
-        weights = [prediction.probability ** (1 / temperature) for prediction in predictions]
-        if not any(weights):
-            return predictions[0].token_id
-
-        return rng.choices(
-            [prediction.token_id for prediction in predictions],
-            weights=weights,
-            k=1,
-        )[0]
 
     def context_for_tokens(self, token_ids: list[int]) -> Context:
         bos_id = self.bos_id if self.bos_id >= 0 else 0
@@ -438,27 +352,6 @@ class TrigramModel:
         if len(token_ids) == 1:
             return bos_id, token_ids[-1]
         return bos_id, bos_id
-
-    def decode_continuation(
-        self,
-        *,
-        generated_text: str,
-        prompt_text: str,
-        generated_token_ids: list[int],
-    ) -> str:
-        if prompt_text and generated_text.startswith(prompt_text):
-            return generated_text[len(prompt_text):]
-        return self.processor.decode(generated_token_ids)
-
-    def _candidate_token_ids(self) -> tuple[int, ...]:
-        return tuple(
-            token_id
-            for token_id in range(self.vocab_size)
-            if token_id != self.bos_id
-        )
-
-    def _candidate_token_count(self) -> int:
-        return self.vocab_size - 1 if 0 <= self.bos_id < self.vocab_size else self.vocab_size
 
 
 def normalize_interpolation_weights(
@@ -481,12 +374,7 @@ def load_trigram_model(model_path: Path) -> TrigramModel:
     tokenizer_model = resolve_stored_path(Path(data["tokenizer_model"]), model_path)
     processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
     vocab_size = int(data["vocab_size"])
-    stored_pieces = data.get("pieces")
-    pieces = (
-        tuple(str(piece) for piece in stored_pieces)
-        if stored_pieces
-        else tuple(processor.id_to_piece(index) for index in range(vocab_size))
-    )
+    pieces = load_pieces(data, processor, vocab_size)
     weights = data["interpolation_weights"]
 
     return TrigramModel(
@@ -524,38 +412,16 @@ def load_trigram_model(model_path: Path) -> TrigramModel:
     )
 
 
-def resolve_stored_path(stored_path: Path, model_path: Path) -> Path:
-    if stored_path.is_absolute() or stored_path.exists():
-        return stored_path
-
-    model_relative_path = model_path.parent / stored_path
-    if model_relative_path.exists():
-        return model_relative_path
-
-    return stored_path
-
-
 def iter_trigram_token_sequences(
     texts: Iterable[str],
     processor: spm.SentencePieceProcessor,
 ) -> Iterator[list[int]]:
-    bos_id = processor.bos_id()
-    eos_id = processor.eos_id()
-
-    for text in texts:
-        for line in text.splitlines():
-            sentence = line.strip()
-            if not sentence:
-                continue
-
-            token_ids = processor.encode(sentence, out_type=int)
-            if bos_id >= 0:
-                token_ids = [bos_id, bos_id, *token_ids]
-            if eos_id >= 0:
-                token_ids.append(eos_id)
-
-            if len(token_ids) >= 3:
-                yield token_ids
+    yield from iter_sentencepiece_token_sequences(
+        texts,
+        processor,
+        bos_count=2,
+        min_length=3,
+    )
 
 
 def train_trigram_model(

@@ -4,17 +4,27 @@ from __future__ import annotations
 
 import json
 import math
-import random
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
 import sentencepiece as spm
 
-
-DecodingMode = Literal["sample", "most-probable"]
+from src.models.ngram import (
+    DecodingMode,
+    NgramEvaluationSummary,
+    NgramPrediction,
+    NgramQueryResult,
+    candidate_token_ids,
+    decode_continuation,
+    encode_prompt,
+    iter_sentencepiece_token_sequences,
+    load_pieces,
+    resolve_stored_path,
+    seeded_rng,
+    select_next_token,
+)
 
 
 @dataclass(frozen=True)
@@ -27,75 +37,9 @@ class BigramTrainingSummary:
     transition_count: int
 
 
-@dataclass(frozen=True)
-class BigramPrediction:
-    token_id: int
-    piece: str
-    count: int
-    probability: float
-
-
-@dataclass(frozen=True)
-class BigramQueryResult:
-    model_path: Path
-    tokenizer_model: Path
-    decoding: DecodingMode
-    bos_id: int
-    eos_id: int
-    unk_id: int
-    prompt: str
-    prompt_token_ids: list[int]
-    continuation_text: str
-    generated_text: str
-    generated_token_ids: list[int]
-    token_ids: list[int]
-    next_token_predictions: list[BigramPrediction]
-
-
-@dataclass(frozen=True)
-class BigramEvaluationSummary:
-    model_path: Path
-    tokenizer_model: Path
-    top_k: int
-    sequence_count: int
-    token_count: int
-    transition_count: int
-    correct_next_token_count: int
-    top_k_correct_next_token_count: int
-    negative_log_likelihood: float
-    zero_probability_count: int
-
-    @property
-    def next_token_accuracy(self) -> float | None:
-        return divide_or_none(self.correct_next_token_count, self.transition_count)
-
-    @property
-    def top_k_accuracy(self) -> float | None:
-        return divide_or_none(self.top_k_correct_next_token_count, self.transition_count)
-
-    @property
-    def average_negative_log_likelihood(self) -> float | None:
-        if self.transition_count == 0:
-            return None
-        if self.zero_probability_count:
-            return math.inf
-        return self.negative_log_likelihood / self.transition_count
-
-    @property
-    def cross_entropy_bits(self) -> float | None:
-        average_nll = self.average_negative_log_likelihood
-        if average_nll is None:
-            return None
-        return average_nll / math.log(2)
-
-    @property
-    def perplexity(self) -> float | None:
-        average_nll = self.average_negative_log_likelihood
-        if average_nll is None:
-            return None
-        if math.isinf(average_nll):
-            return math.inf
-        return math.exp(average_nll)
+BigramPrediction = NgramPrediction
+BigramQueryResult = NgramQueryResult
+BigramEvaluationSummary = NgramEvaluationSummary
 
 
 @dataclass(frozen=True)
@@ -120,9 +64,7 @@ class BigramModel:
     transitions: dict[int, tuple[tuple[int, int], ...]]
 
     def encode_prompt(self, prompt: str) -> list[int]:
-        if not prompt:
-            return []
-        return self.processor.encode(prompt, out_type=int)
+        return encode_prompt(self.processor, prompt)
 
     def next_token_predictions(
         self,
@@ -130,7 +72,7 @@ class BigramModel:
         *,
         top_k: int,
     ) -> list[BigramPrediction]:
-        candidate_ids = self._candidate_token_ids()
+        candidate_ids = candidate_token_ids(self.vocab_size, self.bos_id)
         observed = dict(self.transitions.get(previous_id, ()))
         denominator = sum(observed.get(token_id, 0) for token_id in candidate_ids)
         denominator += self.smoothing * len(candidate_ids)
@@ -164,13 +106,14 @@ class BigramModel:
         prompt_token_ids = self.encode_prompt(prompt)
         previous_id = prompt_token_ids[-1] if prompt_token_ids else self.bos_id
         next_token_predictions = self.next_token_predictions(previous_id, top_k=top_k)
-        rng = random.Random(seed)
+        rng = seeded_rng(seed)
         token_ids = list(prompt_token_ids)
         generated_token_ids: list[int] = []
 
         for _ in range(max_tokens):
-            next_id = self.next_generated_token(
-                previous_id,
+            next_id = select_next_token(
+                self.next_token_predictions(previous_id, top_k=0),
+                eos_id=self.eos_id,
                 decoding=decoding,
                 rng=rng,
                 temperature=temperature,
@@ -184,7 +127,8 @@ class BigramModel:
 
         prompt_text = self.processor.decode(prompt_token_ids)
         generated_text = self.processor.decode(token_ids)
-        continuation_text = self.decode_continuation(
+        continuation_text = decode_continuation(
+            self.processor,
             generated_text=generated_text,
             prompt_text=prompt_text,
             generated_token_ids=generated_token_ids,
@@ -212,7 +156,7 @@ class BigramModel:
         *,
         top_k: int = 5,
     ) -> BigramEvaluationSummary:
-        candidate_ids = self._candidate_token_ids()
+        candidate_ids = candidate_token_ids(self.vocab_size, self.bos_id)
         candidate_id_set = set(candidate_ids)
         row_cache: dict[int, BigramEvaluationRow] = {}
         sequence_count = 0
@@ -318,80 +262,6 @@ class BigramModel:
             return 0.0
         return (row.counts.get(next_id, 0) + self.smoothing) / row.denominator
 
-    def next_generated_token(
-        self,
-        previous_id: int,
-        *,
-        decoding: DecodingMode,
-        rng: random.Random,
-        temperature: float,
-    ) -> int:
-        if decoding == "most-probable":
-            return self.most_probable_next_token(previous_id)
-        if decoding == "sample":
-            return self.sample_next_token(
-                previous_id,
-                rng=rng,
-                temperature=temperature,
-            )
-        raise ValueError(f"Unsupported decoding mode: {decoding}")
-
-    def most_probable_next_token(self, previous_id: int) -> int:
-        predictions = self.next_token_predictions(previous_id, top_k=1)
-        if not predictions:
-            return self.eos_id if self.eos_id >= 0 else 0
-        return predictions[0].token_id
-
-    def sample_next_token(
-        self,
-        previous_id: int,
-        *,
-        rng: random.Random,
-        temperature: float,
-    ) -> int:
-        predictions = self.next_token_predictions(previous_id, top_k=0)
-        if not predictions:
-            return self.eos_id if self.eos_id >= 0 else 0
-
-        if temperature == 0:
-            return predictions[0].token_id
-        if temperature < 0:
-            raise ValueError("temperature must be non-negative")
-
-        weights = [prediction.probability ** (1 / temperature) for prediction in predictions]
-        if not any(weights):
-            return predictions[0].token_id
-
-        return rng.choices(
-            [prediction.token_id for prediction in predictions],
-            weights=weights,
-            k=1,
-        )[0]
-
-    def decode_continuation(
-        self,
-        *,
-        generated_text: str,
-        prompt_text: str,
-        generated_token_ids: list[int],
-    ) -> str:
-        if prompt_text and generated_text.startswith(prompt_text):
-            return generated_text[len(prompt_text):]
-        return self.processor.decode(generated_token_ids)
-
-    def _candidate_token_ids(self) -> tuple[int, ...]:
-        return tuple(
-            token_id
-            for token_id in range(self.vocab_size)
-            if token_id != self.bos_id
-        )
-
-
-def divide_or_none(numerator: int, denominator: int) -> float | None:
-    if denominator == 0:
-        return None
-    return numerator / denominator
-
 
 def load_bigram_model(model_path: Path) -> BigramModel:
     data = json.loads(model_path.read_text(encoding="utf-8"))
@@ -401,12 +271,7 @@ def load_bigram_model(model_path: Path) -> BigramModel:
     tokenizer_model = resolve_stored_path(Path(data["tokenizer_model"]), model_path)
     processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
     vocab_size = int(data["vocab_size"])
-    stored_pieces = data.get("pieces")
-    pieces = (
-        tuple(str(piece) for piece in stored_pieces)
-        if stored_pieces
-        else tuple(processor.id_to_piece(index) for index in range(vocab_size))
-    )
+    pieces = load_pieces(data, processor, vocab_size)
     transitions = {
         int(previous_id): tuple(
             (int(next_id), int(count))
@@ -429,38 +294,16 @@ def load_bigram_model(model_path: Path) -> BigramModel:
     )
 
 
-def resolve_stored_path(stored_path: Path, model_path: Path) -> Path:
-    if stored_path.is_absolute() or stored_path.exists():
-        return stored_path
-
-    model_relative_path = model_path.parent / stored_path
-    if model_relative_path.exists():
-        return model_relative_path
-
-    return stored_path
-
-
 def iter_token_sequences(
     texts: Iterable[str],
     processor: spm.SentencePieceProcessor,
 ) -> Iterator[list[int]]:
-    bos_id = processor.bos_id()
-    eos_id = processor.eos_id()
-
-    for text in texts:
-        for line in text.splitlines():
-            sentence = line.strip()
-            if not sentence:
-                continue
-
-            token_ids = processor.encode(sentence, out_type=int)
-            if bos_id >= 0:
-                token_ids = [bos_id, *token_ids]
-            if eos_id >= 0:
-                token_ids.append(eos_id)
-
-            if len(token_ids) >= 2:
-                yield token_ids
+    yield from iter_sentencepiece_token_sequences(
+        texts,
+        processor,
+        bos_count=1,
+        min_length=2,
+    )
 
 
 def train_bigram_model(
