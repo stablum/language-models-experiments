@@ -85,7 +85,7 @@ def train_bigram_model(
         },
     }
     output_path.write_text(
-        json.dumps(model, ensure_ascii=False, separators=(",", ":")),
+        json.dumps(model, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
 

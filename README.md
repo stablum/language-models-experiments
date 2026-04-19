@@ -68,7 +68,7 @@ Default output:
 artifacts/models/babylm-2026-strict-small-sentencepiece-bigram.json
 ```
 
-The model stores sparse transition counts for `P(next_token | previous_token)`, plus tokenizer metadata and an add-k smoothing value. It is meant as a simple baseline, not a serious neural language model.
+The model stores readable indented JSON with sparse transition counts for `P(next_token | previous_token)`, plus tokenizer metadata and an add-k smoothing value. It is meant as a simple baseline, not a serious neural language model.
 
 ## Corpora
 
