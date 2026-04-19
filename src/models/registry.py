@@ -25,6 +25,12 @@ from src.models.trigram import (
     normalize_interpolation_weights,
     train_trigram_model,
 )
+from src.models.trigram_absolute_discount import (
+    AbsoluteDiscountTrigramEvaluationSummary,
+    AbsoluteDiscountTrigramTrainingSummary,
+    load_absolute_discount_trigram_model,
+    train_absolute_discount_trigram_model,
+)
 
 
 ModelOptions = Mapping[str, Any]
@@ -52,6 +58,7 @@ class ModelDefinition:
 
 DEFAULT_MODEL_NAME = "bigram"
 TRIGRAM_MODEL_NAME = "trigram"
+ABSOLUTE_DISCOUNT_TRIGRAM_MODEL_NAME = "trigram-absolute-discount"
 
 
 def default_bigram_tokenizer_model(corpus: str) -> Path:
@@ -72,6 +79,14 @@ def default_trigram_output(corpus: str) -> Path:
 
 def default_trigram_model(corpus: str) -> Path:
     return default_trigram_output(corpus)
+
+
+def default_absolute_discount_trigram_output(corpus: str) -> Path:
+    return Path("artifacts", "models", f"{corpus}-sentencepiece-trigram-absolute-discount.json")
+
+
+def default_absolute_discount_trigram_model(corpus: str) -> Path:
+    return default_absolute_discount_trigram_output(corpus)
 
 
 def resolve_bigram_tokenizer_model(options: ModelOptions) -> Path:
@@ -96,6 +111,14 @@ def resolve_trigram_output(options: ModelOptions) -> Path:
 
 def resolve_trigram_model(options: ModelOptions) -> Path:
     return options["model_path"] or default_trigram_model(options["corpus"])
+
+
+def resolve_absolute_discount_trigram_output(options: ModelOptions) -> Path:
+    return options["output"] or default_absolute_discount_trigram_output(options["corpus"])
+
+
+def resolve_absolute_discount_trigram_model(options: ModelOptions) -> Path:
+    return options["model_path"] or default_absolute_discount_trigram_model(options["corpus"])
 
 
 def validate_bigram_options(options: ModelOptions) -> None:
@@ -143,6 +166,24 @@ def validate_trigram_query_options(options: ModelOptions) -> None:
         )
 
 
+def validate_absolute_discount_trigram_options(options: ModelOptions) -> None:
+    tokenizer_model = resolve_trigram_tokenizer_model(options)
+    if not tokenizer_model.exists():
+        raise click.ClickException(
+            f"Tokenizer model not found: {tokenizer_model}. "
+            "Train it first with src.cli.train_sentencepiece."
+        )
+
+
+def validate_absolute_discount_trigram_query_options(options: ModelOptions) -> None:
+    model_path = resolve_absolute_discount_trigram_model(options)
+    if not model_path.exists():
+        raise click.ClickException(
+            f"Absolute-discount trigram model not found: {model_path}. "
+            "Train it first with src.cli.train."
+        )
+
+
 def train_bigram_from_options(
     texts: Iterable[str],
     options: ModelOptions,
@@ -170,6 +211,19 @@ def train_trigram_from_options(
     )
 
 
+def train_absolute_discount_trigram_from_options(
+    texts: Iterable[str],
+    options: ModelOptions,
+) -> AbsoluteDiscountTrigramTrainingSummary:
+    return train_absolute_discount_trigram_model(
+        texts,
+        tokenizer_model=resolve_trigram_tokenizer_model(options),
+        output_path=resolve_absolute_discount_trigram_output(options),
+        smoothing=options["smoothing"],
+        discount=options["discount"],
+    )
+
+
 def query_bigram_from_options(options: ModelOptions) -> BigramQueryResult:
     model = load_bigram_model(resolve_bigram_model(options))
     return model.query(
@@ -194,6 +248,20 @@ def query_trigram_from_options(options: ModelOptions) -> TrigramQueryResult:
     )
 
 
+def query_absolute_discount_trigram_from_options(options: ModelOptions) -> TrigramQueryResult:
+    model = load_absolute_discount_trigram_model(
+        resolve_absolute_discount_trigram_model(options)
+    )
+    return model.query(
+        prompt=options["prompt"],
+        max_tokens=options["max_tokens"],
+        top_k=options["top_k"],
+        decoding=options["decoding"],
+        temperature=options["temperature"],
+        seed=options["seed"],
+    )
+
+
 def evaluate_bigram_from_options(
     texts: Iterable[str],
     options: ModelOptions,
@@ -207,6 +275,16 @@ def evaluate_trigram_from_options(
     options: ModelOptions,
 ) -> TrigramEvaluationSummary:
     model = load_trigram_model(resolve_trigram_model(options))
+    return model.evaluate(texts, top_k=options["top_k"])
+
+
+def evaluate_absolute_discount_trigram_from_options(
+    texts: Iterable[str],
+    options: ModelOptions,
+) -> AbsoluteDiscountTrigramEvaluationSummary:
+    model = load_absolute_discount_trigram_model(
+        resolve_absolute_discount_trigram_model(options)
+    )
     return model.evaluate(texts, top_k=options["top_k"])
 
 
@@ -242,31 +320,27 @@ def format_trigram_summary(summary: TrigramTrainingSummary) -> list[tuple[str, s
     ]
 
 
+def format_absolute_discount_trigram_summary(
+    summary: AbsoluteDiscountTrigramTrainingSummary,
+) -> list[tuple[str, str]]:
+    return [
+        ("Tokenizer", str(summary.tokenizer_model)),
+        ("Absolute-discount trigram model", str(summary.output_path)),
+        ("Vocabulary size", f"{summary.vocab_size:,}"),
+        ("Sequences", f"{summary.sequence_count:,}"),
+        ("Tokens", f"{summary.token_count:,}"),
+        ("Unigrams", f"{summary.unigram_count:,}"),
+        ("Bigram transitions", f"{summary.bigram_transition_count:,}"),
+        ("Trigram transitions", f"{summary.trigram_transition_count:,}"),
+        ("Discount", f"{summary.discount:.3f}"),
+    ]
+
+
 def format_bigram_evaluation(summary: BigramEvaluationSummary) -> list[tuple[str, str]]:
     return [
         ("Model file", str(summary.model_path)),
         ("Tokenizer", str(summary.tokenizer_model)),
-        ("Sequences", f"{summary.sequence_count:,}"),
-        ("Tokens", f"{summary.token_count:,}"),
-        ("Transitions", f"{summary.transition_count:,}"),
-        (
-            "Next-token accuracy",
-            format_rate(summary.correct_next_token_count, summary.transition_count),
-        ),
-        (
-            f"Top-{summary.top_k} accuracy",
-            format_rate(summary.top_k_correct_next_token_count, summary.transition_count),
-        ),
-        (
-            "Average NLL",
-            format_metric(summary.average_negative_log_likelihood, suffix=" nats/token"),
-        ),
-        (
-            "Cross entropy",
-            format_metric(summary.cross_entropy_bits, suffix=" bits/token"),
-        ),
-        ("Perplexity", format_metric(summary.perplexity)),
-        ("Zero-probability transitions", f"{summary.zero_probability_count:,}"),
+        *format_ngram_evaluation_metrics(summary),
     ]
 
 
@@ -282,6 +356,35 @@ def format_trigram_evaluation(summary: TrigramEvaluationSummary) -> list[tuple[s
                 trigram_weight=summary.trigram_weight,
             ),
         ),
+        *format_ngram_evaluation_metrics(summary),
+    ]
+
+
+def format_absolute_discount_trigram_evaluation(
+    summary: AbsoluteDiscountTrigramEvaluationSummary,
+) -> list[tuple[str, str]]:
+    return [
+        ("Model file", str(summary.model_path)),
+        ("Tokenizer", str(summary.tokenizer_model)),
+        ("Discount", f"{summary.discount:.3f}"),
+        *format_ngram_evaluation_metrics(summary),
+    ]
+
+
+def format_bigram_query(result: BigramQueryResult) -> list[str]:
+    return format_ngram_query(result)
+
+
+def format_trigram_query(result: TrigramQueryResult) -> list[str]:
+    return format_ngram_query(result)
+
+
+def format_absolute_discount_trigram_query(result: TrigramQueryResult) -> list[str]:
+    return format_ngram_query(result)
+
+
+def format_ngram_evaluation_metrics(summary: Any) -> list[tuple[str, str]]:
+    return [
         ("Sequences", f"{summary.sequence_count:,}"),
         ("Tokens", f"{summary.token_count:,}"),
         ("Transitions", f"{summary.transition_count:,}"),
@@ -304,14 +407,6 @@ def format_trigram_evaluation(summary: TrigramEvaluationSummary) -> list[tuple[s
         ("Perplexity", format_metric(summary.perplexity)),
         ("Zero-probability transitions", f"{summary.zero_probability_count:,}"),
     ]
-
-
-def format_bigram_query(result: BigramQueryResult) -> list[str]:
-    return format_ngram_query(result)
-
-
-def format_trigram_query(result: TrigramQueryResult) -> list[str]:
-    return format_ngram_query(result)
 
 
 def format_ngram_query(result: Any) -> list[str]:
@@ -418,6 +513,18 @@ MODELS = {
         evaluate=evaluate_trigram_from_options,
         validate_evaluation_options=validate_trigram_query_options,
         evaluation_items=format_trigram_evaluation,
+    ),
+    ABSOLUTE_DISCOUNT_TRIGRAM_MODEL_NAME: ModelDefinition(
+        name=ABSOLUTE_DISCOUNT_TRIGRAM_MODEL_NAME,
+        train=train_absolute_discount_trigram_from_options,
+        validate_options=validate_absolute_discount_trigram_options,
+        summary_items=format_absolute_discount_trigram_summary,
+        query=query_absolute_discount_trigram_from_options,
+        validate_query_options=validate_absolute_discount_trigram_query_options,
+        query_lines=format_absolute_discount_trigram_query,
+        evaluate=evaluate_absolute_discount_trigram_from_options,
+        validate_evaluation_options=validate_absolute_discount_trigram_query_options,
+        evaluation_items=format_absolute_discount_trigram_evaluation,
     )
 }
 

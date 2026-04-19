@@ -1,4 +1,4 @@
-"""Interpolated token-level autoregressive trigram model."""
+"""Absolute-discount token-level autoregressive trigram model."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from src.models.trigram_common import (
 
 
 @dataclass(frozen=True)
-class TrigramTrainingSummary:
+class AbsoluteDiscountTrigramTrainingSummary:
     output_path: Path
     tokenizer_model: Path
     vocab_size: int
@@ -35,28 +35,22 @@ class TrigramTrainingSummary:
     unigram_count: int
     bigram_transition_count: int
     trigram_transition_count: int
-    unigram_weight: float
-    bigram_weight: float
-    trigram_weight: float
+    discount: float
 
 
 @dataclass(frozen=True)
-class TrigramEvaluationSummary(NgramEvaluationSummary):
-    unigram_weight: float
-    bigram_weight: float
-    trigram_weight: float
+class AbsoluteDiscountTrigramEvaluationSummary(NgramEvaluationSummary):
+    discount: float
 
 
 @dataclass(frozen=True)
-class TrigramModel(BaseTrigramModel):
+class AbsoluteDiscountTrigramModel(BaseTrigramModel):
     model_path: Path
     tokenizer_model: Path
     processor: spm.SentencePieceProcessor
     vocab_size: int
     smoothing: float
-    unigram_weight: float
-    bigram_weight: float
-    trigram_weight: float
+    discount: float
     bos_id: int
     eos_id: int
     unk_id: int
@@ -66,13 +60,11 @@ class TrigramModel(BaseTrigramModel):
     bigram_transitions: dict[int, tuple[tuple[int, int], ...]]
     trigram_transitions: dict[Context, tuple[tuple[int, int], ...]]
 
-    def evaluation_summary(self, **kwargs: Any) -> TrigramEvaluationSummary:
-        return TrigramEvaluationSummary(
+    def evaluation_summary(self, **kwargs: Any) -> AbsoluteDiscountTrigramEvaluationSummary:
+        return AbsoluteDiscountTrigramEvaluationSummary(
             model_path=self.model_path,
             tokenizer_model=self.tokenizer_model,
-            unigram_weight=self.unigram_weight,
-            bigram_weight=self.bigram_weight,
-            trigram_weight=self.trigram_weight,
+            discount=self.discount,
             **kwargs,
         )
 
@@ -106,19 +98,60 @@ class TrigramModel(BaseTrigramModel):
             if trigram_total is None:
                 trigram_total = sum(trigram_counts.values())
 
-        return (
-            self.unigram_weight * self.unigram_probability(next_id)
-            + self.bigram_weight * self.conditional_probability(
-                next_id,
-                counts=bigram_counts,
-                total=bigram_total,
-            )
-            + self.trigram_weight * self.conditional_probability(
-                next_id,
-                counts=trigram_counts,
-                total=trigram_total,
-            )
+        return self.trigram_probability(
+            next_id,
+            previous_id=previous_id,
+            bigram_counts=bigram_counts,
+            trigram_counts=trigram_counts,
+            bigram_total=bigram_total,
+            trigram_total=trigram_total,
         )
+
+    def trigram_probability(
+        self,
+        token_id: int,
+        *,
+        previous_id: int,
+        bigram_counts: dict[int, int],
+        trigram_counts: dict[int, int],
+        bigram_total: int,
+        trigram_total: int,
+    ) -> float:
+        lower_order_probability = self.bigram_probability(
+            token_id,
+            previous_id=previous_id,
+            counts=bigram_counts,
+            total=bigram_total,
+        )
+        if trigram_total <= 0:
+            return lower_order_probability
+
+        observed_count = trigram_counts.get(token_id, 0)
+        discounted_probability = max(observed_count - self.discount, 0.0) / trigram_total
+        backoff_weight = self.discount * len(trigram_counts) / trigram_total
+        return discounted_probability + backoff_weight * lower_order_probability
+
+    def bigram_probability(
+        self,
+        token_id: int,
+        *,
+        previous_id: int,
+        counts: dict[int, int] | None = None,
+        total: int | None = None,
+    ) -> float:
+        if counts is None:
+            counts = dict(self.bigram_transitions.get(previous_id, ()))
+        if total is None:
+            total = sum(counts.values())
+
+        lower_order_probability = self.unigram_probability(token_id)
+        if total <= 0:
+            return lower_order_probability
+
+        observed_count = counts.get(token_id, 0)
+        discounted_probability = max(observed_count - self.discount, 0.0) / total
+        backoff_weight = self.discount * len(counts) / total
+        return discounted_probability + backoff_weight * lower_order_probability
 
     def unigram_probability(self, token_id: int) -> float:
         denominator = (
@@ -129,53 +162,23 @@ class TrigramModel(BaseTrigramModel):
             return 0.0
         return (self.unigram_counts.get(token_id, 0) + self.smoothing) / denominator
 
-    def conditional_probability(
-        self,
-        token_id: int,
-        *,
-        counts: dict[int, int],
-        total: int,
-    ) -> float:
-        denominator = total + self.smoothing * candidate_token_count(
-            self.vocab_size,
-            self.bos_id,
-        )
-        if denominator <= 0:
-            return 0.0
-        return (counts.get(token_id, 0) + self.smoothing) / denominator
 
-
-def normalize_interpolation_weights(
-    *,
-    unigram_weight: float,
-    bigram_weight: float,
-    trigram_weight: float,
-) -> tuple[float, float, float]:
-    total = unigram_weight + bigram_weight + trigram_weight
-    if total <= 0:
-        raise ValueError("At least one interpolation weight must be positive.")
-    return unigram_weight / total, bigram_weight / total, trigram_weight / total
-
-
-def load_trigram_model(model_path: Path) -> TrigramModel:
+def load_absolute_discount_trigram_model(model_path: Path) -> AbsoluteDiscountTrigramModel:
     data = json.loads(model_path.read_text(encoding="utf-8"))
-    if data.get("model_type") != "interpolated_trigram":
-        raise ValueError(f"Not an interpolated trigram model: {model_path}")
+    if data.get("model_type") != "absolute_discount_trigram":
+        raise ValueError(f"Not an absolute-discount trigram model: {model_path}")
 
     tokenizer_model = resolve_stored_path(Path(data["tokenizer_model"]), model_path)
     processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
     vocab_size = int(data["vocab_size"])
-    weights = data["interpolation_weights"]
 
-    return TrigramModel(
+    return AbsoluteDiscountTrigramModel(
         model_path=model_path,
         tokenizer_model=tokenizer_model,
         processor=processor,
         vocab_size=vocab_size,
         smoothing=float(data["smoothing"]),
-        unigram_weight=float(weights["unigram"]),
-        bigram_weight=float(weights["bigram"]),
-        trigram_weight=float(weights["trigram"]),
+        discount=float(data["discount"]),
         bos_id=int(data["bos_id"]),
         eos_id=int(data["eos_id"]),
         unk_id=int(data["unk_id"]),
@@ -187,36 +190,25 @@ def load_trigram_model(model_path: Path) -> TrigramModel:
     )
 
 
-def train_trigram_model(
+def train_absolute_discount_trigram_model(
     texts: Iterable[str],
     *,
     tokenizer_model: Path,
     output_path: Path,
     smoothing: float = 0.1,
-    unigram_weight: float = 0.1,
-    bigram_weight: float = 0.3,
-    trigram_weight: float = 0.6,
-) -> TrigramTrainingSummary:
-    normalized_weights = normalize_interpolation_weights(
-        unigram_weight=unigram_weight,
-        bigram_weight=bigram_weight,
-        trigram_weight=trigram_weight,
-    )
+    discount: float = 0.75,
+) -> AbsoluteDiscountTrigramTrainingSummary:
     processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
     counts = collect_trigram_counts(texts, processor)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     model = {
         "schema_version": 1,
-        "model_type": "interpolated_trigram",
+        "model_type": "absolute_discount_trigram",
         "tokenizer_model": str(tokenizer_model),
         "vocab_size": processor.get_piece_size(),
         "smoothing": smoothing,
-        "interpolation_weights": {
-            "unigram": normalized_weights[0],
-            "bigram": normalized_weights[1],
-            "trigram": normalized_weights[2],
-        },
+        "discount": discount,
         "bos_id": processor.bos_id(),
         "eos_id": processor.eos_id(),
         "unk_id": processor.unk_id(),
@@ -228,7 +220,7 @@ def train_trigram_model(
         encoding="utf-8",
     )
 
-    return TrigramTrainingSummary(
+    return AbsoluteDiscountTrigramTrainingSummary(
         output_path=output_path,
         tokenizer_model=tokenizer_model,
         vocab_size=processor.get_piece_size(),
@@ -237,7 +229,5 @@ def train_trigram_model(
         unigram_count=counts.unigram_count,
         bigram_transition_count=counts.bigram_transition_count,
         trigram_transition_count=counts.trigram_transition_count,
-        unigram_weight=normalized_weights[0],
-        bigram_weight=normalized_weights[1],
-        trigram_weight=normalized_weights[2],
+        discount=discount,
     )

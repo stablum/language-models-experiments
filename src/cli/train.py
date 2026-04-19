@@ -84,6 +84,13 @@ from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
     show_default=True,
     help="Interpolation weight for trigram probabilities in models that use it.",
 )
+@click.option(
+    "--discount",
+    type=click.FloatRange(min=0.0, max=1.0),
+    default=0.75,
+    show_default=True,
+    help="Absolute discount value for models that use it.",
+)
 def main(
     model_name: str,
     corpus: str,
@@ -98,6 +105,7 @@ def main(
     unigram_weight: float,
     bigram_weight: float,
     trigram_weight: float,
+    discount: float,
 ) -> None:
     corpus_definition = get_corpus(corpus)
     model_definition = get_model(model_name)
@@ -113,6 +121,7 @@ def main(
         "unigram_weight": unigram_weight,
         "bigram_weight": bigram_weight,
         "trigram_weight": trigram_weight,
+        "discount": discount,
     }
     model_definition.validate_options(model_options)
 

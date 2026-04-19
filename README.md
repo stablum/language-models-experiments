@@ -84,6 +84,20 @@ artifacts/models/babylm-2026-strict-small-sentencepiece-trigram.json
 
 The trigram model estimates `P(next_token | previous_previous_token, previous_token)` with linear interpolation over add-k smoothed unigram, bigram, and trigram probabilities. The default weights are `0.1 / 0.3 / 0.6`; adjust them with `--unigram-weight`, `--bigram-weight`, and `--trigram-weight`.
 
+Train an absolute-discount trigram model:
+
+```powershell
+uv run python -m src.cli.train --model trigram-absolute-discount --streaming
+```
+
+Default output:
+
+```text
+artifacts/models/babylm-2026-strict-small-sentencepiece-trigram-absolute-discount.json
+```
+
+The absolute-discount trigram model subtracts a fixed discount from observed trigram and bigram counts, then backs off to the lower-order distribution with the reserved probability mass. The default discount is `0.75`; adjust it with `--discount`.
+
 Query a trained model and generate a short sample:
 
 ```powershell
@@ -102,9 +116,9 @@ Ask for the most probable continuation after a prompt:
 uv run python -m src.cli.query --model bigram --prompt "Once upon" --decoding most-probable --max-tokens 80
 ```
 
-The same query and evaluation commands work with `--model trigram` after training a trigram model.
+The same query and evaluation commands work with `--model trigram` or `--model trigram-absolute-discount` after training that model.
 
-The query command also prints the most likely next tokens for the prompt, with special tokens shown as labels such as `[EOS]`. The bigram model conditions on the last prompt token; the trigram model conditions on the last two prompt tokens. `--decoding most-probable` chooses the highest-probability next token at each step.
+The query command also prints the most likely next tokens for the prompt, with special tokens shown as labels such as `[EOS]`. The bigram model conditions on the last prompt token; the trigram models condition on the last two prompt tokens. `--decoding most-probable` chooses the highest-probability next token at each step.
 
 Evaluate a trained model:
 
@@ -126,7 +140,7 @@ To add another corpus, add a loader module under `src/corpora/` and register a n
 
 ## Models
 
-The model training, query, and evaluation CLIs are model-generic. `bigram` and `trigram` are currently registered.
+The model training, query, and evaluation CLIs are model-generic. `bigram`, `trigram`, and `trigram-absolute-discount` are currently registered.
 
 To add another model, add its code under `src/models/` and register a new `ModelDefinition` in `src/models/registry.py`.
 
