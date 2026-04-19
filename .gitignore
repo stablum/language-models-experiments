@@ -1,6 +1,6 @@
 .env
 AGENTS.md
 .venv/
+artifacts/
 __pycache__/
 *.py[cod]
-

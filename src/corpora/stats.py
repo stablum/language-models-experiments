@@ -8,6 +8,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from src.corpora.text import iter_text_column
+
 
 @dataclass(order=True)
 class LongExample:
@@ -98,16 +100,6 @@ def distribution_metrics(
     ]
 
 
-def iter_rows(
-    dataset: Iterable[Mapping[str, Any]],
-    limit: int | None,
-) -> Iterable[Mapping[str, Any]]:
-    for index, row in enumerate(dataset, start=1):
-        if limit is not None and index > limit:
-            break
-        yield row
-
-
 def scan_text_column(
     dataset: Iterable[Mapping[str, Any]],
     *,
@@ -118,15 +110,10 @@ def scan_text_column(
 ) -> CorpusStats:
     stats = CorpusStats()
 
-    for row_number, row in enumerate(iter_rows(dataset, limit), start=1):
-        if text_column not in row:
-            available = ", ".join(row.keys())
-            raise KeyError(
-                f"Text column {text_column!r} was not found. Available columns: {available}"
-            )
-
-        value = row[text_column]
-        text = "" if value is None else str(value)
+    for row_number, text in enumerate(
+        iter_text_column(dataset, text_column=text_column, limit=limit),
+        start=1,
+    ):
         stats.add_text(
             text,
             row_number=row_number,
