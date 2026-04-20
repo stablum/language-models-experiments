@@ -1,0 +1,25 @@
+# ClearML SDK configuration for the repo-local Docker Compose server.
+# Copy to .clearml/clearml.conf for local experiments:
+#
+#   Copy-Item clearml.local.conf.example .clearml/clearml.conf
+#   $env:CLEARML_CONFIG_FILE = (Resolve-Path .clearml/clearml.conf).Path
+#
+# These are ClearML Server's public default local-development credentials.
+# Replace them with credentials from the ClearML UI before exposing the server
+# outside your machine or network.
+
+api {
+    api_server: "http://localhost:8008"
+    web_server: "http://localhost:8080"
+    files_server: "http://localhost:8081"
+    credentials {
+        access_key: "EGRTCO8JMSIGI6S39GTP43NFWXDQOW"
+        secret_key: "LPEJbGJ6bK4tujQcmrD3i1dbMBDdwUwelVa-LG0K0FFmY9bzH_H0Sw"
+    }
+}
+
+sdk {
+    development {
+        default_output_uri: "http://localhost:8081"
+    }
+}

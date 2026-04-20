@@ -12,7 +12,7 @@ Use the latest stable Python line supported by the project:
 uv sync
 ```
 
-The project currently requires Python 3.14 or newer.
+The project currently requires Python 3.14 or newer. A new machine needs Python 3.14, `uv`, Docker Desktop or another Docker Engine with Compose support, and enough disk space for Hugging Face datasets plus local experiment artifacts.
 
 ## Layout
 
@@ -187,14 +187,15 @@ http://localhost:8081
 
 The Docker services store their state under `.clearml/` inside this repository. That directory is ignored by git.
 
-Configure the Python client for the local server:
+Create a local SDK config file:
 
 ```powershell
-$env:CLEARML_WEB_HOST = "http://localhost:8080"
-$env:CLEARML_API_HOST = "http://localhost:8008"
-$env:CLEARML_FILES_HOST = "http://localhost:8081"
-uv run clearml-init
+New-Item -ItemType Directory -Force .clearml
+Copy-Item clearml.local.conf.example .clearml/clearml.conf
+$env:CLEARML_CONFIG_FILE = (Resolve-Path .clearml/clearml.conf).Path
 ```
+
+`clearml.local.conf.example` uses ClearML Server's public default local-development credentials. They are fine for a private laptop smoke test, but replace them with credentials from the ClearML UI before exposing the server outside your machine or trusted network. You can also run `uv run clearml-init` and paste credentials generated from the UI instead of copying the example file.
 
 Then pass `--clearml` to register a CLI run. For example:
 
@@ -206,6 +207,38 @@ uv run python -m src.cli.query --model bigram --prompt "Once upon" --clearml
 ```
 
 ClearML tracking is opt-in. When enabled, the CLIs create a run, connect CLI options as hyperparameters, report final metrics, upload useful artifacts, and register trained tokenizer/model files. Use `--clearml-project`, `--clearml-task-name`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the task.
+
+### ClearML Smoke Test
+
+On a new machine, this is the shortest end-to-end ClearML check:
+
+```powershell
+uv sync
+docker compose -f docker-compose.clearml.yml up -d
+New-Item -ItemType Directory -Force .clearml
+Copy-Item clearml.local.conf.example .clearml/clearml.conf
+$env:CLEARML_CONFIG_FILE = (Resolve-Path .clearml/clearml.conf).Path
+
+uv run python -m src.cli.train_sentencepiece --streaming --limit 50 --vocab-size 100 --output-prefix artifacts/tokenizers/clearml-smoke-sentencepiece-100 --no-hard-vocab-limit --clearml --clearml-task-name "clearml smoke sentencepiece" --clearml-tag smoke --clearml-output-uri http://localhost:8081
+uv run python -m src.cli.train --model bigram --streaming --limit 5 --tokenizer-model artifacts/tokenizers/clearml-smoke-sentencepiece-100.model --output artifacts/models/clearml-smoke-bigram.json --clearml --clearml-task-name "clearml smoke bigram" --clearml-tag smoke --clearml-output-uri http://localhost:8081
+uv run python -m src.cli.train --model trigram --streaming --limit 5 --tokenizer-model artifacts/tokenizers/clearml-smoke-sentencepiece-100.model --output artifacts/models/clearml-smoke-trigram.json --clearml --clearml-task-name "clearml smoke trigram" --clearml-tag smoke --clearml-output-uri http://localhost:8081
+```
+
+Expected result:
+
+```text
+ClearML task pages are printed in the terminal.
+The ClearML UI shows completed tasks tagged smoke.
+Each training task has CLI hyperparameters, final scalar metrics, an input tokenizer artifact, and a trained model JSON artifact.
+The Models page contains registered model records for the tokenizer and n-gram model files.
+The uploaded files are also visible under .clearml/fileserver/.
+```
+
+To stop the local ClearML server:
+
+```powershell
+docker compose -f docker-compose.clearml.yml down
+```
 
 ## Generated Files
 
