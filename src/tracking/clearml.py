@@ -82,10 +82,12 @@ class ClearMLRun:
         task: Any | None = None,
         output_model_type: Any | None = None,
         output_uri: str | None = None,
+        task_tags: tuple[str, ...] = (),
     ) -> None:
         self.task = task
         self.output_model_type = output_model_type
         self.output_uri = output_uri
+        self.task_tags = task_tags
 
     @property
     def enabled(self) -> bool:
@@ -160,10 +162,11 @@ class ClearMLRun:
         if not model_path.exists():
             return
 
+        model_tags = tuple(dict.fromkeys((*tags, *self.task_tags)))
         output_model = self.output_model_type(
             task=self.task,
             name=name,
-            tags=list(tags),
+            tags=list(model_tags),
             comment=comment,
             framework=framework,
         )
@@ -210,11 +213,13 @@ def start_clearml_run(
         reuse_last_task_id=False,
         auto_connect_arg_parser=False,
         auto_connect_frameworks=False,
+        auto_connect_streams=False,
     )
     return ClearMLRun(
         task=task,
         output_model_type=OutputModel,
         output_uri=settings.output_uri,
+        task_tags=settings.tags,
     )
 
 
