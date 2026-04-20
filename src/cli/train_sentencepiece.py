@@ -9,6 +9,7 @@ import click
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
 from src.corpora.text import iter_text_column
+from src.tracking.clearml import clearml_options, clearml_settings, start_clearml_run
 from src.tokenizers.sentencepiece_training import train_sentencepiece
 
 
@@ -83,6 +84,7 @@ from src.tokenizers.sentencepiece_training import train_sentencepiece
     show_default=True,
     help="Text normalization applied before tokenizer training.",
 )
+@clearml_options
 def main(
     corpus: str,
     dataset_id: str | None,
@@ -97,6 +99,11 @@ def main(
     hard_vocab_limit: bool,
     max_sentence_length: int | None,
     text_normalization: str,
+    clearml: bool,
+    clearml_project: str,
+    clearml_task_name: str | None,
+    clearml_output_uri: str | None,
+    clearml_tags: tuple[str, ...],
 ) -> None:
     corpus_definition = get_corpus(corpus)
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
@@ -108,27 +115,79 @@ def main(
         f"{corpus}-sentencepiece-{vocab_size}",
     )
 
-    dataset = corpus_definition.load(
-        dataset_id=resolved_dataset_id,
-        split=resolved_split,
-        streaming=streaming,
-    )
-    texts = iter_text_column(
-        dataset,
-        text_column=resolved_text_column,
-        limit=limit,
-    )
+    with start_clearml_run(
+        clearml_settings(
+            enabled=clearml,
+            project_name=clearml_project,
+            task_name=clearml_task_name,
+            output_uri=clearml_output_uri,
+            tags=clearml_tags,
+        ),
+        default_task_name=f"train sentencepiece {corpus} vocab-{vocab_size}",
+        task_type="training",
+    ) as clearml_run:
+        clearml_run.connect_parameters(
+            {
+                "command": "src.cli.train_sentencepiece",
+                "corpus": corpus,
+                "dataset_id": resolved_dataset_id,
+                "split": resolved_split,
+                "text_column": resolved_text_column,
+                "streaming": streaming,
+                "limit": limit,
+                "vocab_size": vocab_size,
+                "output_prefix": resolved_output_prefix,
+                "model_type": model_type,
+                "character_coverage": character_coverage,
+                "hard_vocab_limit": hard_vocab_limit,
+                "max_sentence_length": max_sentence_length,
+                "text_normalization": text_normalization,
+            }
+        )
 
-    model_path, vocab_path = train_sentencepiece(
-        texts,
-        output_prefix=resolved_output_prefix,
-        vocab_size=vocab_size,
-        model_type=model_type,
-        character_coverage=character_coverage,
-        hard_vocab_limit=hard_vocab_limit,
-        max_sentence_length=max_sentence_length,
-        text_normalization=text_normalization,
-    )
+        dataset = corpus_definition.load(
+            dataset_id=resolved_dataset_id,
+            split=resolved_split,
+            streaming=streaming,
+        )
+        texts = iter_text_column(
+            dataset,
+            text_column=resolved_text_column,
+            limit=limit,
+        )
+
+        model_path, vocab_path = train_sentencepiece(
+            texts,
+            output_prefix=resolved_output_prefix,
+            vocab_size=vocab_size,
+            model_type=model_type,
+            character_coverage=character_coverage,
+            hard_vocab_limit=hard_vocab_limit,
+            max_sentence_length=max_sentence_length,
+            text_normalization=text_normalization,
+        )
+
+        clearml_run.log_metrics(
+            "Tokenizer training",
+            {
+                "vocab_size": vocab_size,
+                "character_coverage": character_coverage,
+                "hard_vocab_limit": hard_vocab_limit,
+                "limit": limit,
+            },
+        )
+        clearml_run.upload_artifact(
+            "sentencepiece-vocabulary",
+            vocab_path,
+            metadata={"corpus": corpus, "vocab_size": vocab_size},
+        )
+        clearml_run.register_model(
+            name=model_path.stem,
+            model_path=model_path,
+            framework="custom",
+            tags=("tokenizer", corpus),
+            comment="SentencePiece tokenizer model.",
+        )
 
     click.echo(f"Corpus: {corpus}")
     click.echo(f"Dataset: {resolved_dataset_id}")

@@ -10,6 +10,7 @@ from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZA
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
 from src.corpora.text import iter_text_column
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
+from src.tracking.clearml import clearml_options, clearml_settings, start_clearml_run
 
 
 @click.command(
@@ -99,6 +100,7 @@ from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
     show_default=True,
     help="Text normalization applied before model training.",
 )
+@clearml_options
 def main(
     model_name: str,
     corpus: str,
@@ -115,6 +117,11 @@ def main(
     trigram_weight: float,
     discount: float,
     text_normalization: str,
+    clearml: bool,
+    clearml_project: str,
+    clearml_task_name: str | None,
+    clearml_output_uri: str | None,
+    clearml_tags: tuple[str, ...],
 ) -> None:
     corpus_definition = get_corpus(corpus)
     model_definition = get_model(model_name)
@@ -135,18 +142,65 @@ def main(
     }
     model_definition.validate_options(model_options)
 
-    dataset = corpus_definition.load(
-        dataset_id=resolved_dataset_id,
-        split=resolved_split,
-        streaming=streaming,
-    )
-    texts = iter_text_column(
-        dataset,
-        text_column=resolved_text_column,
-        limit=limit,
-    )
+    with start_clearml_run(
+        clearml_settings(
+            enabled=clearml,
+            project_name=clearml_project,
+            task_name=clearml_task_name,
+            output_uri=clearml_output_uri,
+            tags=clearml_tags,
+        ),
+        default_task_name=f"train {model_definition.name} {corpus}",
+        task_type="training",
+    ) as clearml_run:
+        clearml_run.connect_parameters(
+            {
+                "command": "src.cli.train",
+                "model": model_definition.name,
+                "corpus": corpus,
+                "dataset_id": resolved_dataset_id,
+                "split": resolved_split,
+                "text_column": resolved_text_column,
+                "streaming": streaming,
+                "limit": limit,
+                **model_options,
+            }
+        )
 
-    summary = model_definition.train(texts, model_options)
+        dataset = corpus_definition.load(
+            dataset_id=resolved_dataset_id,
+            split=resolved_split,
+            streaming=streaming,
+        )
+        texts = iter_text_column(
+            dataset,
+            text_column=resolved_text_column,
+            limit=limit,
+        )
+
+        summary = model_definition.train(texts, model_options)
+
+        clearml_run.log_metrics(
+            "Model training",
+            training_summary_metrics(summary),
+        )
+        clearml_run.upload_artifact(
+            "input-tokenizer-model",
+            summary.tokenizer_model,
+            metadata={"model": model_definition.name, "corpus": corpus},
+        )
+        clearml_run.upload_artifact(
+            "trained-model-json",
+            summary.output_path,
+            metadata={"model": model_definition.name, "corpus": corpus},
+        )
+        clearml_run.register_model(
+            name=summary.output_path.stem,
+            model_path=summary.output_path,
+            framework="custom",
+            tags=("language-model", model_definition.name, corpus),
+            comment="Token n-gram language model JSON.",
+        )
 
     click.echo(f"Model: {model_definition.name}")
     click.echo(f"Corpus: {corpus}")
@@ -158,6 +212,29 @@ def main(
         click.echo(f"Limit: first {limit:,} rows")
     for label, value in model_definition.summary_items(summary):
         click.echo(f"{label}: {value}")
+
+
+def training_summary_metrics(summary: object) -> dict[str, object]:
+    return {
+        "vocab_size": getattr(summary, "vocab_size", None),
+        "sequence_count": getattr(summary, "sequence_count", None),
+        "token_count": getattr(summary, "token_count", None),
+        "transition_count": getattr(summary, "transition_count", None),
+        "unigram_count": getattr(summary, "unigram_count", None),
+        "bigram_transition_count": getattr(summary, "bigram_transition_count", None),
+        "trigram_transition_count": getattr(summary, "trigram_transition_count", None),
+        "continuation_unigram_count": getattr(summary, "continuation_unigram_count", None),
+        "continuation_bigram_type_count": getattr(
+            summary,
+            "continuation_bigram_type_count",
+            None,
+        ),
+        "smoothing": getattr(summary, "smoothing", None),
+        "discount": getattr(summary, "discount", None),
+        "unigram_weight": getattr(summary, "unigram_weight", None),
+        "bigram_weight": getattr(summary, "bigram_weight", None),
+        "trigram_weight": getattr(summary, "trigram_weight", None),
+    }
 
 
 if __name__ == "__main__":

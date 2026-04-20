@@ -8,6 +8,7 @@ import click
 
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
+from src.tracking.clearml import clearml_options, clearml_settings, start_clearml_run
 
 
 @click.command(
@@ -75,6 +76,7 @@ from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
     default=None,
     help="Random seed for reproducible sampling.",
 )
+@clearml_options
 def main(
     model_name: str,
     corpus: str,
@@ -85,6 +87,11 @@ def main(
     decoding: str,
     temperature: float,
     seed: int | None,
+    clearml: bool,
+    clearml_project: str,
+    clearml_task_name: str | None,
+    clearml_output_uri: str | None,
+    clearml_tags: tuple[str, ...],
 ) -> None:
     model_definition = get_model(model_name)
     if model_definition.query is None or model_definition.query_lines is None:
@@ -105,8 +112,82 @@ def main(
 
     click.echo(f"Model: {model_definition.name}")
     click.echo(f"Corpus: {corpus}")
-    for line in model_definition.query_lines(model_definition.query(query_options)):
+    with start_clearml_run(
+        clearml_settings(
+            enabled=clearml,
+            project_name=clearml_project,
+            task_name=clearml_task_name,
+            output_uri=clearml_output_uri,
+            tags=clearml_tags,
+        ),
+        default_task_name=f"query {model_definition.name} {corpus}",
+        task_type="inference",
+    ) as clearml_run:
+        clearml_run.connect_parameters(
+            {
+                "command": "src.cli.query",
+                "model": model_definition.name,
+                **query_options,
+            }
+        )
+
+        result = model_definition.query(query_options)
+
+        clearml_run.log_metrics("Query", query_metrics(result))
+        clearml_run.upload_artifact(
+            "query-result",
+            query_payload(result),
+            metadata={"model": model_definition.name, "corpus": corpus},
+        )
+        clearml_run.upload_artifact(
+            "queried-model",
+            result.model_path,
+            metadata={"model": model_definition.name, "corpus": corpus},
+        )
+        clearml_run.upload_artifact(
+            "tokenizer-model",
+            result.tokenizer_model,
+            metadata={"model": model_definition.name, "corpus": corpus},
+        )
+
+    for line in model_definition.query_lines(result):
         click.echo(line)
+
+
+def query_metrics(result: object) -> dict[str, object]:
+    next_predictions = getattr(result, "next_token_predictions", [])
+    top_probability = next_predictions[0].probability if next_predictions else None
+    return {
+        "prompt_token_count": len(getattr(result, "prompt_token_ids", [])),
+        "generated_token_count": len(getattr(result, "generated_token_ids", [])),
+        "total_token_count": len(getattr(result, "token_ids", [])),
+        "next_token_candidate_count": len(next_predictions),
+        "top_next_token_probability": top_probability,
+    }
+
+
+def query_payload(result: object) -> dict[str, object]:
+    return {
+        "model_path": getattr(result, "model_path", None),
+        "tokenizer_model": getattr(result, "tokenizer_model", None),
+        "decoding": getattr(result, "decoding", None),
+        "text_normalization": getattr(result, "text_normalization", None),
+        "prompt": getattr(result, "prompt", None),
+        "prompt_token_ids": getattr(result, "prompt_token_ids", None),
+        "generated_token_ids": getattr(result, "generated_token_ids", None),
+        "token_ids": getattr(result, "token_ids", None),
+        "continuation_text": getattr(result, "continuation_text", None),
+        "generated_text": getattr(result, "generated_text", None),
+        "next_token_predictions": [
+            {
+                "token_id": prediction.token_id,
+                "piece": prediction.piece,
+                "count": prediction.count,
+                "probability": prediction.probability,
+            }
+            for prediction in getattr(result, "next_token_predictions", [])
+        ],
+    }
 
 
 if __name__ == "__main__":

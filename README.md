@@ -164,6 +164,49 @@ See [MODELS.md](MODELS.md) for the probability formulas and brief model descript
 
 To add another model, add its code under `src/models/` and register a new `ModelDefinition` in `src/models/registry.py`.
 
+## ClearML
+
+Start a local ClearML server:
+
+```powershell
+docker compose -f docker-compose.clearml.yml up -d
+```
+
+The ClearML UI runs at:
+
+```text
+http://localhost:8080
+```
+
+The API and file server are exposed at:
+
+```text
+http://localhost:8008
+http://localhost:8081
+```
+
+The Docker services store their state under `.clearml/` inside this repository. That directory is ignored by git.
+
+Configure the Python client for the local server:
+
+```powershell
+$env:CLEARML_WEB_HOST = "http://localhost:8080"
+$env:CLEARML_API_HOST = "http://localhost:8008"
+$env:CLEARML_FILES_HOST = "http://localhost:8081"
+uv run clearml-init
+```
+
+Then pass `--clearml` to register a CLI run. For example:
+
+```powershell
+uv run python -m src.cli.train_sentencepiece --streaming --limit 1000 --clearml
+uv run python -m src.cli.train --model bigram --streaming --limit 1000 --clearml
+uv run python -m src.cli.evaluate --model bigram --streaming --limit 1000 --clearml
+uv run python -m src.cli.query --model bigram --prompt "Once upon" --clearml
+```
+
+ClearML tracking is opt-in. When enabled, the CLIs create a run, connect CLI options as hyperparameters, report final metrics, upload useful artifacts, and register trained tokenizer/model files. Use `--clearml-project`, `--clearml-task-name`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the task.
+
 ## Generated Files
 
 Generated models, tokenizer files, and other experiment outputs belong under `artifacts/`. That directory is ignored by git.

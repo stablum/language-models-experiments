@@ -2,5 +2,6 @@
 AGENTS.md
 .venv/
 artifacts/
+.clearml/
 __pycache__/
 *.py[cod]

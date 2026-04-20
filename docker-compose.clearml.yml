@@ -1,0 +1,151 @@
+services:
+  redis:
+    image: redis:8.2.3
+    container_name: clearml-redis
+    restart: unless-stopped
+    networks:
+      - backend
+    volumes:
+      - ./.clearml/redis:/data
+
+  mongo:
+    image: mongo:8.0.15
+    container_name: clearml-mongo
+    restart: unless-stopped
+    command: --setParameter internalQueryMaxBlockingSortMemoryUsageBytes=196100200
+    networks:
+      - backend
+    volumes:
+      - ./.clearml/mongo/db:/data/db
+      - ./.clearml/mongo/configdb:/data/configdb
+
+  elasticsearch:
+    image: elasticsearch:8.19.9
+    container_name: clearml-elasticsearch
+    restart: unless-stopped
+    networks:
+      - backend
+    environment:
+      bootstrap.memory_lock: "true"
+      cluster.name: clearml
+      cluster.routing.allocation.disk.watermark.flood_stage: 500mb
+      cluster.routing.allocation.disk.watermark.high: 500mb
+      cluster.routing.allocation.disk.watermark.low: 500mb
+      cluster.routing.allocation.node_initial_primaries_recoveries: "500"
+      discovery.type: single-node
+      http.compression_level: "7"
+      node.name: clearml
+      reindex.remote.whitelist: "'*.*'"
+      xpack.security.enabled: "false"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./.clearml/elasticsearch:/usr/share/elasticsearch/data
+
+  fileserver:
+    image: clearml/server:latest
+    container_name: clearml-fileserver
+    restart: unless-stopped
+    command:
+      - fileserver
+    networks:
+      - backend
+      - frontend
+    environment:
+      CLEARML__fileserver__delete__allow_batch: "true"
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./.clearml/logs:/var/log/clearml
+      - ./.clearml/config:/opt/clearml/config
+      - ./.clearml/fileserver:/mnt/fileserver
+
+  apiserver:
+    image: clearml/server:latest
+    container_name: clearml-apiserver
+    restart: unless-stopped
+    command:
+      - apiserver
+    depends_on:
+      - redis
+      - mongo
+      - elasticsearch
+      - fileserver
+    networks:
+      - backend
+      - frontend
+    environment:
+      CLEARML_ELASTIC_SERVICE_HOST: elasticsearch
+      CLEARML_ELASTIC_SERVICE_PORT: 9200
+      CLEARML_MONGODB_SERVICE_HOST: mongo
+      CLEARML_MONGODB_SERVICE_PORT: 27017
+      CLEARML_REDIS_SERVICE_HOST: redis
+      CLEARML_REDIS_SERVICE_PORT: 6379
+      CLEARML_SERVER_DEPLOYMENT_TYPE: linux
+      CLEARML__apiserver__pre_populate__artifacts_path: /mnt/fileserver
+      CLEARML__apiserver__pre_populate__enabled: "true"
+      CLEARML__apiserver__pre_populate__zip_files: /opt/clearml/db-pre-populate
+      CLEARML__services__async_urls_delete__enabled: "true"
+      CLEARML__services__async_urls_delete__fileserver__url_prefixes: "[${CLEARML_FILES_HOST:-}]"
+    ports:
+      - "8008:8008"
+    volumes:
+      - ./.clearml/logs:/var/log/clearml
+      - ./.clearml/config:/opt/clearml/config
+      - ./.clearml/fileserver:/mnt/fileserver
+
+  webserver:
+    image: clearml/server:latest
+    container_name: clearml-webserver
+    restart: unless-stopped
+    command:
+      - webserver
+    depends_on:
+      - apiserver
+    networks:
+      - backend
+      - frontend
+    ports:
+      - "8080:80"
+
+  async-delete:
+    image: clearml/server:latest
+    container_name: clearml-async-delete
+    restart: unless-stopped
+    entrypoint:
+      - python3
+      - -m
+      - jobs.async_urls_delete
+      - --fileserver-host
+      - http://fileserver:8081
+    depends_on:
+      - apiserver
+      - redis
+      - mongo
+      - elasticsearch
+      - fileserver
+    networks:
+      - backend
+    environment:
+      CLEARML_ELASTIC_SERVICE_HOST: elasticsearch
+      CLEARML_ELASTIC_SERVICE_PORT: 9200
+      CLEARML_MONGODB_SERVICE_HOST: mongo
+      CLEARML_MONGODB_SERVICE_PORT: 27017
+      CLEARML_REDIS_SERVICE_HOST: redis
+      CLEARML_REDIS_SERVICE_PORT: 6379
+      CLEARML__services__async_urls_delete__fileserver__url_prefixes: "[${CLEARML_FILES_HOST:-}]"
+      PYTHONPATH: /opt/clearml/apiserver
+    volumes:
+      - ./.clearml/logs:/var/log/clearml
+      - ./.clearml/config:/opt/clearml/config
+
+networks:
+  backend:
+    driver: bridge
+  frontend:
+    driver: bridge
