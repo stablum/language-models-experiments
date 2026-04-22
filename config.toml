@@ -1,0 +1,73 @@
+# Default CLI values used when options are omitted.
+#
+# Precedence is:
+#   command line option > environment variable > config.toml > built-in default
+#
+# Use snake_case keys matching the Python option names. Kebab-case is accepted too.
+# The short key `model` is accepted as an alias for Click's internal `model_name`.
+
+[defaults]
+corpus = "babylm-2026-strict-small"
+streaming = true
+text_normalization = "lossy-ascii"
+
+[clearml]
+clearml_project = "language-models-experiments"
+clearml_output_uri = "http://localhost:8081"
+clearml_tags = []
+
+[pipeline]
+model = "bigram"
+vocab_size = 1000
+model_type = "unigram"
+character_coverage = 1.0
+hard_vocab_limit = true
+smoothing = 0.1
+unigram_weight = 0.1
+bigram_weight = 0.3
+trigram_weight = 0.6
+discount = 0.75
+top_k = 5
+query_prompt = "Once upon"
+query_max_tokens = 80
+query_top_k = 10
+query_decoding = "sample"
+query_temperature = 1.0
+query_seed = 1
+
+# Uncomment limits for smoke runs.
+# limit = 50
+# tokenizer_limit = 50
+# training_limit = 50
+# evaluation_limit = 50
+
+[train_sentencepiece]
+vocab_size = 1000
+model_type = "unigram"
+character_coverage = 1.0
+hard_vocab_limit = true
+
+[train]
+model = "bigram"
+smoothing = 0.1
+unigram_weight = 0.1
+bigram_weight = 0.3
+trigram_weight = 0.6
+discount = 0.75
+
+[evaluate]
+model = "bigram"
+top_k = 5
+
+[query]
+model = "bigram"
+prompt = "Once upon"
+max_tokens = 80
+top_k = 10
+decoding = "sample"
+temperature = 1.0
+seed = 1
+
+[corpus_stats]
+top_n_lengths = 5
+preview_chars = 120

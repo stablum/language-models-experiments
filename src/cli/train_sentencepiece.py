@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 
 import click
 
+from src.cli.config import configured_command
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
 from src.corpora.text import iter_text_column
@@ -14,7 +15,8 @@ from src.tracking.clearml import clearml_options, clearml_settings, start_clearm
 from src.tokenizers.sentencepiece_training import train_sentencepiece
 
 
-@click.command(
+@configured_command(
+    "train_sentencepiece",
     context_settings={"help_option_names": ["-h", "--help"]},
     help="Train a SentencePiece tokenizer from a registered corpus.",
 )

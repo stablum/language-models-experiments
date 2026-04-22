@@ -9,6 +9,7 @@ from typing import Any
 
 import click
 
+from src.cli.config import configured_command
 from src.cli.evaluate import evaluation_metrics, evaluation_payload
 from src.cli.query import query_metrics, query_payload
 from src.cli.train import training_summary_metrics
@@ -20,7 +21,8 @@ from src.tracking.clearml import clearml_options, clearml_settings, start_clearm
 from src.tokenizers.sentencepiece_training import train_sentencepiece
 
 
-@click.command(
+@configured_command(
+    "pipeline",
     context_settings={"help_option_names": ["-h", "--help"]},
     help="Run tokenizer training, model training, evaluation, and query in one ClearML task.",
 )

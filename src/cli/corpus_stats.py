@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import click
 
+from src.cli.config import configured_command
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import (
     DEFAULT_CORPUS_NAME,
@@ -14,7 +15,8 @@ from src.corpora.stats import distribution_metrics, print_corpus_report, scan_te
 from src.tracking.clearml import clearml_options, clearml_settings, start_clearml_run
 
 
-@click.command(
+@configured_command(
+    "corpus_stats",
     context_settings={"help_option_names": ["-h", "--help"]},
     help=(
         "Load a registered corpus and print row, character, "

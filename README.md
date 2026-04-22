@@ -35,7 +35,25 @@ src/
   models/       Small language model training utilities
   tokenizers/   Tokenizer training utilities
 .clearml/       Local ClearML Server state, ignored by git
+config.toml     Repo-local CLI defaults
 ```
+
+## CLI Defaults
+
+Most omitted CLI options are read from [config.toml](config.toml). The precedence is:
+
+```text
+command line option > environment variable > config.toml > built-in default
+```
+
+The checked-in config uses the repo-local ClearML server, streams datasets by default, and leaves row limits unset for full runs. Edit `config.toml` to change everyday defaults, or point one command at another file:
+
+```powershell
+$env:LME_CONFIG_FILE = "config.smoke.toml"
+uv run python -m src.cli.pipeline
+```
+
+Use `model = "bigram"` in config sections; it maps to the CLI `--model` option. Keys may be written as `snake_case` or `kebab-case`.
 
 ## Corpus Stats
 
@@ -65,6 +83,12 @@ For a quick smoke test:
 
 ```powershell
 uv run python -m src.cli.pipeline --model bigram --streaming --limit 50 --vocab-size 100 --no-hard-vocab-limit --clearml-tag smoke
+```
+
+With the checked-in defaults, this can also be shortened to:
+
+```powershell
+uv run python -m src.cli.pipeline
 ```
 
 The pipeline command prints one ClearML task ID and stores:
@@ -283,3 +307,7 @@ docker compose -f docker-compose.clearml.yml down
 ## Generated Files
 
 Generated models, tokenizer files, evaluation summaries, query results, and other experiment outputs belong in ClearML. The CLIs may create temporary local staging files while they run, but those files are cleaned up after upload. Corpus caches and `.clearml/` Docker/ClearML server state remain local and are ignored by git.
+
+## License
+
+This project is licensed under the GNU General Public License v3.0. See `LICENSE`.

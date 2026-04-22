@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 
 import click
 
+from src.cli.config import configured_command
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
 from src.tracking.clearml import (
@@ -17,7 +18,8 @@ from src.tracking.clearml import (
 )
 
 
-@click.command(
+@configured_command(
+    "query",
     context_settings={"help_option_names": ["-h", "--help"]},
     help="Query a registered language model.",
 )
