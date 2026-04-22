@@ -53,6 +53,40 @@ uv run python -m src.cli.corpus_stats --streaming --limit 1000
 
 Stats use the deliberately lossy `lossy-ascii` text normalization by default. It lowercases text, strips accents, maps common Unicode punctuation to ASCII, drops characters that still are not ASCII, and collapses whitespace. Use `--text-normalization none` to inspect the raw corpus text instead.
 
+## End-to-End Pipeline
+
+Run tokenizer training, language-model training, and evaluation as one ClearML task:
+
+```powershell
+uv run python -m src.cli.pipeline --model bigram --streaming
+```
+
+For a quick smoke test:
+
+```powershell
+uv run python -m src.cli.pipeline --model bigram --streaming --limit 50 --vocab-size 100 --no-hard-vocab-limit --clearml-tag smoke
+```
+
+The pipeline command prints one ClearML task ID and stores:
+
+```text
+ClearML artifact: sentencepiece-model
+ClearML artifact: sentencepiece-vocabulary
+ClearML artifact: input-tokenizer-model
+ClearML artifact: trained-model-json
+ClearML artifact: evaluation-summary
+ClearML artifact: pipeline-summary
+```
+
+The printed pipeline task ID can also be used as a model task ID for later query or re-evaluation commands:
+
+```powershell
+uv run python -m src.cli.query --model bigram --model-task-id <PIPELINE_TASK_ID> --prompt "Once upon" --max-tokens 80 --seed 1
+uv run python -m src.cli.evaluate --model bigram --model-task-id <PIPELINE_TASK_ID> --streaming --limit 1000
+```
+
+Use `--tokenizer-limit`, `--training-limit`, and `--evaluation-limit` when those stages should use different row counts. Use `--evaluation-split` when evaluating on a different split from training.
+
 ## SentencePiece Tokenizer
 
 Train a 1000-vocabulary SentencePiece tokenizer:
@@ -193,7 +227,13 @@ $env:CLEARML_OUTPUT_URI = "http://localhost:8081"
 
 `clearml.local.conf.example` uses ClearML Server's public default local-development credentials. They are fine for a private laptop smoke test, but replace them with credentials from the ClearML UI before exposing the server outside your machine or trusted network. You can also run `uv run clearml-init` and paste credentials generated from the UI instead of copying the example file.
 
-Every CLI run creates a ClearML task. Use task IDs printed by earlier commands to connect the artifact flow:
+For most experiments, use the end-to-end pipeline:
+
+```powershell
+uv run python -m src.cli.pipeline --model bigram --streaming
+```
+
+You can also run the stages manually. Every CLI run creates a ClearML task. Use task IDs printed by earlier commands to connect the artifact flow:
 
 ```powershell
 uv run python -m src.cli.train_sentencepiece --streaming --limit 1000
@@ -220,19 +260,15 @@ Copy-Item clearml.local.conf.example .clearml/clearml.conf
 $env:CLEARML_CONFIG_FILE = (Resolve-Path .clearml/clearml.conf).Path
 $env:CLEARML_OUTPUT_URI = "http://localhost:8081"
 
-uv run python -m src.cli.train_sentencepiece --streaming --limit 50 --vocab-size 100 --artifact-name clearml-smoke-sentencepiece-100 --no-hard-vocab-limit --clearml-task-name "clearml smoke sentencepiece" --clearml-tag smoke
-
-$tokenizerTaskId = "<task ID printed by train_sentencepiece>"
-uv run python -m src.cli.train --model bigram --streaming --limit 5 --tokenizer-task-id $tokenizerTaskId --clearml-task-name "clearml smoke bigram" --clearml-tag smoke
-uv run python -m src.cli.train --model trigram --streaming --limit 5 --tokenizer-task-id $tokenizerTaskId --clearml-task-name "clearml smoke trigram" --clearml-tag smoke
+uv run python -m src.cli.pipeline --model bigram --streaming --limit 50 --vocab-size 100 --no-hard-vocab-limit --clearml-task-name "clearml smoke pipeline" --clearml-tag smoke
 ```
 
 Expected result:
 
 ```text
-ClearML task IDs and task pages are printed in the terminal.
-The ClearML UI shows completed tasks tagged smoke.
-Each training task has CLI hyperparameters, final scalar metrics, an input tokenizer artifact, and a trained model JSON artifact.
+The ClearML task ID and task page are printed in the terminal.
+The ClearML UI shows a completed task tagged smoke.
+The task has CLI hyperparameters, tokenizer/model/evaluation scalar metrics, tokenizer artifacts, a trained model JSON artifact, and evaluation summary artifacts.
 The Models page contains registered model records for the tokenizer and n-gram model files.
 The uploaded files are also visible under .clearml/fileserver/.
 ```
