@@ -130,6 +130,7 @@ def main(
     text_normalization: str,
     clearml_project: str,
     clearml_task_name: str | None,
+    clearml_config_file: Path | None,
     clearml_output_uri: str | None,
     clearml_tags: tuple[str, ...],
 ) -> None:
@@ -151,6 +152,7 @@ def main(
             clearml_settings(
                 project_name=clearml_project,
                 task_name=clearml_task_name,
+                config_file=clearml_config_file,
                 output_uri=clearml_output_uri,
                 tags=clearml_tags,
             ),

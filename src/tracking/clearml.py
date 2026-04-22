@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ DEFAULT_CLEARML_PROJECT = "language-models-experiments"
 class ClearMLSettings:
     project_name: str = DEFAULT_CLEARML_PROJECT
     task_name: str | None = None
+    config_file: Path | None = None
     output_uri: str | None = None
     tags: tuple[str, ...] = ()
 
@@ -35,6 +37,13 @@ def clearml_options(command: Any) -> Any:
         default=None,
         envvar="CLEARML_OUTPUT_URI",
         help="Optional ClearML output URI for uploaded models and artifacts.",
+    )(command)
+    command = click.option(
+        "--clearml-config-file",
+        type=click.Path(dir_okay=False, path_type=Path),
+        default=None,
+        envvar="CLEARML_CONFIG_FILE",
+        help="ClearML SDK config file.",
     )(command)
     command = click.option(
         "--clearml-task-name",
@@ -55,12 +64,14 @@ def clearml_settings(
     *,
     project_name: str,
     task_name: str | None,
+    config_file: Path | None,
     output_uri: str | None,
     tags: tuple[str, ...],
 ) -> ClearMLSettings:
     return ClearMLSettings(
         project_name=project_name,
         task_name=task_name,
+        config_file=config_file,
         output_uri=output_uri,
         tags=tuple(tags),
     )
@@ -198,6 +209,8 @@ def start_clearml_run(
     default_task_name: str,
     task_type: str,
 ) -> ClearMLRun:
+    configure_clearml_config_file(settings.config_file)
+
     try:
         from clearml import OutputModel, Task
     except ImportError as error:
@@ -225,6 +238,23 @@ def start_clearml_run(
         output_uri=settings.output_uri,
         task_tags=settings.tags,
     )
+
+
+def configure_clearml_config_file(config_file: Path | None) -> None:
+    if config_file is None:
+        return
+
+    resolved_config_file = config_file.expanduser()
+    if not resolved_config_file.is_absolute():
+        resolved_config_file = Path.cwd() / resolved_config_file
+    if not resolved_config_file.exists():
+        raise click.ClickException(
+            f"ClearML config file does not exist: {resolved_config_file}. "
+            "Create it with `Copy-Item clearml.local.conf.example clearml.conf` "
+            "or pass --clearml-config-file."
+        )
+
+    os.environ["CLEARML_CONFIG_FILE"] = str(resolved_config_file)
 
 
 def download_task_artifact(

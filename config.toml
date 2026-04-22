@@ -13,6 +13,7 @@ text_normalization = "lossy-ascii"
 
 [clearml]
 clearml_project = "language-models-experiments"
+clearml_config_file = "clearml.conf"
 clearml_output_uri = "http://localhost:8081"
 clearml_tags = []
 

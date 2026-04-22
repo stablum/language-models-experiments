@@ -20,10 +20,7 @@ Start the repo-local ClearML server before running experiment CLIs:
 
 ```powershell
 docker compose -f docker-compose.clearml.yml up -d
-New-Item -ItemType Directory -Force .clearml
-Copy-Item clearml.local.conf.example .clearml/clearml.conf
-$env:CLEARML_CONFIG_FILE = (Resolve-Path .clearml/clearml.conf).Path
-$env:CLEARML_OUTPUT_URI = "http://localhost:8081"
+Copy-Item clearml.local.conf.example clearml.conf
 ```
 
 ## Layout
@@ -46,7 +43,7 @@ Most omitted CLI options are read from [config.toml](config.toml). The precedenc
 command line option > environment variable > config.toml > built-in default
 ```
 
-The checked-in config uses the repo-local ClearML server, streams datasets by default, and leaves row limits unset for full runs. Edit `config.toml` to change everyday defaults, or point one command at another file:
+The checked-in config uses the repo-local ClearML server, points the ClearML SDK at `clearml.conf`, streams datasets by default, and leaves row limits unset for full runs. Edit `config.toml` to change everyday defaults, or point one command at another file:
 
 ```powershell
 $env:LME_CONFIG_FILE = "config.smoke.toml"
@@ -244,13 +241,12 @@ The Docker services store their state under `.clearml/` inside this repository. 
 Create a local SDK config file:
 
 ```powershell
-New-Item -ItemType Directory -Force .clearml
-Copy-Item clearml.local.conf.example .clearml/clearml.conf
-$env:CLEARML_CONFIG_FILE = (Resolve-Path .clearml/clearml.conf).Path
-$env:CLEARML_OUTPUT_URI = "http://localhost:8081"
+Copy-Item clearml.local.conf.example clearml.conf
 ```
 
 `clearml.local.conf.example` uses ClearML Server's public default local-development credentials. They are fine for a private laptop smoke test, but replace them with credentials from the ClearML UI before exposing the server outside your machine or trusted network. You can also run `uv run clearml-init` and paste credentials generated from the UI instead of copying the example file.
+
+The default `config.toml` sets `clearml_config_file = "clearml.conf"` and `clearml_output_uri = "http://localhost:8081"`, so the experiment CLIs can run without setting `CLEARML_CONFIG_FILE` or `CLEARML_OUTPUT_URI` in every PowerShell session. Use `--clearml-config-file`, `CLEARML_CONFIG_FILE`, or another `LME_CONFIG_FILE` when you want a different SDK config.
 
 For most experiments, use the end-to-end pipeline:
 
@@ -271,7 +267,7 @@ uv run python -m src.cli.evaluate --model bigram --streaming --limit 1000 --mode
 uv run python -m src.cli.query --model bigram --prompt "Once upon" --model-task-id $modelTaskId
 ```
 
-The CLIs connect options as hyperparameters, report final metrics, upload useful artifacts, and register trained tokenizer/model files. Use `--clearml-project`, `--clearml-task-name`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the task.
+The CLIs connect options as hyperparameters, report final metrics, upload useful artifacts, and register trained tokenizer/model files. Use `--clearml-project`, `--clearml-task-name`, `--clearml-config-file`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the task.
 
 ### ClearML Smoke Test
 
@@ -280,10 +276,7 @@ On a new machine, this is the shortest end-to-end ClearML check:
 ```powershell
 uv sync
 docker compose -f docker-compose.clearml.yml up -d
-New-Item -ItemType Directory -Force .clearml
-Copy-Item clearml.local.conf.example .clearml/clearml.conf
-$env:CLEARML_CONFIG_FILE = (Resolve-Path .clearml/clearml.conf).Path
-$env:CLEARML_OUTPUT_URI = "http://localhost:8081"
+Copy-Item clearml.local.conf.example clearml.conf
 
 uv run python -m src.cli.pipeline --model bigram --streaming --limit 50 --vocab-size 100 --no-hard-vocab-limit --clearml-task-name "clearml smoke pipeline" --clearml-tag smoke
 ```
