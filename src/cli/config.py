@@ -10,6 +10,8 @@ from typing import Any
 
 import click
 
+from src.cli.output import timestamped_cli_output
+
 
 CONFIG_ENVVAR = "LME_CONFIG_FILE"
 DEFAULT_CONFIG_PATH = Path("config.toml")
@@ -52,6 +54,10 @@ class ConfigurableCommand(click.Command):
         with ctx.scope(cleanup=False):
             self.parse_args(ctx, args)
         return ctx
+
+    def main(self, *args: Any, **kwargs: Any) -> Any:
+        with timestamped_cli_output():
+            return super().main(*args, **kwargs)
 
 
 def configured_command(

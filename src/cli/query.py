@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 import click
 
 from src.cli.config import configured_command
+from src.cli.output import stage_title
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
 from src.tracking.clearml import (
@@ -115,6 +116,7 @@ def main(
         raise click.ClickException(f"Model does not support querying yet: {model_name}")
     validate_model_source(model_task_id=model_task_id, model_path=model_path)
 
+    click.echo(stage_title(1, 1, "Query"))
     click.echo(f"Model: {model_definition.name}")
     click.echo(f"Corpus: {corpus}")
     task_id: str | None = None

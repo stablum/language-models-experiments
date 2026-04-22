@@ -43,7 +43,7 @@ Most omitted CLI options are read from [config.toml](config.toml). The precedenc
 command line option > environment variable > config.toml > built-in default
 ```
 
-The checked-in config uses the repo-local ClearML server, points the ClearML SDK at `clearml.conf`, streams datasets by default, and leaves row limits unset for full runs. Edit `config.toml` to change everyday defaults, or point one command at another file:
+The checked-in config uses the repo-local ClearML server, points the ClearML SDK at `clearml.conf`, uses download/cache dataset loading by default, and leaves row limits unset for full runs. Edit `config.toml` to change everyday defaults, or point one command at another file:
 
 ```powershell
 $env:LME_CONFIG_FILE = "config.smoke.toml"
@@ -51,6 +51,8 @@ uv run python -m src.cli.pipeline
 ```
 
 Use `model = "bigram"` in config sections; it maps to the CLI `--model` option. Keys may be written as `snake_case` or `kebab-case`.
+
+Every CLI output line is prepended with a local European-style timestamp in `[DD/MM/YYYY HH:MM:SS]` format. Long-running commands also print numbered stage titles such as `Stage 2/4 - Model training:`. In terminals with ANSI color support, stage titles are bold cyan, error lines are red, and warning lines are yellow.
 
 ## Corpus Stats
 

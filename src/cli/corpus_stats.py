@@ -7,6 +7,7 @@ from pathlib import Path
 import click
 
 from src.cli.config import configured_command
+from src.cli.output import stage_title
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import (
     DEFAULT_CORPUS_NAME,
@@ -89,6 +90,7 @@ def main(
     resolved_split = split or corpus_definition.split
     resolved_text_column = text_column or corpus_definition.text_column
 
+    click.echo(stage_title(1, 1, "Corpus stats"))
     with start_clearml_run(
         clearml_settings(
             project_name=clearml_project,

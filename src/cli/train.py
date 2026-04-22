@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory
 import click
 
 from src.cli.config import configured_command
+from src.cli.output import stage_title
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
 from src.corpora.text import iter_text_column
@@ -144,6 +145,7 @@ def main(
         tokenizer_model=tokenizer_model,
     )
 
+    click.echo(stage_title(1, 1, "Model training"))
     task_id: str | None = None
     task_url: str | None = None
     with (

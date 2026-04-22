@@ -10,6 +10,7 @@ from typing import Any
 import click
 
 from src.cli.config import configured_command
+from src.cli.output import stage_title
 from src.cli.evaluate import evaluation_metrics, evaluation_payload
 from src.cli.query import query_metrics, query_payload
 from src.cli.train import training_summary_metrics
@@ -327,6 +328,7 @@ def main(
             }
         )
 
+        click.echo(stage_title(1, 4, "Tokenizer training"))
         tokenizer_model, tokenizer_vocab = train_sentencepiece(
             load_texts(
                 corpus_definition,
@@ -376,6 +378,7 @@ def main(
             comment="SentencePiece tokenizer model.",
         )
 
+        click.echo(stage_title(2, 4, "Model training"))
         model_options = {
             "corpus": corpus,
             "tokenizer_model": tokenizer_model,
@@ -414,6 +417,7 @@ def main(
             comment="Token n-gram language model JSON.",
         )
 
+        click.echo(stage_title(3, 4, "Evaluation"))
         evaluation_options = {
             "corpus": corpus,
             "model_path": training_summary.output_path,
@@ -443,6 +447,7 @@ def main(
             metadata={"model": model_definition.name, "corpus": corpus},
         )
 
+        click.echo(stage_title(4, 4, "Query"))
         query_options = {
             "corpus": corpus,
             "model_path": training_summary.output_path,

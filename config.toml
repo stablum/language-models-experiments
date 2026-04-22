@@ -8,7 +8,7 @@
 
 [defaults]
 corpus = "babylm-2026-strict-small"
-streaming = true
+streaming = false
 text_normalization = "lossy-ascii"
 
 [clearml]

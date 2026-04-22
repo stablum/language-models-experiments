@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 import click
 
 from src.cli.config import configured_command
+from src.cli.output import stage_title
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
 from src.corpora.text import iter_text_column
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
@@ -102,6 +103,7 @@ def main(
     resolved_text_column = text_column or corpus_definition.text_column
     validate_model_source(model_task_id=model_task_id, model_path=model_path)
 
+    click.echo(stage_title(1, 1, "Evaluation"))
     task_id: str | None = None
     task_url: str | None = None
     with (
