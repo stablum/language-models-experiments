@@ -55,7 +55,7 @@ Stats use the deliberately lossy `lossy-ascii` text normalization by default. It
 
 ## End-to-End Pipeline
 
-Run tokenizer training, language-model training, and evaluation as one ClearML task:
+Run tokenizer training, language-model training, evaluation, and a final query as one ClearML task:
 
 ```powershell
 uv run python -m src.cli.pipeline --model bigram --streaming
@@ -75,6 +75,7 @@ ClearML artifact: sentencepiece-vocabulary
 ClearML artifact: input-tokenizer-model
 ClearML artifact: trained-model-json
 ClearML artifact: evaluation-summary
+ClearML artifact: query-result
 ClearML artifact: pipeline-summary
 ```
 
@@ -85,7 +86,7 @@ uv run python -m src.cli.query --model bigram --model-task-id <PIPELINE_TASK_ID>
 uv run python -m src.cli.evaluate --model bigram --model-task-id <PIPELINE_TASK_ID> --streaming --limit 1000
 ```
 
-Use `--tokenizer-limit`, `--training-limit`, and `--evaluation-limit` when those stages should use different row counts. Use `--evaluation-split` when evaluating on a different split from training.
+Use `--tokenizer-limit`, `--training-limit`, and `--evaluation-limit` when those stages should use different row counts. Use `--evaluation-split` when evaluating on a different split from training. Use `--query-prompt`, `--query-max-tokens`, `--query-decoding`, `--query-temperature`, and `--query-seed` to control the mandatory final query.
 
 ## SentencePiece Tokenizer
 
@@ -268,7 +269,7 @@ Expected result:
 ```text
 The ClearML task ID and task page are printed in the terminal.
 The ClearML UI shows a completed task tagged smoke.
-The task has CLI hyperparameters, tokenizer/model/evaluation scalar metrics, tokenizer artifacts, a trained model JSON artifact, and evaluation summary artifacts.
+The task has CLI hyperparameters, tokenizer/model/evaluation/query scalar metrics, tokenizer artifacts, a trained model JSON artifact, evaluation summary artifacts, and query result artifacts.
 The Models page contains registered model records for the tokenizer and n-gram model files.
 The uploaded files are also visible under .clearml/fileserver/.
 ```

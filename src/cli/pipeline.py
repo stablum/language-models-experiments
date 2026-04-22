@@ -1,4 +1,4 @@
-"""End-to-end ClearML-backed tokenizer, model, and evaluation pipeline."""
+"""End-to-end ClearML-backed tokenizer, model, evaluation, and query pipeline."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from typing import Any
 import click
 
 from src.cli.evaluate import evaluation_metrics, evaluation_payload
+from src.cli.query import query_metrics, query_payload
 from src.cli.train import training_summary_metrics
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, CorpusDefinition, corpus_names, get_corpus
@@ -21,7 +22,7 @@ from src.tokenizers.sentencepiece_training import train_sentencepiece
 
 @click.command(
     context_settings={"help_option_names": ["-h", "--help"]},
-    help="Run tokenizer training, model training, and evaluation in one ClearML task.",
+    help="Run tokenizer training, model training, evaluation, and query in one ClearML task.",
 )
 @click.option(
     "--model",
@@ -29,7 +30,7 @@ from src.tokenizers.sentencepiece_training import train_sentencepiece
     type=click.Choice(model_names()),
     default=DEFAULT_MODEL_NAME,
     show_default=True,
-    help="Registered model to train and evaluate.",
+    help="Registered model to train, evaluate, and query.",
 )
 @click.option(
     "--corpus",
@@ -160,6 +161,47 @@ from src.tokenizers.sentencepiece_training import train_sentencepiece
     help="K value for top-k next-token accuracy.",
 )
 @click.option(
+    "--query-prompt",
+    default="Once upon",
+    show_default=True,
+    help="Text prefix for the final query stage.",
+)
+@click.option(
+    "--query-max-tokens",
+    type=click.IntRange(min=0),
+    default=80,
+    show_default=True,
+    help="Maximum number of new tokens to generate in the final query stage.",
+)
+@click.option(
+    "--query-top-k",
+    type=click.IntRange(min=1),
+    default=10,
+    show_default=True,
+    help="Number of likely next tokens to store for the query prompt.",
+)
+@click.option(
+    "--query-decoding",
+    type=click.Choice(("sample", "most-probable")),
+    default="sample",
+    show_default=True,
+    help="Generate the final query by sampling or by choosing the most probable next token.",
+)
+@click.option(
+    "--query-temperature",
+    type=click.FloatRange(min=0.0),
+    default=1.0,
+    show_default=True,
+    help="Sampling temperature for the final query. Ignored for most-probable decoding.",
+)
+@click.option(
+    "--query-seed",
+    type=int,
+    default=1,
+    show_default=True,
+    help="Random seed for the final query sampling stage.",
+)
+@click.option(
     "--text-normalization",
     type=click.Choice(TEXT_NORMALIZATION_MODES),
     default=DEFAULT_TEXT_NORMALIZATION,
@@ -191,6 +233,12 @@ def main(
     trigram_weight: float,
     discount: float,
     top_k: int,
+    query_prompt: str,
+    query_max_tokens: int,
+    query_top_k: int,
+    query_decoding: str,
+    query_temperature: float,
+    query_seed: int | None,
     text_normalization: str,
     clearml_project: str,
     clearml_task_name: str | None,
@@ -201,6 +249,8 @@ def main(
     model_definition = get_model(model_name)
     if model_definition.evaluate is None or model_definition.evaluation_items is None:
         raise click.ClickException(f"Model does not support evaluation yet: {model_name}")
+    if model_definition.query is None or model_definition.query_lines is None:
+        raise click.ClickException(f"Model does not support querying yet: {model_name}")
 
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
     resolved_split = split or corpus_definition.split
@@ -259,10 +309,17 @@ def main(
                 "trigram_weight": trigram_weight,
                 "discount": discount,
                 "top_k": top_k,
+                "query_prompt": query_prompt,
+                "query_max_tokens": query_max_tokens,
+                "query_top_k": query_top_k,
+                "query_decoding": query_decoding,
+                "query_temperature": query_temperature,
+                "query_seed": query_seed,
                 "text_normalization": text_normalization,
                 "tokenizer_artifact": "sentencepiece-model",
                 "model_artifact": "trained-model-json",
                 "evaluation_artifact": "evaluation-summary",
+                "query_artifact": "query-result",
             }
         )
 
@@ -381,6 +438,26 @@ def main(
             ),
             metadata={"model": model_definition.name, "corpus": corpus},
         )
+
+        query_options = {
+            "corpus": corpus,
+            "model_path": training_summary.output_path,
+            "prompt": query_prompt,
+            "max_tokens": query_max_tokens,
+            "top_k": query_top_k,
+            "decoding": query_decoding,
+            "temperature": query_temperature,
+            "seed": query_seed,
+        }
+        if model_definition.validate_query_options is not None:
+            model_definition.validate_query_options(query_options)
+        query_result = model_definition.query(query_options)
+        clearml_run.log_metrics("Query", query_metrics(query_result))
+        clearml_run.upload_artifact(
+            "query-result",
+            pipeline_query_payload(query_result),
+            metadata={"model": model_definition.name, "corpus": corpus},
+        )
         clearml_run.upload_artifact(
             "pipeline-summary",
             pipeline_payload(
@@ -394,6 +471,7 @@ def main(
                 tokenizer_vocab=tokenizer_vocab,
                 training_summary=training_summary,
                 evaluation_summary=evaluation_summary,
+                query_result=query_result,
             ),
             metadata={"model": model_definition.name, "corpus": corpus},
         )
@@ -416,12 +494,17 @@ def main(
     for label, value in model_definition.evaluation_items(evaluation_summary):
         click.echo(f"{label}: {value}")
     click.echo("")
+    click.echo("Query:")
+    for line in model_definition.query_lines(query_result):
+        click.echo(line)
+    click.echo("")
     click.echo(f"ClearML task ID: {task_id}")
     if task_url is not None:
         click.echo(f"ClearML task URL: {task_url}")
     click.echo("Tokenizer artifact: sentencepiece-model")
     click.echo("Model artifact: trained-model-json")
     click.echo("Evaluation artifact: evaluation-summary")
+    click.echo("Query artifact: query-result")
 
 
 def load_texts(
@@ -458,6 +541,10 @@ def pipeline_evaluation_payload(
     }
 
 
+def pipeline_query_payload(result: object) -> dict[str, object]:
+    return query_payload(result)
+
+
 def pipeline_payload(
     *,
     model_name: str,
@@ -470,6 +557,7 @@ def pipeline_payload(
     tokenizer_vocab: Path,
     training_summary: object,
     evaluation_summary: object,
+    query_result: object,
 ) -> dict[str, Any]:
     return {
         "model": model_name,
@@ -484,9 +572,11 @@ def pipeline_payload(
             "input_tokenizer_model": tokenizer_model.name,
             "trained_model_json": getattr(training_summary, "output_path").name,
             "evaluation_summary": "evaluation-summary",
+            "query_result": "query-result",
         },
         "training_metrics": training_summary_metrics(training_summary),
         "evaluation_metrics": evaluation_metrics(evaluation_summary),
+        "query_metrics": query_metrics(query_result),
     }
 
 
