@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import click
 
@@ -46,10 +47,9 @@ from src.tokenizers.sentencepiece_training import train_sentencepiece
     help="SentencePiece vocabulary size.",
 )
 @click.option(
-    "--output-prefix",
-    type=click.Path(dir_okay=False, path_type=Path),
+    "--artifact-name",
     default=None,
-    help="Output prefix for .model and .vocab files.",
+    help="Base name for the tokenizer artifacts stored in ClearML.",
 )
 @click.option(
     "--model-type",
@@ -93,13 +93,12 @@ def main(
     streaming: bool,
     limit: int | None,
     vocab_size: int,
-    output_prefix: Path | None,
+    artifact_name: str | None,
     model_type: str,
     character_coverage: float,
     hard_vocab_limit: bool,
     max_sentence_length: int | None,
     text_normalization: str,
-    clearml: bool,
     clearml_project: str,
     clearml_task_name: str | None,
     clearml_output_uri: str | None,
@@ -109,26 +108,30 @@ def main(
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
     resolved_split = split or corpus_definition.split
     resolved_text_column = text_column or corpus_definition.text_column
-    resolved_output_prefix = output_prefix or Path(
-        "artifacts",
-        "tokenizers",
-        f"{corpus}-sentencepiece-{vocab_size}",
-    )
+    resolved_artifact_name = artifact_name or f"{corpus}-sentencepiece-{vocab_size}"
+    task_id: str | None = None
+    task_url: str | None = None
 
-    with start_clearml_run(
-        clearml_settings(
-            enabled=clearml,
-            project_name=clearml_project,
-            task_name=clearml_task_name,
-            output_uri=clearml_output_uri,
-            tags=clearml_tags,
-        ),
-        default_task_name=f"train sentencepiece {corpus} vocab-{vocab_size}",
-        task_type="training",
-    ) as clearml_run:
+    with (
+        TemporaryDirectory(prefix="lme-tokenizer-") as staging_root,
+        start_clearml_run(
+            clearml_settings(
+                project_name=clearml_project,
+                task_name=clearml_task_name,
+                output_uri=clearml_output_uri,
+                tags=clearml_tags,
+            ),
+            default_task_name=f"train sentencepiece {corpus} vocab-{vocab_size}",
+            task_type="training",
+        ) as clearml_run,
+    ):
+        resolved_output_prefix = Path(staging_root, resolved_artifact_name)
+        task_id = clearml_run.task_id
+        task_url = clearml_run.task_url
         clearml_run.connect_parameters(
             {
                 "command": "src.cli.train_sentencepiece",
+                "artifact_store": "clearml",
                 "corpus": corpus,
                 "dataset_id": resolved_dataset_id,
                 "split": resolved_split,
@@ -136,7 +139,7 @@ def main(
                 "streaming": streaming,
                 "limit": limit,
                 "vocab_size": vocab_size,
-                "output_prefix": resolved_output_prefix,
+                "artifact_name": resolved_artifact_name,
                 "model_type": model_type,
                 "character_coverage": character_coverage,
                 "hard_vocab_limit": hard_vocab_limit,
@@ -177,6 +180,11 @@ def main(
             },
         )
         clearml_run.upload_artifact(
+            "sentencepiece-model",
+            model_path,
+            metadata={"corpus": corpus, "vocab_size": vocab_size},
+        )
+        clearml_run.upload_artifact(
             "sentencepiece-vocabulary",
             vocab_path,
             metadata={"corpus": corpus, "vocab_size": vocab_size},
@@ -196,8 +204,11 @@ def main(
     click.echo(f"Text normalization: {text_normalization}")
     if limit is not None:
         click.echo(f"Limit: first {limit:,} rows")
-    click.echo(f"Model: {model_path}")
-    click.echo(f"Vocabulary: {vocab_path}")
+    click.echo(f"ClearML task ID: {task_id}")
+    if task_url is not None:
+        click.echo(f"ClearML task URL: {task_url}")
+    click.echo("Model artifact: sentencepiece-model")
+    click.echo("Vocabulary artifact: sentencepiece-vocabulary")
 
 
 if __name__ == "__main__":

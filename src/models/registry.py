@@ -233,6 +233,7 @@ def train_bigram_from_options(
         texts,
         tokenizer_model=resolve_bigram_tokenizer_model(options),
         output_path=resolve_bigram_output(options),
+        stored_tokenizer_model=options.get("stored_tokenizer_model"),
         smoothing=options["smoothing"],
         text_normalization=options["text_normalization"],
     )
@@ -246,6 +247,7 @@ def train_trigram_from_options(
         texts,
         tokenizer_model=resolve_trigram_tokenizer_model(options),
         output_path=resolve_trigram_output(options),
+        stored_tokenizer_model=options.get("stored_tokenizer_model"),
         smoothing=options["smoothing"],
         unigram_weight=options["unigram_weight"],
         bigram_weight=options["bigram_weight"],
@@ -262,6 +264,7 @@ def train_absolute_discount_trigram_from_options(
         texts,
         tokenizer_model=resolve_trigram_tokenizer_model(options),
         output_path=resolve_absolute_discount_trigram_output(options),
+        stored_tokenizer_model=options.get("stored_tokenizer_model"),
         smoothing=options["smoothing"],
         discount=options["discount"],
         text_normalization=options["text_normalization"],
@@ -276,6 +279,7 @@ def train_kneser_ney_trigram_from_options(
         texts,
         tokenizer_model=resolve_trigram_tokenizer_model(options),
         output_path=resolve_kneser_ney_trigram_output(options),
+        stored_tokenizer_model=options.get("stored_tokenizer_model"),
         discount=options["discount"],
         text_normalization=options["text_normalization"],
     )
@@ -367,8 +371,8 @@ def evaluate_kneser_ney_trigram_from_options(
 
 def format_bigram_summary(summary: BigramTrainingSummary) -> list[tuple[str, str]]:
     return [
-        ("Tokenizer", str(summary.tokenizer_model)),
-        ("Bigram model", str(summary.output_path)),
+        ("Tokenizer artifact file", artifact_filename(summary.tokenizer_model)),
+        ("Bigram model artifact file", artifact_filename(summary.output_path)),
         ("Text normalization", summary.text_normalization),
         ("Vocabulary size", f"{summary.vocab_size:,}"),
         ("Sequences", f"{summary.sequence_count:,}"),
@@ -379,8 +383,8 @@ def format_bigram_summary(summary: BigramTrainingSummary) -> list[tuple[str, str
 
 def format_trigram_summary(summary: TrigramTrainingSummary) -> list[tuple[str, str]]:
     return [
-        ("Tokenizer", str(summary.tokenizer_model)),
-        ("Trigram model", str(summary.output_path)),
+        ("Tokenizer artifact file", artifact_filename(summary.tokenizer_model)),
+        ("Trigram model artifact file", artifact_filename(summary.output_path)),
         ("Text normalization", summary.text_normalization),
         ("Vocabulary size", f"{summary.vocab_size:,}"),
         ("Sequences", f"{summary.sequence_count:,}"),
@@ -403,8 +407,11 @@ def format_absolute_discount_trigram_summary(
     summary: AbsoluteDiscountTrigramTrainingSummary,
 ) -> list[tuple[str, str]]:
     return [
-        ("Tokenizer", str(summary.tokenizer_model)),
-        ("Absolute-discount trigram model", str(summary.output_path)),
+        ("Tokenizer artifact file", artifact_filename(summary.tokenizer_model)),
+        (
+            "Absolute-discount trigram model artifact file",
+            artifact_filename(summary.output_path),
+        ),
         ("Text normalization", summary.text_normalization),
         ("Vocabulary size", f"{summary.vocab_size:,}"),
         ("Sequences", f"{summary.sequence_count:,}"),
@@ -420,8 +427,11 @@ def format_kneser_ney_trigram_summary(
     summary: KneserNeyTrigramTrainingSummary,
 ) -> list[tuple[str, str]]:
     return [
-        ("Tokenizer", str(summary.tokenizer_model)),
-        ("Interpolated Kneser-Ney trigram model", str(summary.output_path)),
+        ("Tokenizer artifact file", artifact_filename(summary.tokenizer_model)),
+        (
+            "Interpolated Kneser-Ney trigram model artifact file",
+            artifact_filename(summary.output_path),
+        ),
         ("Text normalization", summary.text_normalization),
         ("Vocabulary size", f"{summary.vocab_size:,}"),
         ("Sequences", f"{summary.sequence_count:,}"),
@@ -437,8 +447,8 @@ def format_kneser_ney_trigram_summary(
 
 def format_bigram_evaluation(summary: BigramEvaluationSummary) -> list[tuple[str, str]]:
     return [
-        ("Model file", str(summary.model_path)),
-        ("Tokenizer", str(summary.tokenizer_model)),
+        ("Model artifact file", artifact_filename(summary.model_path)),
+        ("Tokenizer artifact file", artifact_filename(summary.tokenizer_model)),
         ("Text normalization", summary.text_normalization),
         *format_ngram_evaluation_metrics(summary),
     ]
@@ -446,8 +456,8 @@ def format_bigram_evaluation(summary: BigramEvaluationSummary) -> list[tuple[str
 
 def format_trigram_evaluation(summary: TrigramEvaluationSummary) -> list[tuple[str, str]]:
     return [
-        ("Model file", str(summary.model_path)),
-        ("Tokenizer", str(summary.tokenizer_model)),
+        ("Model artifact file", artifact_filename(summary.model_path)),
+        ("Tokenizer artifact file", artifact_filename(summary.tokenizer_model)),
         ("Text normalization", summary.text_normalization),
         (
             "Interpolation weights",
@@ -465,8 +475,8 @@ def format_absolute_discount_trigram_evaluation(
     summary: AbsoluteDiscountTrigramEvaluationSummary,
 ) -> list[tuple[str, str]]:
     return [
-        ("Model file", str(summary.model_path)),
-        ("Tokenizer", str(summary.tokenizer_model)),
+        ("Model artifact file", artifact_filename(summary.model_path)),
+        ("Tokenizer artifact file", artifact_filename(summary.tokenizer_model)),
         ("Text normalization", summary.text_normalization),
         ("Discount", f"{summary.discount:.3f}"),
         *format_ngram_evaluation_metrics(summary),
@@ -477,8 +487,8 @@ def format_kneser_ney_trigram_evaluation(
     summary: KneserNeyTrigramEvaluationSummary,
 ) -> list[tuple[str, str]]:
     return [
-        ("Model file", str(summary.model_path)),
-        ("Tokenizer", str(summary.tokenizer_model)),
+        ("Model artifact file", artifact_filename(summary.model_path)),
+        ("Tokenizer artifact file", artifact_filename(summary.tokenizer_model)),
         ("Text normalization", summary.text_normalization),
         ("Discount", f"{summary.discount:.3f}"),
         *format_ngram_evaluation_metrics(summary),
@@ -534,8 +544,8 @@ def format_ngram_query(result: Any) -> list[str]:
         else "Sampled continuation:"
     )
     lines = [
-        f"Model file: {result.model_path}",
-        f"Tokenizer: {result.tokenizer_model}",
+        f"Model artifact file: {artifact_filename(result.model_path)}",
+        f"Tokenizer artifact file: {artifact_filename(result.tokenizer_model)}",
         f"Text normalization: {result.text_normalization}",
         f"Decoding: {result.decoding}",
         f"Prompt tokens: {len(result.prompt_token_ids):,}",
@@ -566,6 +576,10 @@ def format_prediction_piece(
     if special_label is not None:
         return special_label
     return ascii(prediction.piece.replace("\u2581", " "))
+
+
+def artifact_filename(path: Path) -> str:
+    return path.name
 
 
 def special_token_label(token_id: int, result: Any) -> str | None:

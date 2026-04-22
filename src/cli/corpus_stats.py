@@ -74,7 +74,6 @@ def main(
     top_n_lengths: int,
     preview_chars: int,
     text_normalization: str,
-    clearml: bool,
     clearml_project: str,
     clearml_task_name: str | None,
     clearml_output_uri: str | None,
@@ -87,7 +86,6 @@ def main(
 
     with start_clearml_run(
         clearml_settings(
-            enabled=clearml,
             project_name=clearml_project,
             task_name=clearml_task_name,
             output_uri=clearml_output_uri,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,7 +17,6 @@ DEFAULT_CLEARML_PROJECT = "language-models-experiments"
 
 @dataclass(frozen=True)
 class ClearMLSettings:
-    enabled: bool
     project_name: str = DEFAULT_CLEARML_PROJECT
     task_name: str | None = None
     output_uri: str | None = None
@@ -48,26 +48,17 @@ def clearml_options(command: Any) -> Any:
         show_default=True,
         help="ClearML project name.",
     )(command)
-    command = click.option(
-        "--clearml/--no-clearml",
-        default=False,
-        envvar="LME_CLEARML",
-        show_default=True,
-        help="Register this CLI run in ClearML.",
-    )(command)
     return command
 
 
 def clearml_settings(
     *,
-    enabled: bool,
     project_name: str,
     task_name: str | None,
     output_uri: str | None,
     tags: tuple[str, ...],
 ) -> ClearMLSettings:
     return ClearMLSettings(
-        enabled=enabled,
         project_name=project_name,
         task_name=task_name,
         output_uri=output_uri,
@@ -92,6 +83,22 @@ class ClearMLRun:
     @property
     def enabled(self) -> bool:
         return self.task is not None
+
+    @property
+    def task_id(self) -> str | None:
+        if self.task is None:
+            return None
+        return str(self.task.id)
+
+    @property
+    def task_url(self) -> str | None:
+        if self.task is None:
+            return None
+        url_getter = getattr(self.task, "get_output_log_web_page", None)
+        if not callable(url_getter):
+            return None
+        url = url_getter()
+        return str(url) if url else None
 
     def __enter__(self) -> ClearMLRun:
         return self
@@ -191,15 +198,12 @@ def start_clearml_run(
     default_task_name: str,
     task_type: str,
 ) -> ClearMLRun:
-    if not settings.enabled:
-        return ClearMLRun()
-
     try:
         from clearml import OutputModel, Task
     except ImportError as error:
         raise click.ClickException(
             "ClearML tracking requires the clearml Python package. "
-            "Run `uv sync` before using --clearml."
+            "Run `uv sync` before using the experiment CLIs."
         ) from error
 
     output_uri: str | bool = settings.output_uri if settings.output_uri is not None else True
@@ -221,6 +225,54 @@ def start_clearml_run(
         output_uri=settings.output_uri,
         task_tags=settings.tags,
     )
+
+
+def download_task_artifact(
+    *,
+    task_id: str,
+    artifact_name: str,
+    destination_dir: Path,
+    filename: str | None = None,
+) -> Path:
+    try:
+        from clearml import Task
+    except ImportError as error:
+        raise click.ClickException(
+            "ClearML artifact download requires the clearml Python package. "
+            "Run `uv sync` before using this command."
+        ) from error
+
+    task = Task.get_task(task_id=task_id)
+    artifact = task.artifacts.get(artifact_name)
+    if artifact is None:
+        available = ", ".join(sorted(task.artifacts)) or "none"
+        raise click.ClickException(
+            f"ClearML task {task_id} has no artifact named {artifact_name!r}. "
+            f"Available artifacts: {available}."
+        )
+
+    local_copy = artifact.get_local_copy()
+    if local_copy is None:
+        raise click.ClickException(
+            f"Could not download ClearML artifact {artifact_name!r} from task {task_id}."
+        )
+
+    source = Path(local_copy)
+    if not source.exists():
+        raise click.ClickException(
+            f"Downloaded ClearML artifact path does not exist: {source}"
+        )
+    if source.is_dir():
+        raise click.ClickException(
+            f"ClearML artifact {artifact_name!r} from task {task_id} is a directory; "
+            "this CLI expects a single file artifact."
+        )
+
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination = destination_dir / (filename or source.name)
+    if source.resolve() != destination.resolve():
+        shutil.copy2(source, destination)
+    return destination
 
 
 def sanitize_value(value: Any) -> Any:

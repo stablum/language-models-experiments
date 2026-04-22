@@ -2,7 +2,9 @@
 
 Small language-model experiments around BabyLM-style corpora.
 
-The project is intentionally local and lightweight. It is not configured as an installable Python package; use `uv run python -m ...` from the repository root.
+The project is intentionally lightweight, but ClearML is the experiment system of record. Training, evaluation, query, and corpus-stat commands create ClearML tasks and store generated experiment artifacts there. Local storage is reserved for corpus caches and the repo-local ClearML/Docker service state.
+
+It is not configured as an installable Python package; use `uv run python -m ...` from the repository root.
 
 ## Setup
 
@@ -12,7 +14,17 @@ Use the latest stable Python line supported by the project:
 uv sync
 ```
 
-The project currently requires Python 3.14 or newer. A new machine needs Python 3.14, `uv`, Docker Desktop or another Docker Engine with Compose support, and enough disk space for Hugging Face datasets plus local experiment artifacts.
+The project currently requires Python 3.14 or newer. A new machine needs Python 3.14, `uv`, Docker Desktop or another Docker Engine with Compose support, and enough disk space for Hugging Face datasets plus repo-local ClearML server storage.
+
+Start the repo-local ClearML server before running experiment CLIs:
+
+```powershell
+docker compose -f docker-compose.clearml.yml up -d
+New-Item -ItemType Directory -Force .clearml
+Copy-Item clearml.local.conf.example .clearml/clearml.conf
+$env:CLEARML_CONFIG_FILE = (Resolve-Path .clearml/clearml.conf).Path
+$env:CLEARML_OUTPUT_URI = "http://localhost:8081"
+```
 
 ## Layout
 
@@ -22,7 +34,7 @@ src/
   corpora/      Dataset loading, registry, and corpus text helpers
   models/       Small language model training utilities
   tokenizers/   Tokenizer training utilities
-artifacts/      Local generated outputs, ignored by git
+.clearml/       Local ClearML Server state, ignored by git
 ```
 
 ## Corpus Stats
@@ -49,11 +61,11 @@ Train a 1000-vocabulary SentencePiece tokenizer:
 uv run python -m src.cli.train_sentencepiece --streaming --vocab-size 1000 --max-sentence-length 8192
 ```
 
-Default outputs:
+The command stores generated tokenizer files in ClearML and prints the task ID. Downstream model training uses that task ID.
 
 ```text
-artifacts/tokenizers/babylm-2026-strict-small-sentencepiece-1000.model
-artifacts/tokenizers/babylm-2026-strict-small-sentencepiece-1000.vocab
+ClearML artifact: sentencepiece-model
+ClearML artifact: sentencepiece-vocabulary
 ```
 
 Tokenizer training uses `--text-normalization lossy-ascii` by default. This keeps the learned vocabulary English-focused and ASCII-only apart from SentencePiece's internal word-boundary marker. Pass `--text-normalization none` when you intentionally want the tokenizer to learn from the original Unicode text.
@@ -63,13 +75,14 @@ Tokenizer training uses `--text-normalization lossy-ascii` by default. This keep
 Train a very simple autoregressive token bigram model from the SentencePiece tokenizer:
 
 ```powershell
-uv run python -m src.cli.train --model bigram --streaming
+uv run python -m src.cli.train --model bigram --streaming --tokenizer-task-id <TOKENIZER_TASK_ID>
 ```
 
-Default output:
+The command stores the trained language model and tokenizer input in ClearML and prints the model-training task ID.
 
 ```text
-artifacts/models/babylm-2026-strict-small-sentencepiece-bigram.json
+ClearML artifact: trained-model-json
+ClearML artifact: input-tokenizer-model
 ```
 
 The model stores readable indented JSON with sparse transition counts for `P(next_token | previous_token)`, plus tokenizer metadata, text-normalization metadata, and an add-k smoothing value. It is meant as a simple baseline, not a serious neural language model.
@@ -77,13 +90,7 @@ The model stores readable indented JSON with sparse transition counts for `P(nex
 Train an interpolated trigram model:
 
 ```powershell
-uv run python -m src.cli.train --model trigram --streaming
-```
-
-Default output:
-
-```text
-artifacts/models/babylm-2026-strict-small-sentencepiece-trigram.json
+uv run python -m src.cli.train --model trigram --streaming --tokenizer-task-id <TOKENIZER_TASK_ID>
 ```
 
 The trigram model estimates `P(next_token | previous_previous_token, previous_token)` with linear interpolation over add-k smoothed unigram, bigram, and trigram probabilities. The default weights are `0.1 / 0.3 / 0.6`; adjust them with `--unigram-weight`, `--bigram-weight`, and `--trigram-weight`.
@@ -91,13 +98,7 @@ The trigram model estimates `P(next_token | previous_previous_token, previous_to
 Train an absolute-discount trigram model:
 
 ```powershell
-uv run python -m src.cli.train --model trigram-absolute-discount --streaming
-```
-
-Default output:
-
-```text
-artifacts/models/babylm-2026-strict-small-sentencepiece-trigram-absolute-discount.json
+uv run python -m src.cli.train --model trigram-absolute-discount --streaming --tokenizer-task-id <TOKENIZER_TASK_ID>
 ```
 
 The absolute-discount trigram model subtracts a fixed discount from observed trigram counts, then backs off to an ordinary add-k smoothed bigram distribution with the reserved probability mass. The default discount is `0.75`; adjust it with `--discount`.
@@ -105,13 +106,7 @@ The absolute-discount trigram model subtracts a fixed discount from observed tri
 Train an interpolated Kneser-Ney trigram model:
 
 ```powershell
-uv run python -m src.cli.train --model trigram-kneser-ney --streaming
-```
-
-Default output:
-
-```text
-artifacts/models/babylm-2026-strict-small-sentencepiece-trigram-kneser-ney.json
+uv run python -m src.cli.train --model trigram-kneser-ney --streaming --tokenizer-task-id <TOKENIZER_TASK_ID>
 ```
 
 This is the recursive discounted/interpolated model usually called interpolated Kneser-Ney smoothing. It discounts the trigram distribution, interpolates with a lower-order Kneser-Ney bigram distribution built from continuation counts, then recursively discounts and interpolates that lower-order distribution down to a uniform base. The default discount is `0.75`; adjust it with `--discount`.
@@ -119,19 +114,19 @@ This is the recursive discounted/interpolated model usually called interpolated 
 Query a trained model and generate a short sample:
 
 ```powershell
-uv run python -m src.cli.query --model bigram --max-tokens 80 --seed 1
+uv run python -m src.cli.query --model bigram --model-task-id <MODEL_TRAIN_TASK_ID> --max-tokens 80 --seed 1
 ```
 
 Condition the sample on a prompt:
 
 ```powershell
-uv run python -m src.cli.query --model bigram --prompt "Once upon" --max-tokens 80 --seed 1
+uv run python -m src.cli.query --model bigram --model-task-id <MODEL_TRAIN_TASK_ID> --prompt "Once upon" --max-tokens 80 --seed 1
 ```
 
 Ask for the most probable continuation after a prompt:
 
 ```powershell
-uv run python -m src.cli.query --model bigram --prompt "Once upon" --decoding most-probable --max-tokens 80
+uv run python -m src.cli.query --model bigram --model-task-id <MODEL_TRAIN_TASK_ID> --prompt "Once upon" --decoding most-probable --max-tokens 80
 ```
 
 The same query and evaluation commands work with `--model trigram`, `--model trigram-absolute-discount`, or `--model trigram-kneser-ney` after training that model.
@@ -141,7 +136,7 @@ The query command normalizes prompts with the mode stored in the model file. It 
 Evaluate a trained model:
 
 ```powershell
-uv run python -m src.cli.evaluate --model bigram --streaming --limit 1000
+uv run python -m src.cli.evaluate --model bigram --model-task-id <MODEL_TRAIN_TASK_ID> --streaming --limit 1000
 ```
 
 The evaluation command reports next-token accuracy, top-k accuracy, average negative log-likelihood, cross-entropy, and perplexity. Use `--split` when a corpus has a held-out validation or test split; evaluating on the training split is mainly a sanity check.
@@ -166,7 +161,7 @@ To add another model, add its code under `src/models/` and register a new `Model
 
 ## ClearML
 
-Start a local ClearML server:
+ClearML is required for experiment tracking and durable artifact storage. Start a local ClearML server:
 
 ```powershell
 docker compose -f docker-compose.clearml.yml up -d
@@ -193,20 +188,25 @@ Create a local SDK config file:
 New-Item -ItemType Directory -Force .clearml
 Copy-Item clearml.local.conf.example .clearml/clearml.conf
 $env:CLEARML_CONFIG_FILE = (Resolve-Path .clearml/clearml.conf).Path
+$env:CLEARML_OUTPUT_URI = "http://localhost:8081"
 ```
 
 `clearml.local.conf.example` uses ClearML Server's public default local-development credentials. They are fine for a private laptop smoke test, but replace them with credentials from the ClearML UI before exposing the server outside your machine or trusted network. You can also run `uv run clearml-init` and paste credentials generated from the UI instead of copying the example file.
 
-Then pass `--clearml` to register a CLI run. For example:
+Every CLI run creates a ClearML task. Use task IDs printed by earlier commands to connect the artifact flow:
 
 ```powershell
-uv run python -m src.cli.train_sentencepiece --streaming --limit 1000 --clearml
-uv run python -m src.cli.train --model bigram --streaming --limit 1000 --clearml
-uv run python -m src.cli.evaluate --model bigram --streaming --limit 1000 --clearml
-uv run python -m src.cli.query --model bigram --prompt "Once upon" --clearml
+uv run python -m src.cli.train_sentencepiece --streaming --limit 1000
+
+$tokenizerTaskId = "<task ID printed by train_sentencepiece>"
+uv run python -m src.cli.train --model bigram --streaming --limit 1000 --tokenizer-task-id $tokenizerTaskId
+
+$modelTaskId = "<task ID printed by train>"
+uv run python -m src.cli.evaluate --model bigram --streaming --limit 1000 --model-task-id $modelTaskId
+uv run python -m src.cli.query --model bigram --prompt "Once upon" --model-task-id $modelTaskId
 ```
 
-ClearML tracking is opt-in. When enabled, the CLIs create a run, connect CLI options as hyperparameters, report final metrics, upload useful artifacts, and register trained tokenizer/model files. Use `--clearml-project`, `--clearml-task-name`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the task.
+The CLIs connect options as hyperparameters, report final metrics, upload useful artifacts, and register trained tokenizer/model files. Use `--clearml-project`, `--clearml-task-name`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the task.
 
 ### ClearML Smoke Test
 
@@ -218,16 +218,19 @@ docker compose -f docker-compose.clearml.yml up -d
 New-Item -ItemType Directory -Force .clearml
 Copy-Item clearml.local.conf.example .clearml/clearml.conf
 $env:CLEARML_CONFIG_FILE = (Resolve-Path .clearml/clearml.conf).Path
+$env:CLEARML_OUTPUT_URI = "http://localhost:8081"
 
-uv run python -m src.cli.train_sentencepiece --streaming --limit 50 --vocab-size 100 --output-prefix artifacts/tokenizers/clearml-smoke-sentencepiece-100 --no-hard-vocab-limit --clearml --clearml-task-name "clearml smoke sentencepiece" --clearml-tag smoke --clearml-output-uri http://localhost:8081
-uv run python -m src.cli.train --model bigram --streaming --limit 5 --tokenizer-model artifacts/tokenizers/clearml-smoke-sentencepiece-100.model --output artifacts/models/clearml-smoke-bigram.json --clearml --clearml-task-name "clearml smoke bigram" --clearml-tag smoke --clearml-output-uri http://localhost:8081
-uv run python -m src.cli.train --model trigram --streaming --limit 5 --tokenizer-model artifacts/tokenizers/clearml-smoke-sentencepiece-100.model --output artifacts/models/clearml-smoke-trigram.json --clearml --clearml-task-name "clearml smoke trigram" --clearml-tag smoke --clearml-output-uri http://localhost:8081
+uv run python -m src.cli.train_sentencepiece --streaming --limit 50 --vocab-size 100 --artifact-name clearml-smoke-sentencepiece-100 --no-hard-vocab-limit --clearml-task-name "clearml smoke sentencepiece" --clearml-tag smoke
+
+$tokenizerTaskId = "<task ID printed by train_sentencepiece>"
+uv run python -m src.cli.train --model bigram --streaming --limit 5 --tokenizer-task-id $tokenizerTaskId --clearml-task-name "clearml smoke bigram" --clearml-tag smoke
+uv run python -m src.cli.train --model trigram --streaming --limit 5 --tokenizer-task-id $tokenizerTaskId --clearml-task-name "clearml smoke trigram" --clearml-tag smoke
 ```
 
 Expected result:
 
 ```text
-ClearML task pages are printed in the terminal.
+ClearML task IDs and task pages are printed in the terminal.
 The ClearML UI shows completed tasks tagged smoke.
 Each training task has CLI hyperparameters, final scalar metrics, an input tokenizer artifact, and a trained model JSON artifact.
 The Models page contains registered model records for the tokenizer and n-gram model files.
@@ -242,4 +245,4 @@ docker compose -f docker-compose.clearml.yml down
 
 ## Generated Files
 
-Generated models, tokenizer files, and other experiment outputs belong under `artifacts/`. That directory is ignored by git.
+Generated models, tokenizer files, evaluation summaries, query results, and other experiment outputs belong in ClearML. The CLIs may create temporary local staging files while they run, but those files are cleaned up after upload. Corpus caches and `.clearml/` Docker/ClearML server state remain local and are ignored by git.

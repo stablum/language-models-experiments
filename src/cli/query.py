@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import click
 
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
-from src.tracking.clearml import clearml_options, clearml_settings, start_clearml_run
+from src.tracking.clearml import (
+    clearml_options,
+    clearml_settings,
+    download_task_artifact,
+    start_clearml_run,
+)
 
 
 @click.command(
@@ -31,10 +37,18 @@ from src.tracking.clearml import clearml_options, clearml_settings, start_clearm
     help="Registered corpus used to resolve the default model path.",
 )
 @click.option(
+    "--model-task-id",
+    default=None,
+    help=(
+        "ClearML task ID produced by src.cli.train. Downloads its trained-model-json "
+        "and input-tokenizer-model artifacts for querying."
+    ),
+)
+@click.option(
     "--model-path",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     default=None,
-    help="Path to a trained model file.",
+    help="Local trained model file to query.",
 )
 @click.option(
     "--prompt",
@@ -80,6 +94,7 @@ from src.tracking.clearml import clearml_options, clearml_settings, start_clearm
 def main(
     model_name: str,
     corpus: str,
+    model_task_id: str | None,
     model_path: Path | None,
     prompt: str,
     max_tokens: int,
@@ -87,7 +102,6 @@ def main(
     decoding: str,
     temperature: float,
     seed: int | None,
-    clearml: bool,
     clearml_project: str,
     clearml_task_name: str | None,
     clearml_output_uri: str | None,
@@ -96,38 +110,60 @@ def main(
     model_definition = get_model(model_name)
     if model_definition.query is None or model_definition.query_lines is None:
         raise click.ClickException(f"Model does not support querying yet: {model_name}")
-
-    query_options = {
-        "corpus": corpus,
-        "model_path": model_path,
-        "prompt": prompt,
-        "max_tokens": max_tokens,
-        "top_k": top_k,
-        "decoding": decoding,
-        "temperature": temperature,
-        "seed": seed,
-    }
-    if model_definition.validate_query_options is not None:
-        model_definition.validate_query_options(query_options)
+    validate_model_source(model_task_id=model_task_id, model_path=model_path)
 
     click.echo(f"Model: {model_definition.name}")
     click.echo(f"Corpus: {corpus}")
-    with start_clearml_run(
-        clearml_settings(
-            enabled=clearml,
-            project_name=clearml_project,
-            task_name=clearml_task_name,
-            output_uri=clearml_output_uri,
-            tags=clearml_tags,
-        ),
-        default_task_name=f"query {model_definition.name} {corpus}",
-        task_type="inference",
-    ) as clearml_run:
+    task_id: str | None = None
+    task_url: str | None = None
+    with (
+        TemporaryDirectory(prefix="lme-query-") as staging_root,
+        start_clearml_run(
+            clearml_settings(
+                project_name=clearml_project,
+                task_name=clearml_task_name,
+                output_uri=clearml_output_uri,
+                tags=clearml_tags,
+            ),
+            default_task_name=f"query {model_definition.name} {corpus}",
+            task_type="inference",
+        ) as clearml_run,
+    ):
+        staged_model_path = stage_model_artifacts(
+            model_task_id=model_task_id,
+            model_path=model_path,
+            staging_dir=Path(staging_root),
+        )
+        query_options = {
+            "corpus": corpus,
+            "model_path": staged_model_path,
+            "prompt": prompt,
+            "max_tokens": max_tokens,
+            "top_k": top_k,
+            "decoding": decoding,
+            "temperature": temperature,
+            "seed": seed,
+        }
+        if model_definition.validate_query_options is not None:
+            model_definition.validate_query_options(query_options)
+
+        task_id = clearml_run.task_id
+        task_url = clearml_run.task_url
         clearml_run.connect_parameters(
             {
                 "command": "src.cli.query",
+                "artifact_store": "clearml",
                 "model": model_definition.name,
-                **query_options,
+                "model_task_id": model_task_id,
+                "model_artifact": "trained-model-json",
+                "tokenizer_artifact": "input-tokenizer-model",
+                "model_artifact_file": staged_model_path.name,
+                "prompt": prompt,
+                "max_tokens": max_tokens,
+                "top_k": top_k,
+                "decoding": decoding,
+                "temperature": temperature,
+                "seed": seed,
             }
         )
 
@@ -152,6 +188,48 @@ def main(
 
     for line in model_definition.query_lines(result):
         click.echo(line)
+    click.echo(f"ClearML task ID: {task_id}")
+    if task_url is not None:
+        click.echo(f"ClearML task URL: {task_url}")
+    click.echo("Query artifact: query-result")
+
+
+def stage_model_artifacts(
+    *,
+    model_task_id: str | None,
+    model_path: Path | None,
+    staging_dir: Path,
+) -> Path:
+    validate_model_source(model_task_id=model_task_id, model_path=model_path)
+
+    if model_task_id is not None:
+        download_task_artifact(
+            task_id=model_task_id,
+            artifact_name="input-tokenizer-model",
+            destination_dir=staging_dir,
+        )
+        return download_task_artifact(
+            task_id=model_task_id,
+            artifact_name="trained-model-json",
+            destination_dir=staging_dir,
+        )
+
+    return model_path
+
+
+def validate_model_source(
+    *,
+    model_task_id: str | None,
+    model_path: Path | None,
+) -> None:
+    if model_task_id is not None and model_path is not None:
+        raise click.ClickException("Pass either --model-task-id or --model-path, not both.")
+
+    if model_task_id is None and model_path is None:
+        raise click.ClickException(
+            "Querying now uses ClearML as the artifact store. Pass --model-task-id "
+            "from src.cli.train, or pass --model-path to query a local model file."
+        )
 
 
 def query_metrics(result: object) -> dict[str, object]:
@@ -168,8 +246,8 @@ def query_metrics(result: object) -> dict[str, object]:
 
 def query_payload(result: object) -> dict[str, object]:
     return {
-        "model_path": getattr(result, "model_path", None),
-        "tokenizer_model": getattr(result, "tokenizer_model", None),
+        "model_artifact_file": artifact_file(getattr(result, "model_path", None)),
+        "tokenizer_artifact_file": artifact_file(getattr(result, "tokenizer_model", None)),
         "decoding": getattr(result, "decoding", None),
         "text_normalization": getattr(result, "text_normalization", None),
         "prompt": getattr(result, "prompt", None),
@@ -188,6 +266,12 @@ def query_payload(result: object) -> dict[str, object]:
             for prediction in getattr(result, "next_token_predictions", [])
         ],
     }
+
+
+def artifact_file(path: object) -> str | None:
+    if path is None:
+        return None
+    return Path(path).name
 
 
 if __name__ == "__main__":

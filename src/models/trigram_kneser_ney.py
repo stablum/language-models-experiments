@@ -220,6 +220,7 @@ def train_kneser_ney_trigram_model(
     *,
     tokenizer_model: Path,
     output_path: Path,
+    stored_tokenizer_model: Path | None = None,
     discount: float = 0.75,
     text_normalization: TextNormalization = DEFAULT_TEXT_NORMALIZATION,
 ) -> KneserNeyTrigramTrainingSummary:
@@ -237,7 +238,7 @@ def train_kneser_ney_trigram_model(
     model = {
         "schema_version": 1,
         "model_type": "interpolated_kneser_ney_trigram",
-        "tokenizer_model": str(tokenizer_model),
+        "tokenizer_model": str(stored_tokenizer_model or tokenizer_model),
         "vocab_size": processor.get_piece_size(),
         "discount": discount,
         "text_normalization": text_normalization,

@@ -317,6 +317,7 @@ def train_bigram_model(
     *,
     tokenizer_model: Path,
     output_path: Path,
+    stored_tokenizer_model: Path | None = None,
     smoothing: float = 0.1,
     text_normalization: TextNormalization = DEFAULT_TEXT_NORMALIZATION,
 ) -> BigramTrainingSummary:
@@ -342,7 +343,7 @@ def train_bigram_model(
     model = {
         "schema_version": 1,
         "model_type": "autoregressive_bigram",
-        "tokenizer_model": str(tokenizer_model),
+        "tokenizer_model": str(stored_tokenizer_model or tokenizer_model),
         "vocab_size": processor.get_piece_size(),
         "smoothing": smoothing,
         "text_normalization": text_normalization,
