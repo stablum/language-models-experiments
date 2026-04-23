@@ -267,6 +267,7 @@ def main(
 
     task_id: str | None = None
     task_url: str | None = None
+    click.echo(stage_title(1, 5, "ClearML setup"))
     with (
         TemporaryDirectory(prefix="lme-pipeline-") as staging_root,
         start_clearml_run(
@@ -328,7 +329,7 @@ def main(
             }
         )
 
-        click.echo(stage_title(1, 4, "Tokenizer training"))
+        click.echo(stage_title(2, 5, "Tokenizer training"))
         tokenizer_model, tokenizer_vocab = train_sentencepiece(
             load_texts(
                 corpus_definition,
@@ -378,7 +379,7 @@ def main(
             comment="SentencePiece tokenizer model.",
         )
 
-        click.echo(stage_title(2, 4, "Model training"))
+        click.echo(stage_title(3, 5, "Model training"))
         model_options = {
             "corpus": corpus,
             "tokenizer_model": tokenizer_model,
@@ -417,7 +418,7 @@ def main(
             comment="Token n-gram language model JSON.",
         )
 
-        click.echo(stage_title(3, 4, "Evaluation"))
+        click.echo(stage_title(4, 5, "Evaluation"))
         evaluation_options = {
             "corpus": corpus,
             "model_path": training_summary.output_path,
@@ -447,7 +448,7 @@ def main(
             metadata={"model": model_definition.name, "corpus": corpus},
         )
 
-        click.echo(stage_title(4, 4, "Query"))
+        click.echo(stage_title(5, 5, "Query"))
         query_options = {
             "corpus": corpus,
             "model_path": training_summary.output_path,

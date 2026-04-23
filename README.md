@@ -52,7 +52,7 @@ uv run python -m src.cli.pipeline
 
 Use `model = "bigram"` in config sections; it maps to the CLI `--model` option. Keys may be written as `snake_case` or `kebab-case`.
 
-Every CLI output line is prepended with a local European-style timestamp in `[DD/MM/YYYY HH:MM:SS]` format. Long-running commands also print numbered stage titles such as `Stage 2/4 - Model training:`. In terminals with ANSI color support, stage titles are bold cyan, error lines are red, and warning lines are yellow.
+Every CLI output line is prepended with a local timestamp in `[YYYY-MM-DD HH:MM:SS]` format. Long-running commands also print numbered stage titles such as `Stage 3/5 - Model training:`. Stage titles are bold cyan, timestamps are gray, error lines are red, and warning lines are yellow. Set `NO_COLOR=1` or `LME_COLOR=never` to disable ANSI colors.
 
 ## Corpus Stats
 
