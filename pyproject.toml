@@ -1,6 +1,6 @@
 [project]
 name = "language-models-experiments"
-version = "0.3.13"
+version = "0.3.14"
 license = "GPL-3.0-only"
 license-files = ["LICENSE"]
 requires-python = ">=3.14"

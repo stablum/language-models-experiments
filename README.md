@@ -43,7 +43,7 @@ Most omitted CLI options are read from [config.toml](config.toml). The precedenc
 command line option > environment variable > config.toml > built-in default
 ```
 
-The checked-in config uses the repo-local ClearML server, points the ClearML SDK at `clearml.conf`, uses download/cache dataset loading by default, and leaves row limits unset for full runs. Edit `config.toml` to change everyday defaults, or point one command at another file:
+The checked-in config uses the repo-local ClearML server, points the ClearML SDK at `clearml.conf`, checks ClearML endpoint connectivity before SDK task initialization, uses download/cache dataset loading by default, and leaves row limits unset for full runs. Edit `config.toml` to change everyday defaults, or point one command at another file:
 
 ```powershell
 $env:LME_CONFIG_FILE = "config.smoke.toml"
@@ -248,7 +248,7 @@ Copy-Item clearml.local.conf.example clearml.conf
 
 `clearml.local.conf.example` uses ClearML Server's public default local-development credentials. They are fine for a private laptop smoke test, but replace them with credentials from the ClearML UI before exposing the server outside your machine or trusted network. You can also run `uv run clearml-init` and paste credentials generated from the UI instead of copying the example file.
 
-The default `config.toml` sets `clearml_config_file = "clearml.conf"` and `clearml_output_uri = "http://localhost:8081"`, so the experiment CLIs can run without setting `CLEARML_CONFIG_FILE` or `CLEARML_OUTPUT_URI` in every PowerShell session. Use `--clearml-config-file`, `CLEARML_CONFIG_FILE`, or another `LME_CONFIG_FILE` when you want a different SDK config.
+The default `config.toml` sets `clearml_config_file = "clearml.conf"` and `clearml_output_uri = "http://localhost:8081"`, so the experiment CLIs can run without setting `CLEARML_CONFIG_FILE` or `CLEARML_OUTPUT_URI` in every PowerShell session. It also sets `clearml_connectivity_check = true`, which makes CLIs fail fast with a clear message when the configured ClearML server is down. Use `--clearml-config-file`, `CLEARML_CONFIG_FILE`, `--no-clearml-connectivity-check`, `CLEARML_CONNECTIVITY_CHECK`, or another `LME_CONFIG_FILE` when you want different SDK or connectivity-check behavior.
 
 For most experiments, use the end-to-end pipeline:
 

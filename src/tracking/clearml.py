@@ -26,11 +26,19 @@ class ClearMLSettings:
     project_name: str = DEFAULT_CLEARML_PROJECT
     task_name: str | None = None
     config_file: Path | None = None
+    connectivity_check: bool = True
     output_uri: str | None = None
     tags: tuple[str, ...] = ()
 
 
 def clearml_options(command: Any) -> Any:
+    command = click.option(
+        "--clearml-connectivity-check/--no-clearml-connectivity-check",
+        default=True,
+        envvar="CLEARML_CONNECTIVITY_CHECK",
+        show_default=True,
+        help="Check ClearML server endpoints before initializing the SDK task.",
+    )(command)
     command = click.option(
         "--clearml-tag",
         "clearml_tags",
@@ -70,6 +78,7 @@ def clearml_settings(
     project_name: str,
     task_name: str | None,
     config_file: Path | None,
+    connectivity_check: bool,
     output_uri: str | None,
     tags: tuple[str, ...],
 ) -> ClearMLSettings:
@@ -77,6 +86,7 @@ def clearml_settings(
         project_name=project_name,
         task_name=task_name,
         config_file=config_file,
+        connectivity_check=connectivity_check,
         output_uri=output_uri,
         tags=tuple(tags),
     )
@@ -215,7 +225,8 @@ def start_clearml_run(
     task_type: str,
 ) -> ClearMLRun:
     resolved_config_file = configure_clearml_config_file(settings.config_file)
-    assert_clearml_endpoints_reachable(resolved_config_file, settings.output_uri)
+    if settings.connectivity_check:
+        assert_clearml_endpoints_reachable(resolved_config_file, settings.output_uri)
 
     try:
         from clearml import OutputModel, Task

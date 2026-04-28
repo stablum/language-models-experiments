@@ -1,8 +1,8 @@
 # ClearML SDK configuration for the repo-local Docker Compose server.
 # Copy to .clearml/clearml.conf for local experiments:
 #
-#   Copy-Item clearml.local.conf.example .clearml/clearml.conf
-#   $env:CLEARML_CONFIG_FILE = (Resolve-Path .clearml/clearml.conf).Path
+#   Copy-Item clearml.local.conf.example clearml.conf
+#   $env:CLEARML_CONFIG_FILE = (Resolve-Path clearml.conf).Path
 #
 # These are ClearML Server's public default local-development credentials.
 # Replace them with credentials from the ClearML UI before exposing the server

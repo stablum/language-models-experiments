@@ -105,6 +105,7 @@ def main(
     clearml_project: str,
     clearml_task_name: str | None,
     clearml_config_file: Path | None,
+    clearml_connectivity_check: bool,
     clearml_output_uri: str | None,
     clearml_tags: tuple[str, ...],
 ) -> None:
@@ -124,6 +125,7 @@ def main(
                 project_name=clearml_project,
                 task_name=clearml_task_name,
                 config_file=clearml_config_file,
+                connectivity_check=clearml_connectivity_check,
                 output_uri=clearml_output_uri,
                 tags=clearml_tags,
             ),
