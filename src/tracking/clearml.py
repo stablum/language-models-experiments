@@ -4,16 +4,21 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import shutil
+import socket
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import click
 
 
 DEFAULT_CLEARML_PROJECT = "language-models-experiments"
+CLEARML_CONNECT_TIMEOUT_SECONDS = 2.0
+CLEARML_CONFIG_ENDPOINTS = ("api_server", "files_server")
 
 
 @dataclass(frozen=True)
@@ -209,7 +214,8 @@ def start_clearml_run(
     default_task_name: str,
     task_type: str,
 ) -> ClearMLRun:
-    configure_clearml_config_file(settings.config_file)
+    resolved_config_file = configure_clearml_config_file(settings.config_file)
+    assert_clearml_endpoints_reachable(resolved_config_file, settings.output_uri)
 
     try:
         from clearml import OutputModel, Task
@@ -240,9 +246,9 @@ def start_clearml_run(
     )
 
 
-def configure_clearml_config_file(config_file: Path | None) -> None:
+def configure_clearml_config_file(config_file: Path | None) -> Path | None:
     if config_file is None:
-        return
+        return None
 
     resolved_config_file = config_file.expanduser()
     if not resolved_config_file.is_absolute():
@@ -255,6 +261,88 @@ def configure_clearml_config_file(config_file: Path | None) -> None:
         )
 
     os.environ["CLEARML_CONFIG_FILE"] = str(resolved_config_file)
+    return resolved_config_file
+
+
+def assert_clearml_endpoints_reachable(
+    config_file: Path | None,
+    output_uri: str | None,
+) -> None:
+    endpoints = clearml_endpoints(config_file, output_uri)
+    failures = [
+        f"{label} {url}: {error}"
+        for label, url in endpoints
+        if (error := endpoint_connection_error(url)) is not None
+    ]
+    if not failures:
+        return
+
+    checked = ", ".join(f"{label} {url}" for label, url in endpoints)
+    details = "; ".join(failures)
+    raise click.ClickException(
+        "ClearML server is not reachable before task initialization. "
+        f"Checked: {checked}. "
+        "Start the repo-local server with `docker compose -f docker-compose.clearml.yml up -d`, "
+        "or pass a working --clearml-config-file / --clearml-output-uri. "
+        f"Details: {details}"
+    )
+
+
+def clearml_endpoints(
+    config_file: Path | None,
+    output_uri: str | None,
+) -> list[tuple[str, str]]:
+    endpoints = clearml_config_endpoints(config_file)
+    if output_uri is not None:
+        endpoints.append(("output_uri", output_uri))
+
+    unique_endpoints: list[tuple[str, str]] = []
+    seen_urls: set[str] = set()
+    for label, url in endpoints:
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        unique_endpoints.append((label, url))
+    return unique_endpoints
+
+
+def clearml_config_endpoints(config_file: Path | None) -> list[tuple[str, str]]:
+    if config_file is None:
+        return []
+
+    endpoint_pattern = re.compile(r"^\s*(api_server|files_server)\s*:\s*\"([^\"]+)\"")
+    endpoints: list[tuple[str, str]] = []
+    for line in config_file.read_text(encoding="utf-8").splitlines():
+        match = endpoint_pattern.match(line)
+        if match is None:
+            continue
+        label, url = match.groups()
+        if label in CLEARML_CONFIG_ENDPOINTS:
+            endpoints.append((label, url))
+    return endpoints
+
+
+def endpoint_connection_error(url: str) -> str | None:
+    parsed_url = urlparse(url)
+    if parsed_url.scheme not in ("http", "https"):
+        return None
+
+    hostname = parsed_url.hostname
+    if hostname is None:
+        return "missing hostname"
+
+    port = parsed_url.port
+    if port is None:
+        port = 443 if parsed_url.scheme == "https" else 80
+
+    try:
+        with socket.create_connection(
+            (hostname, port),
+            timeout=CLEARML_CONNECT_TIMEOUT_SECONDS,
+        ):
+            return None
+    except OSError as error:
+        return str(error)
 
 
 def download_task_artifact(
