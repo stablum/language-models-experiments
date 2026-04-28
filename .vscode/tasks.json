@@ -1,0 +1,28 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Pipeline (uv run)",
+            "type": "shell",
+            "command": "uv",
+            "args": [
+                "run",
+                "python",
+                "-m",
+                "src.cli.pipeline"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "LME_CONFIG_FILE": "${workspaceFolder}/config.toml"
+                }
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "detail": "Run the pipeline through uv using config.toml defaults.",
+            "problemMatcher": []
+        }
+    ]
+}
