@@ -15,7 +15,13 @@ from src.cli.evaluate import evaluation_metrics, evaluation_payload
 from src.cli.query import query_metrics, query_payload
 from src.cli.train import training_summary_metrics
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
-from src.corpora.registry import DEFAULT_CORPUS_NAME, CorpusDefinition, corpus_names, get_corpus
+from src.corpora.registry import (
+    DEFAULT_CORPUS_NAME,
+    CorpusDefinition,
+    corpus_names,
+    get_corpus,
+    split_note_for,
+)
 from src.corpora.text import iter_text_column
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
 from src.tracking.clearml import clearml_options, clearml_settings, start_clearml_run
@@ -51,7 +57,10 @@ from src.tokenizers.sentencepiece_training import train_sentencepiece
 @click.option(
     "--evaluation-split",
     default=None,
-    help="Override the dataset split for evaluation. Defaults to --split.",
+    help=(
+        "Named dataset split for evaluation. Defaults to --split and does not "
+        "create a holdout split."
+    ),
 )
 @click.option("--text-column", default=None, help="Override the registered text column.")
 @click.option(
@@ -506,6 +515,18 @@ def main(
     click.echo(f"Dataset: {resolved_dataset_id}")
     click.echo(f"Training split: {resolved_split}")
     click.echo(f"Evaluation split: {resolved_evaluation_split}")
+    if resolved_evaluation_split == resolved_split:
+        click.echo(
+            "Evaluation note: evaluation uses the same dataset split as training; "
+            "metrics are not held-out validation."
+        )
+    split_note = split_note_for(
+        corpus_definition,
+        split=resolved_evaluation_split,
+        dataset_id_override=dataset_id,
+    )
+    if split_note is not None:
+        click.echo(f"Split note: {split_note}")
     click.echo(f"Text column: {resolved_text_column}")
     click.echo(f"Text normalization: {text_normalization}")
     echo_limit("Tokenizer limit", resolved_tokenizer_limit)

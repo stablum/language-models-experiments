@@ -9,7 +9,12 @@ import click
 
 from src.cli.config import configured_command
 from src.cli.output import stage_title
-from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
+from src.corpora.registry import (
+    DEFAULT_CORPUS_NAME,
+    corpus_names,
+    get_corpus,
+    split_note_for,
+)
 from src.corpora.text import iter_text_column
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
 from src.tracking.clearml import (
@@ -41,7 +46,11 @@ from src.tracking.clearml import (
     help="Registered corpus to evaluate on.",
 )
 @click.option("--dataset-id", default=None, help="Override the registered Hugging Face dataset ID.")
-@click.option("--split", default=None, help="Override the registered dataset split.")
+@click.option(
+    "--split",
+    default=None,
+    help="Named dataset split to evaluate on. This does not create a holdout split.",
+)
 @click.option("--text-column", default=None, help="Override the registered text column.")
 @click.option(
     "--streaming",
@@ -200,6 +209,13 @@ def main(
     click.echo(f"Corpus: {corpus}")
     click.echo(f"Dataset: {resolved_dataset_id}")
     click.echo(f"Split: {resolved_split}")
+    split_note = split_note_for(
+        corpus_definition,
+        split=resolved_split,
+        dataset_id_override=dataset_id,
+    )
+    if split_note is not None:
+        click.echo(f"Split note: {split_note}")
     click.echo(f"Text column: {resolved_text_column}")
     if limit is not None:
         click.echo(f"Limit: first {limit:,} rows")

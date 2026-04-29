@@ -109,7 +109,7 @@ uv run python -m src.cli.query --model bigram --model-task-id <PIPELINE_TASK_ID>
 uv run python -m src.cli.evaluate --model bigram --model-task-id <PIPELINE_TASK_ID> --streaming --limit 1000
 ```
 
-Use `--tokenizer-limit`, `--training-limit`, and `--evaluation-limit` when those stages should use different row counts. Use `--evaluation-split` when evaluating on a different split from training. Use `--query-prompt`, `--query-max-tokens`, `--query-decoding`, `--query-temperature`, and `--query-seed` to control the mandatory final query.
+Use `--tokenizer-limit`, `--training-limit`, and `--evaluation-limit` when those stages should use different row counts. Use `--evaluation-split` only when the dataset already has another named split to evaluate on; the pipeline does not create a train/validation split. BabyLM 2026 Strict-Small currently exposes only `train`, so default pipeline metrics are training-split metrics, not held-out validation metrics. Use `--query-prompt`, `--query-max-tokens`, `--query-decoding`, `--query-temperature`, and `--query-seed` to control the mandatory final query.
 
 ## SentencePiece Tokenizer
 
@@ -197,7 +197,7 @@ Evaluate a trained model:
 uv run python -m src.cli.evaluate --model bigram --model-task-id <MODEL_TRAIN_TASK_ID> --streaming --limit 1000
 ```
 
-The evaluation command reports next-token accuracy, top-k accuracy, average negative log-likelihood, cross-entropy, and perplexity. Use `--split` when a corpus has a held-out validation or test split; evaluating on the training split is mainly a sanity check.
+The evaluation command reports next-token accuracy, top-k accuracy, average negative log-likelihood, cross-entropy, and perplexity. Use `--split` only when a corpus already has a held-out validation or test split. The command does not create a train/validation split, and BabyLM 2026 Strict-Small currently exposes only `train`, so evaluating the registered BabyLM corpus is mainly a training-split sanity check.
 
 ## Corpora
 
@@ -206,6 +206,8 @@ The CLI is corpus-generic. BabyLM 2026 Strict-Small is currently registered as:
 ```text
 babylm-2026-strict-small
 ```
+
+The registered BabyLM corpus uses the Hugging Face dataset `BabyLM-community/BabyLM-2026-Strict-Small`, whose only known split is `train`. Validation or test evaluation requires a different dataset split, a different registered corpus, or project-specific holdout logic.
 
 To add another corpus, add a loader module under `src/corpora/` and register a new `CorpusDefinition` in `src/corpora/registry.py`.
 
