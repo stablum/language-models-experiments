@@ -25,6 +25,7 @@ ANSI_COLORS = {
 ANSI_DELTA = ANSI_COLORS["warning"]
 ERROR_MARKERS = ("error", "failed", "failure", "exception", "traceback")
 WARNING_MARKERS = ("warning", "warn:")
+NATIVE_OUTPUT_CAPTURE_ENVVAR = "LME_CAPTURE_NATIVE_OUTPUT"
 
 
 @dataclass
@@ -33,7 +34,11 @@ class LineTimingState:
 
 
 class FileDescriptorCapture:
-    """Forward low-level file-descriptor writes through a timestamped writer."""
+    """Forward low-level file-descriptor writes through a timestamped writer.
+
+    Native extensions can block forever when they write enough output while
+    holding the GIL, so this capture path is opt-in only.
+    """
 
     def __init__(
         self,
@@ -199,6 +204,17 @@ def stream_supports_color(stream: TextIO) -> bool:
         return False
 
 
+def native_output_capture_enabled() -> bool:
+    return os.environ.get(NATIVE_OUTPUT_CAPTURE_ENVVAR, "").lower() in {
+        "1",
+        "always",
+        "force",
+        "on",
+        "true",
+        "yes",
+    }
+
+
 def stage_title(index: int, total: int, title: str) -> str:
     return highlight_stage_title(f"Stage {index}/{total} - {title}:")
 
@@ -250,30 +266,37 @@ def timestamped_cli_output() -> Iterator[None]:
         default_level="error",
         timing_state=timing_state,
     )
-    stdout_capture = FileDescriptorCapture(
-        original_stdout.fileno(),
-        stdout,
-        encoding=original_stdout.encoding or "utf-8",
-        errors=getattr(original_stdout, "errors", None) or "replace",
-    )
-    stderr_capture = FileDescriptorCapture(
-        original_stderr.fileno(),
-        stderr,
-        encoding=original_stderr.encoding or "utf-8",
-        errors=getattr(original_stderr, "errors", None) or "replace",
-    )
+    stdout_capture: FileDescriptorCapture | None = None
+    stderr_capture: FileDescriptorCapture | None = None
+    if native_output_capture_enabled():
+        stdout_capture = FileDescriptorCapture(
+            original_stdout.fileno(),
+            stdout,
+            encoding=original_stdout.encoding or "utf-8",
+            errors=getattr(original_stdout, "errors", None) or "replace",
+        )
+        stderr_capture = FileDescriptorCapture(
+            original_stderr.fileno(),
+            stderr,
+            encoding=original_stderr.encoding or "utf-8",
+            errors=getattr(original_stderr, "errors", None) or "replace",
+        )
 
     try:
-        stdout_capture.start()
-        stderr_capture.start()
+        if stdout_capture is not None:
+            stdout_capture.start()
+        if stderr_capture is not None:
+            stderr_capture.start()
         sys.stdout = stdout  # type: ignore[assignment]
         sys.stderr = stderr  # type: ignore[assignment]
         yield
     finally:
         sys.stdout = original_stdout
         sys.stderr = original_stderr
-        stdout_capture.stop()
-        stderr_capture.stop()
+        if stdout_capture is not None:
+            stdout_capture.stop()
+        if stderr_capture is not None:
+            stderr_capture.stop()
         stdout.flush()
         stderr.flush()
         stdout_sink.close()
