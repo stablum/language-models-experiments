@@ -10,6 +10,9 @@
 corpus = "babylm-2026-strict-small"
 streaming = false
 text_normalization = "lossy-ascii"
+train_ratio = 0.8
+split_seed = 42
+evaluation_partition = "validation"
 
 [clearml]
 clearml_project = "language-models-experiments"
@@ -43,9 +46,9 @@ query_seed = 1
 # training_limit = 50
 # evaluation_limit = 50
 #
-# BabyLM 2026 Strict-Small only exposes the train split. Do not set
-# evaluation_split = "validation" for this corpus unless you also override the
-# dataset or add a project-specific validation split.
+# Source dataset splits are merged before project train/validation partitioning.
+# Leave source_split unset to merge all available source splits, or set it to a
+# source split name such as "train" to restrict the input rows before partitioning.
 
 [train_sentencepiece]
 vocab_size = 1000

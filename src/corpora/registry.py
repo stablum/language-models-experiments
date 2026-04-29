@@ -23,7 +23,7 @@ CorpusLoader = Callable[..., Any]
 class CorpusDefinition:
     name: str
     dataset_id: str
-    split: str
+    split: str | None
     text_column: str
     load: CorpusLoader
     available_splits: tuple[str, ...] = ()
@@ -56,13 +56,10 @@ def get_corpus(name: str) -> CorpusDefinition:
 def split_note_for(
     corpus_definition: CorpusDefinition,
     *,
-    split: str,
     dataset_id_override: str | None,
 ) -> str | None:
     if dataset_id_override is not None:
         return None
     if corpus_definition.split_note is None:
-        return None
-    if corpus_definition.available_splits and split not in corpus_definition.available_splits:
         return None
     return corpus_definition.split_note

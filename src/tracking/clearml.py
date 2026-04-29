@@ -370,6 +370,44 @@ def download_task_artifact(
     destination_dir: Path,
     filename: str | None = None,
 ) -> Path:
+    artifact_path = maybe_download_task_artifact(
+        task_id=task_id,
+        artifact_name=artifact_name,
+        destination_dir=destination_dir,
+        filename=filename,
+    )
+    if artifact_path is None:
+        task = clearml_task(task_id)
+        available = ", ".join(sorted(task.artifacts)) or "none"
+        raise click.ClickException(
+            f"ClearML task {task_id} has no artifact named {artifact_name!r}. "
+            f"Available artifacts: {available}."
+        )
+    return artifact_path
+
+
+def maybe_download_task_artifact(
+    *,
+    task_id: str,
+    artifact_name: str,
+    destination_dir: Path,
+    filename: str | None = None,
+) -> Path | None:
+    task = clearml_task(task_id)
+    artifact = task.artifacts.get(artifact_name)
+    if artifact is None:
+        return None
+
+    return download_clearml_artifact(
+        task_id=task_id,
+        artifact_name=artifact_name,
+        artifact=artifact,
+        destination_dir=destination_dir,
+        filename=filename,
+    )
+
+
+def clearml_task(task_id: str) -> Any:
     try:
         from clearml import Task
     except ImportError as error:
@@ -378,15 +416,17 @@ def download_task_artifact(
             "Run `uv sync` before using this command."
         ) from error
 
-    task = Task.get_task(task_id=task_id)
-    artifact = task.artifacts.get(artifact_name)
-    if artifact is None:
-        available = ", ".join(sorted(task.artifacts)) or "none"
-        raise click.ClickException(
-            f"ClearML task {task_id} has no artifact named {artifact_name!r}. "
-            f"Available artifacts: {available}."
-        )
+    return Task.get_task(task_id=task_id)
 
+
+def download_clearml_artifact(
+    *,
+    task_id: str,
+    artifact_name: str,
+    artifact: Any,
+    destination_dir: Path,
+    filename: str | None = None,
+) -> Path:
     local_copy = artifact.get_local_copy()
     if local_copy is None:
         raise click.ClickException(

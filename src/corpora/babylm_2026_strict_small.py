@@ -8,12 +8,11 @@ from datasets import load_dataset
 
 
 DATASET_ID = "BabyLM-community/BabyLM-2026-Strict-Small"
-DEFAULT_SPLIT = "train"
+DEFAULT_SPLIT = None
 AVAILABLE_SPLITS = ("train",)
 SPLIT_NOTE = (
-    "BabyLM 2026 Strict-Small exposes only the train split; "
-    "evaluation on this corpus is not held-out validation unless you "
-    "provide a different dataset or add a project-specific holdout."
+    "BabyLM 2026 Strict-Small exposes one source split, train. The project "
+    "creates reusable train/validation partitions from the merged source data."
 )
 TEXT_COLUMN = "text"
 
@@ -21,9 +20,11 @@ TEXT_COLUMN = "text"
 def load_babylm_dataset(
     *,
     dataset_id: str = DATASET_ID,
-    split: str = DEFAULT_SPLIT,
+    split: str | None = DEFAULT_SPLIT,
     streaming: bool = False,
 ) -> Any:
+    if split is None:
+        return load_dataset(dataset_id, streaming=streaming)
     return load_dataset(
         dataset_id,
         split=split,

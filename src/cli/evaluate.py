@@ -8,14 +8,31 @@ from tempfile import TemporaryDirectory
 import click
 
 from src.cli.config import configured_command
+from src.cli.data_splits import (
+    build_cli_split_plan,
+    explicit_parameter,
+    resolve_from_plan,
+    split_plan_parameter_sections,
+    upload_split_plan_artifact,
+)
 from src.cli.output import stage_title
+from src.corpora.splits import (
+    DEFAULT_SPLIT_SEED,
+    DEFAULT_TRAIN_RATIO,
+    PROJECT_PARTITIONS,
+    VALIDATION_PARTITION,
+    load_partition_texts,
+    partitioned_metric_names,
+    read_model_split_plan,
+    source_split_label,
+    split_ratio_label,
+)
 from src.corpora.registry import (
     DEFAULT_CORPUS_NAME,
     corpus_names,
     get_corpus,
     split_note_for,
 )
-from src.corpora.text import iter_text_column
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
 from src.tracking.clearml import (
     clearml_options,
@@ -47,9 +64,14 @@ from src.tracking.clearml import (
 )
 @click.option("--dataset-id", default=None, help="Override the registered Hugging Face dataset ID.")
 @click.option(
+    "--source-split",
     "--split",
+    "source_split",
     default=None,
-    help="Named dataset split to evaluate on. This does not create a holdout split.",
+    help=(
+        "Restrict the source dataset to one named split before project "
+        "train/validation partitioning. Omit to merge all source splits."
+    ),
 )
 @click.option("--text-column", default=None, help="Override the registered text column.")
 @click.option(
@@ -62,6 +84,28 @@ from src.tracking.clearml import (
     type=click.IntRange(min=0),
     default=None,
     help="Evaluate on only the first N rows. Useful for smoke tests.",
+)
+@click.option(
+    "--train-ratio",
+    type=click.FloatRange(min=0.0, max=1.0, min_open=True, max_open=True),
+    default=DEFAULT_TRAIN_RATIO,
+    show_default=True,
+    help="Fraction of merged source rows assigned to the reusable training partition.",
+)
+@click.option(
+    "--split-seed",
+    type=int,
+    default=DEFAULT_SPLIT_SEED,
+    show_default=True,
+    help="Seed for the reusable deterministic train/validation partition.",
+)
+@click.option(
+    "--evaluation-partition",
+    "--evaluation-split",
+    type=click.Choice(PROJECT_PARTITIONS),
+    default=VALIDATION_PARTITION,
+    show_default=True,
+    help="Reusable project partition to evaluate.",
 )
 @click.option(
     "--model-task-id",
@@ -85,14 +129,19 @@ from src.tracking.clearml import (
     help="K value for top-k next-token accuracy.",
 )
 @clearml_options
+@click.pass_context
 def main(
+    ctx: click.Context,
     model_name: str,
     corpus: str,
     dataset_id: str | None,
-    split: str | None,
+    source_split: str | None,
     text_column: str | None,
     streaming: bool,
     limit: int | None,
+    train_ratio: float,
+    split_seed: int,
+    evaluation_partition: str,
     model_task_id: str | None,
     model_path: Path | None,
     top_k: int,
@@ -109,7 +158,9 @@ def main(
         raise click.ClickException(f"Model does not support evaluation yet: {model_name}")
 
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
-    resolved_split = split or corpus_definition.split
+    resolved_source_split = source_split if source_split is not None else corpus_definition.split
+    resolved_train_ratio = train_ratio
+    resolved_split_seed = split_seed
     resolved_text_column = text_column or corpus_definition.text_column
     validate_model_source(model_task_id=model_task_id, model_path=model_path)
 
@@ -136,6 +187,53 @@ def main(
             model_path=model_path,
             staging_dir=Path(staging_root),
         )
+        inherited_plan = read_model_split_plan(staged_model_path)
+        if inherited_plan is not None and not any(
+            explicit_parameter(ctx, parameter)
+            for parameter in ("dataset_id", "source_split", "train_ratio", "split_seed")
+        ):
+            split_plan = inherited_plan
+            resolved_dataset_id = split_plan.dataset_id
+            resolved_source_split = split_plan.source_split
+            resolved_train_ratio = split_plan.train_ratio
+            resolved_split_seed = split_plan.split_seed
+        else:
+            resolved_dataset_id = resolve_from_plan(
+                ctx,
+                parameter_name="dataset_id",
+                value=resolved_dataset_id,
+                inherited_plan=inherited_plan,
+                inherited_attribute="dataset_id",
+            )
+            resolved_source_split = resolve_from_plan(
+                ctx,
+                parameter_name="source_split",
+                value=resolved_source_split,
+                inherited_plan=inherited_plan,
+                inherited_attribute="source_split",
+            )
+            resolved_train_ratio = resolve_from_plan(
+                ctx,
+                parameter_name="train_ratio",
+                value=resolved_train_ratio,
+                inherited_plan=inherited_plan,
+                inherited_attribute="train_ratio",
+            )
+            resolved_split_seed = resolve_from_plan(
+                ctx,
+                parameter_name="split_seed",
+                value=resolved_split_seed,
+                inherited_plan=inherited_plan,
+                inherited_attribute="split_seed",
+            )
+            split_plan = build_cli_split_plan(
+                corpus_definition,
+                corpus=corpus,
+                dataset_id=resolved_dataset_id,
+                source_split=resolved_source_split,
+                train_ratio=resolved_train_ratio,
+                split_seed=resolved_split_seed,
+            )
         model_options = {
             "corpus": corpus,
             "model_path": staged_model_path,
@@ -155,7 +253,8 @@ def main(
                 "Data": {
                     "corpus": corpus,
                     "dataset_id": resolved_dataset_id,
-                    "split": resolved_split,
+                    "source_split": source_split_label(resolved_source_split),
+                    "evaluation_partition": evaluation_partition,
                     "text_column": resolved_text_column,
                     "streaming": streaming,
                     "limit": limit,
@@ -167,6 +266,7 @@ def main(
                 "Evaluation": {
                     "top_k": top_k,
                 },
+                **split_plan_parameter_sections(split_plan),
                 "Artifacts": {
                     "model_artifact": "trained-model-json",
                     "tokenizer_artifact": "input-tokenizer-model",
@@ -175,24 +275,41 @@ def main(
             }
         )
 
-        dataset = corpus_definition.load(
+        texts = load_partition_texts(
+            corpus_definition,
             dataset_id=resolved_dataset_id,
-            split=resolved_split,
+            plan=split_plan,
+            partition=evaluation_partition,
             streaming=streaming,
-        )
-        texts = iter_text_column(
-            dataset,
             text_column=resolved_text_column,
             limit=limit,
         )
 
         summary = model_definition.evaluate(texts, model_options)
 
-        clearml_run.log_metrics("Evaluation", evaluation_metrics(summary))
+        clearml_run.log_metrics(
+            "Evaluation",
+            evaluation_metrics_for_partition(summary, partition=evaluation_partition),
+        )
+        upload_split_plan_artifact(
+            clearml_run,
+            staging_dir=Path(staging_root),
+            plan=split_plan,
+            metadata={"model": model_definition.name, "corpus": corpus, "stage": "evaluation"},
+        )
         clearml_run.upload_artifact(
             "evaluation-summary",
-            evaluation_payload(summary),
-            metadata={"model": model_definition.name, "corpus": corpus},
+            {
+                **evaluation_payload(summary),
+                "evaluation_partition": evaluation_partition,
+                "data_split": split_plan.to_payload(),
+            },
+            metadata={
+                "model": model_definition.name,
+                "corpus": corpus,
+                "evaluation_partition": evaluation_partition,
+                "split_id": split_plan.split_id,
+            },
         )
         clearml_run.upload_artifact(
             "evaluated-model",
@@ -208,10 +325,13 @@ def main(
     click.echo(f"Model: {model_definition.name}")
     click.echo(f"Corpus: {corpus}")
     click.echo(f"Dataset: {resolved_dataset_id}")
-    click.echo(f"Split: {resolved_split}")
+    click.echo(f"Source split: {source_split_label(resolved_source_split)}")
+    click.echo(f"Evaluation partition: {evaluation_partition}")
+    click.echo(f"Split ratio train/validation: {split_ratio_label(split_plan)}")
+    click.echo(f"Split seed: {split_plan.split_seed}")
+    click.echo(f"Split ID: {split_plan.split_id}")
     split_note = split_note_for(
         corpus_definition,
-        split=resolved_split,
         dataset_id_override=dataset_id,
     )
     if split_note is not None:
@@ -224,6 +344,7 @@ def main(
     click.echo(f"ClearML task ID: {task_id}")
     if task_url is not None:
         click.echo(f"ClearML task URL: {task_url}")
+    click.echo("Data split artifact: data-split-plan-json")
     click.echo("Evaluation artifact: evaluation-summary")
 
 
@@ -292,6 +413,17 @@ def evaluation_metrics(summary: object) -> dict[str, object]:
         "bigram_weight": getattr(summary, "bigram_weight", None),
         "trigram_weight": getattr(summary, "trigram_weight", None),
     }
+
+
+def evaluation_metrics_for_partition(
+    summary: object,
+    *,
+    partition: str,
+) -> dict[str, object]:
+    return partitioned_metric_names(
+        evaluation_metrics(summary),
+        partition=partition,
+    )
 
 
 def evaluation_payload(summary: object) -> dict[str, object]:

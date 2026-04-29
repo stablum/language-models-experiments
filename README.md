@@ -54,6 +54,16 @@ Use `model = "bigram"` in config sections; it maps to the CLI `--model` option. 
 
 Every CLI output line is prepended with a local timestamp and per-line delta in `[YYYY-MM-DD HH:MM:SS] [+0.237s]` format. Long-running commands also print numbered stage titles such as `Stage 3/5 - Model training:`. Stage titles are bold cyan, timestamps are gray, delta times are yellow, error lines are red, and warning lines are yellow. Set `NO_COLOR=1` or `LME_COLOR=never` to disable ANSI colors.
 
+## Data Splits
+
+Registered corpus source splits are treated as input shards, not evaluation partitions. When `--source-split` is omitted, the CLIs load all available source splits and merge them into one logical row stream. They then assign rows to reusable project partitions named `train` and `validation`.
+
+The default split is `train_ratio = 0.8`, so roughly 80% of merged rows go to `train` and 20% go to `validation`. Change it with `--train-ratio` or `train_ratio` in `config.toml`. The assignment is deterministic and randomized with `--split-seed` / `split_seed`; it hashes the source split name, row index, and seed, so the same dataset, ratio, and seed always produce the same partitions without storing duplicated split datasets.
+
+Every training, evaluation, and pipeline task logs a split ID and uploads a `data-split-plan-json` artifact. Downstream model training inherits the split plan from the tokenizer task when `--tokenizer-task-id` is used, and evaluation inherits the split plan embedded in the trained model JSON when `--model-task-id` is used. This keeps tokenizer training, model training, and validation evaluation on the same reusable partition definition.
+
+Evaluation defaults to the `validation` partition. To intentionally inspect training-partition metrics, pass `--evaluation-partition train`.
+
 ## Corpus Stats
 
 Print simple row, character, and whitespace-token statistics:
@@ -97,6 +107,7 @@ ClearML artifact: sentencepiece-model
 ClearML artifact: sentencepiece-vocabulary
 ClearML artifact: input-tokenizer-model
 ClearML artifact: trained-model-json
+ClearML artifact: data-split-plan-json
 ClearML artifact: evaluation-summary
 ClearML artifact: query-result
 ClearML artifact: pipeline-summary
@@ -109,7 +120,7 @@ uv run python -m src.cli.query --model bigram --model-task-id <PIPELINE_TASK_ID>
 uv run python -m src.cli.evaluate --model bigram --model-task-id <PIPELINE_TASK_ID> --streaming --limit 1000
 ```
 
-Use `--tokenizer-limit`, `--training-limit`, and `--evaluation-limit` when those stages should use different row counts. Use `--evaluation-split` only when the dataset already has another named split to evaluate on; the pipeline does not create a train/validation split. BabyLM 2026 Strict-Small currently exposes only `train`, so default pipeline metrics are training-split metrics, not held-out validation metrics. Use `--query-prompt`, `--query-max-tokens`, `--query-decoding`, `--query-temperature`, and `--query-seed` to control the mandatory final query.
+Use `--tokenizer-limit`, `--training-limit`, and `--evaluation-limit` when those stages should use different row counts. These limits are applied after partitioning, so they do not create overlapping train/validation slices. Use `--source-split` only when you want to restrict the source rows before partitioning; leave it unset to merge all source splits. Use `--evaluation-partition` to choose which reusable project partition is evaluated. Use `--query-prompt`, `--query-max-tokens`, `--query-decoding`, `--query-temperature`, and `--query-seed` to control the mandatory final query.
 
 ## SentencePiece Tokenizer
 
@@ -124,6 +135,7 @@ The command stores generated tokenizer files in ClearML and prints the task ID. 
 ```text
 ClearML artifact: sentencepiece-model
 ClearML artifact: sentencepiece-vocabulary
+ClearML artifact: data-split-plan-json
 ```
 
 Tokenizer training uses `--text-normalization lossy-ascii` by default. This keeps the learned vocabulary English-focused and ASCII-only apart from SentencePiece's internal word-boundary marker. Pass `--text-normalization none` when you intentionally want the tokenizer to learn from the original Unicode text.
@@ -141,6 +153,7 @@ The command stores the trained language model and tokenizer input in ClearML and
 ```text
 ClearML artifact: trained-model-json
 ClearML artifact: input-tokenizer-model
+ClearML artifact: data-split-plan-json
 ```
 
 The model stores readable indented JSON with sparse transition counts for `P(next_token | previous_token)`, plus tokenizer metadata, text-normalization metadata, and an add-k smoothing value. It is meant as a simple baseline, not a serious neural language model.
@@ -197,7 +210,7 @@ Evaluate a trained model:
 uv run python -m src.cli.evaluate --model bigram --model-task-id <MODEL_TRAIN_TASK_ID> --streaming --limit 1000
 ```
 
-The evaluation command reports next-token accuracy, top-k accuracy, average negative log-likelihood, cross-entropy, and perplexity. Use `--split` only when a corpus already has a held-out validation or test split. The command does not create a train/validation split, and BabyLM 2026 Strict-Small currently exposes only `train`, so evaluating the registered BabyLM corpus is mainly a training-split sanity check.
+The evaluation command reports next-token accuracy, top-k accuracy, average negative log-likelihood, cross-entropy, and perplexity on the `validation` partition by default. ClearML records the partition in the Data/Data split sections and prefixes evaluation metric series with the partition name, such as `validation/perplexity`. Pass `--evaluation-partition train` only when you intentionally want training-partition diagnostics.
 
 ## Corpora
 
@@ -207,7 +220,7 @@ The CLI is corpus-generic. BabyLM 2026 Strict-Small is currently registered as:
 babylm-2026-strict-small
 ```
 
-The registered BabyLM corpus uses the Hugging Face dataset `BabyLM-community/BabyLM-2026-Strict-Small`, whose only known split is `train`. Validation or test evaluation requires a different dataset split, a different registered corpus, or project-specific holdout logic.
+The registered BabyLM corpus uses the Hugging Face dataset `BabyLM-community/BabyLM-2026-Strict-Small`, whose only known source split is `train`. The project still creates reusable `train` and `validation` partitions from that source split.
 
 To add another corpus, add a loader module under `src/corpora/` and register a new `CorpusDefinition` in `src/corpora/registry.py`.
 
@@ -271,7 +284,7 @@ uv run python -m src.cli.evaluate --model bigram --streaming --limit 1000 --mode
 uv run python -m src.cli.query --model bigram --prompt "Once upon" --model-task-id $modelTaskId
 ```
 
-The CLIs connect options as grouped ClearML hyperparameter sections, report final metrics, upload useful artifacts, and register trained tokenizer/model files. Use `--clearml-project`, `--clearml-task-name`, `--clearml-config-file`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the task.
+The CLIs connect options as grouped ClearML hyperparameter sections, report final metrics, upload useful artifacts, and register trained tokenizer/model files. Evaluation metrics in ClearML are partition-prefixed, and split plans are uploaded as `data-split-plan-json`. Use `--clearml-project`, `--clearml-task-name`, `--clearml-config-file`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the task.
 
 ### ClearML Smoke Test
 
@@ -290,7 +303,7 @@ Expected result:
 ```text
 The ClearML task ID and task page are printed in the terminal.
 The ClearML UI shows a completed task tagged smoke.
-The task has grouped hyperparameter sections, tokenizer/model/evaluation/query scalar metrics, tokenizer artifacts, a trained model JSON artifact, evaluation summary artifacts, and query result artifacts.
+The task has grouped hyperparameter sections, tokenizer/model/evaluation/query scalar metrics, tokenizer artifacts, a data split plan artifact, a trained model JSON artifact, evaluation summary artifacts, and query result artifacts.
 The Models page contains registered model records for the tokenizer and n-gram model files.
 The uploaded files are also visible under .clearml/fileserver/.
 ```

@@ -7,12 +7,19 @@ from pathlib import Path
 import click
 
 from src.cli.config import configured_command
+from src.cli.data_splits import build_cli_split_plan
 from src.cli.output import stage_title
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import (
     DEFAULT_CORPUS_NAME,
     corpus_names,
     get_corpus,
+)
+from src.corpora.splits import (
+    DEFAULT_SPLIT_SEED,
+    DEFAULT_TRAIN_RATIO,
+    iter_merged_source_rows,
+    source_split_label,
 )
 from src.corpora.stats import distribution_metrics, print_corpus_report, scan_text_column
 from src.tracking.clearml import clearml_options, clearml_settings, start_clearml_run
@@ -34,7 +41,16 @@ from src.tracking.clearml import clearml_options, clearml_settings, start_clearm
     help="Registered corpus to scan.",
 )
 @click.option("--dataset-id", default=None, help="Override the registered Hugging Face dataset ID.")
-@click.option("--split", default=None, help="Override the registered dataset split.")
+@click.option(
+    "--source-split",
+    "--split",
+    "source_split",
+    default=None,
+    help=(
+        "Restrict the source dataset to one named split before scanning. "
+        "Omit to merge all source splits."
+    ),
+)
 @click.option("--text-column", default=None, help="Override the registered text column.")
 @click.option(
     "--streaming",
@@ -72,7 +88,7 @@ from src.tracking.clearml import clearml_options, clearml_settings, start_clearm
 def main(
     corpus: str,
     dataset_id: str | None,
-    split: str | None,
+    source_split: str | None,
     text_column: str | None,
     streaming: bool,
     limit: int | None,
@@ -88,8 +104,16 @@ def main(
 ) -> None:
     corpus_definition = get_corpus(corpus)
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
-    resolved_split = split or corpus_definition.split
+    resolved_source_split = source_split if source_split is not None else corpus_definition.split
     resolved_text_column = text_column or corpus_definition.text_column
+    split_plan = build_cli_split_plan(
+        corpus_definition,
+        corpus=corpus,
+        dataset_id=resolved_dataset_id,
+        source_split=resolved_source_split,
+        train_ratio=DEFAULT_TRAIN_RATIO,
+        split_seed=DEFAULT_SPLIT_SEED,
+    )
 
     click.echo(stage_title(1, 1, "Corpus stats"), color=True)
     with start_clearml_run(
@@ -113,7 +137,7 @@ def main(
                 "Data": {
                     "corpus": corpus,
                     "dataset_id": resolved_dataset_id,
-                    "split": resolved_split,
+                    "source_split": source_split_label(resolved_source_split),
                     "text_column": resolved_text_column,
                     "streaming": streaming,
                     "limit": limit,
@@ -128,12 +152,16 @@ def main(
 
         dataset = corpus_definition.load(
             dataset_id=resolved_dataset_id,
-            split=resolved_split,
+            split=resolved_source_split,
             streaming=streaming,
+        )
+        rows = (
+            row
+            for _, _, row in iter_merged_source_rows(dataset, plan=split_plan)
         )
 
         stats = scan_text_column(
-            dataset,
+            rows,
             text_column=resolved_text_column,
             limit=limit,
             top_n_lengths=top_n_lengths,
@@ -145,12 +173,15 @@ def main(
         clearml_run.upload_artifact(
             "corpus-stats",
             corpus_stats_payload(stats),
-            metadata={"corpus": corpus, "split": resolved_split},
+            metadata={
+                "corpus": corpus,
+                "source_split": source_split_label(resolved_source_split),
+            },
         )
 
     print_corpus_report(
         dataset_label=resolved_dataset_id,
-        split=resolved_split,
+        split=source_split_label(resolved_source_split),
         mode="streaming" if streaming else "download/cache",
         limit=limit,
         reported_rows=getattr(dataset, "num_rows", None),

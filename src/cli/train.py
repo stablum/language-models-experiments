@@ -9,10 +9,25 @@ from tempfile import TemporaryDirectory
 import click
 
 from src.cli.config import configured_command
+from src.cli.data_splits import (
+    build_cli_split_plan,
+    inherited_split_plan_from_task,
+    resolve_from_plan,
+    split_plan_parameter_sections,
+    upload_split_plan_artifact,
+)
 from src.cli.output import stage_title
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
-from src.corpora.text import iter_text_column
+from src.corpora.splits import (
+    DEFAULT_SPLIT_SEED,
+    DEFAULT_TRAIN_RATIO,
+    TRAIN_PARTITION,
+    attach_split_plan_to_json_model,
+    load_partition_texts,
+    source_split_label,
+    split_ratio_label,
+)
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
 from src.tracking.clearml import (
     clearml_options,
@@ -43,7 +58,16 @@ from src.tracking.clearml import (
     help="Registered corpus to train on.",
 )
 @click.option("--dataset-id", default=None, help="Override the registered Hugging Face dataset ID.")
-@click.option("--split", default=None, help="Override the registered dataset split.")
+@click.option(
+    "--source-split",
+    "--split",
+    "source_split",
+    default=None,
+    help=(
+        "Restrict the source dataset to one named split before project "
+        "train/validation partitioning. Omit to merge all source splits."
+    ),
+)
 @click.option("--text-column", default=None, help="Override the registered text column.")
 @click.option(
     "--streaming",
@@ -55,6 +79,20 @@ from src.tracking.clearml import (
     type=click.IntRange(min=0),
     default=None,
     help="Train on only the first N rows. Useful for smoke tests.",
+)
+@click.option(
+    "--train-ratio",
+    type=click.FloatRange(min=0.0, max=1.0, min_open=True, max_open=True),
+    default=DEFAULT_TRAIN_RATIO,
+    show_default=True,
+    help="Fraction of merged source rows assigned to the reusable training partition.",
+)
+@click.option(
+    "--split-seed",
+    type=int,
+    default=DEFAULT_SPLIT_SEED,
+    show_default=True,
+    help="Seed for the reusable deterministic train/validation partition.",
 )
 @click.option(
     "--tokenizer-task-id",
@@ -113,14 +151,18 @@ from src.tracking.clearml import (
     help="Text normalization applied before model training.",
 )
 @clearml_options
+@click.pass_context
 def main(
+    ctx: click.Context,
     model_name: str,
     corpus: str,
     dataset_id: str | None,
-    split: str | None,
+    source_split: str | None,
     text_column: str | None,
     streaming: bool,
     limit: int | None,
+    train_ratio: float,
+    split_seed: int,
     tokenizer_task_id: str | None,
     tokenizer_model: Path | None,
     smoothing: float,
@@ -139,7 +181,9 @@ def main(
     corpus_definition = get_corpus(corpus)
     model_definition = get_model(model_name)
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
-    resolved_split = split or corpus_definition.split
+    resolved_source_split = source_split if source_split is not None else corpus_definition.split
+    resolved_train_ratio = train_ratio
+    resolved_split_seed = split_seed
     resolved_text_column = text_column or corpus_definition.text_column
     validate_tokenizer_source(
         tokenizer_task_id=tokenizer_task_id,
@@ -171,6 +215,46 @@ def main(
             staging_dir=staging_dir,
         )
         output_path = staging_dir / f"{corpus}-sentencepiece-{model_definition.name}.json"
+        inherited_plan = inherited_split_plan_from_task(
+            task_id=tokenizer_task_id,
+            staging_dir=staging_dir,
+        )
+        resolved_dataset_id = resolve_from_plan(
+            ctx,
+            parameter_name="dataset_id",
+            value=resolved_dataset_id,
+            inherited_plan=inherited_plan,
+            inherited_attribute="dataset_id",
+        )
+        resolved_source_split = resolve_from_plan(
+            ctx,
+            parameter_name="source_split",
+            value=resolved_source_split,
+            inherited_plan=inherited_plan,
+            inherited_attribute="source_split",
+        )
+        resolved_train_ratio = resolve_from_plan(
+            ctx,
+            parameter_name="train_ratio",
+            value=resolved_train_ratio,
+            inherited_plan=inherited_plan,
+            inherited_attribute="train_ratio",
+        )
+        resolved_split_seed = resolve_from_plan(
+            ctx,
+            parameter_name="split_seed",
+            value=resolved_split_seed,
+            inherited_plan=inherited_plan,
+            inherited_attribute="split_seed",
+        )
+        split_plan = build_cli_split_plan(
+            corpus_definition,
+            corpus=corpus,
+            dataset_id=resolved_dataset_id,
+            source_split=resolved_source_split,
+            train_ratio=resolved_train_ratio,
+            split_seed=resolved_split_seed,
+        )
         model_options = {
             "corpus": corpus,
             "tokenizer_model": staged_tokenizer_model,
@@ -195,7 +279,8 @@ def main(
                 "Data": {
                     "corpus": corpus,
                     "dataset_id": resolved_dataset_id,
-                    "split": resolved_split,
+                    "source_split": source_split_label(resolved_source_split),
+                    "training_partition": TRAIN_PARTITION,
                     "text_column": resolved_text_column,
                     "streaming": streaming,
                     "limit": limit,
@@ -212,6 +297,7 @@ def main(
                 "Tokenizer": {
                     "tokenizer_task_id": tokenizer_task_id,
                 },
+                **split_plan_parameter_sections(split_plan),
                 "Artifacts": {
                     "tokenizer_artifact": "sentencepiece-model",
                     "tokenizer_artifact_file": staged_tokenizer_model.name,
@@ -220,22 +306,28 @@ def main(
             }
         )
 
-        dataset = corpus_definition.load(
+        texts = load_partition_texts(
+            corpus_definition,
             dataset_id=resolved_dataset_id,
-            split=resolved_split,
+            plan=split_plan,
+            partition=TRAIN_PARTITION,
             streaming=streaming,
-        )
-        texts = iter_text_column(
-            dataset,
             text_column=resolved_text_column,
             limit=limit,
         )
 
         summary = model_definition.train(texts, model_options)
+        attach_split_plan_to_json_model(summary.output_path, split_plan)
 
         clearml_run.log_metrics(
             "Model training",
             training_summary_metrics(summary),
+        )
+        upload_split_plan_artifact(
+            clearml_run,
+            staging_dir=staging_dir,
+            plan=split_plan,
+            metadata={"model": model_definition.name, "corpus": corpus, "stage": "model-training"},
         )
         clearml_run.upload_artifact(
             "input-tokenizer-model",
@@ -258,7 +350,11 @@ def main(
     click.echo(f"Model: {model_definition.name}")
     click.echo(f"Corpus: {corpus}")
     click.echo(f"Dataset: {resolved_dataset_id}")
-    click.echo(f"Split: {resolved_split}")
+    click.echo(f"Source split: {source_split_label(resolved_source_split)}")
+    click.echo(f"Training partition: {TRAIN_PARTITION}")
+    click.echo(f"Split ratio train/validation: {split_ratio_label(split_plan)}")
+    click.echo(f"Split seed: {split_plan.split_seed}")
+    click.echo(f"Split ID: {split_plan.split_id}")
     click.echo(f"Text column: {resolved_text_column}")
     click.echo(f"Text normalization: {text_normalization}")
     if limit is not None:
@@ -268,6 +364,7 @@ def main(
     click.echo(f"ClearML task ID: {task_id}")
     if task_url is not None:
         click.echo(f"ClearML task URL: {task_url}")
+    click.echo("Data split artifact: data-split-plan-json")
     click.echo("Model artifact: trained-model-json")
     click.echo("Tokenizer artifact: input-tokenizer-model")
 
