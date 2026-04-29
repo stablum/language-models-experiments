@@ -10,7 +10,7 @@ from typing import Any
 import click
 
 from src.cli.config import configured_command
-from src.cli.output import stage_title
+from src.cli.output import highlight_stage_title, stage_title
 from src.cli.evaluate import evaluation_metrics, evaluation_payload
 from src.cli.query import query_metrics, query_payload
 from src.cli.train import training_summary_metrics
@@ -498,15 +498,15 @@ def main(
     echo_limit("Training limit", resolved_training_limit)
     echo_limit("Evaluation limit", resolved_evaluation_limit)
     click.echo("")
-    click.echo("Model training:")
+    click.echo(highlight_stage_title("Model training:"))
     for label, value in model_definition.summary_items(training_summary):
         click.echo(f"{label}: {value}")
     click.echo("")
-    click.echo("Evaluation:")
+    click.echo(highlight_stage_title("Evaluation:"))
     for label, value in model_definition.evaluation_items(evaluation_summary):
         click.echo(f"{label}: {value}")
     click.echo("")
-    click.echo("Query:")
+    click.echo(highlight_stage_title("Query:"))
     for line in model_definition.query_lines(query_result):
         click.echo(line)
     click.echo("")

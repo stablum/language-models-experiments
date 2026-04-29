@@ -19,13 +19,6 @@ ANSI_COLORS = {
     "warning": "\033[33m",
 }
 ERROR_MARKERS = ("error", "failed", "failure", "exception", "traceback")
-STAGE_TITLE_MARKERS = (
-    "corpus stats:",
-    "evaluation:",
-    "model training:",
-    "query:",
-    "tokenizer training:",
-)
 WARNING_MARKERS = ("warning", "warn:")
 
 
@@ -88,9 +81,6 @@ class TimestampedLineWriter:
 
     def _classify(self, text: str) -> str | None:
         lowered = text.lower()
-        stripped = lowered.strip()
-        if stripped.startswith("stage ") or stripped in STAGE_TITLE_MARKERS:
-            return "stage"
         if any(marker in lowered for marker in WARNING_MARKERS):
             return "warning"
         if any(marker in lowered for marker in ERROR_MARKERS):
@@ -118,7 +108,13 @@ def stream_supports_color(stream: TextIO) -> bool:
 
 
 def stage_title(index: int, total: int, title: str) -> str:
-    return f"Stage {index}/{total} - {title}:"
+    return highlight_stage_title(f"Stage {index}/{total} - {title}:")
+
+
+def highlight_stage_title(text: str) -> str:
+    if not stream_supports_color(sys.stdout):
+        return text
+    return f"{ANSI_COLORS['stage']}{text}{ANSI_RESET}"
 
 
 def prepare_terminal_colors() -> None:
