@@ -132,10 +132,17 @@ class ClearMLRun:
     def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
         self.close()
 
-    def connect_parameters(self, parameters: Mapping[str, Any], *, name: str = "CLI") -> None:
+    def connect_parameters(self, parameters: Mapping[str, Any], *, name: str = "Run") -> None:
         if self.task is None:
             return
         self.task.connect(sanitize_value(parameters), name=name)
+
+    def connect_parameter_sections(
+        self,
+        sections: Mapping[str, Mapping[str, Any]],
+    ) -> None:
+        for name, parameters in sections.items():
+            self.connect_parameters(parameters, name=name)
 
     def log_metrics(
         self,

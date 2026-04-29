@@ -19,7 +19,7 @@ clearml_output_uri = "http://localhost:8081"
 clearml_tags = []
 
 [pipeline]
-model = "bigram"
+model = "trigram"
 vocab_size = 1000
 model_type = "unigram"
 character_coverage = 1.0

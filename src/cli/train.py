@@ -186,27 +186,37 @@ def main(
         model_definition.validate_options(model_options)
         task_id = clearml_run.task_id
         task_url = clearml_run.task_url
-        clearml_run.connect_parameters(
+        clearml_run.connect_parameter_sections(
             {
-                "command": "src.cli.train",
-                "artifact_store": "clearml",
-                "model": model_definition.name,
-                "corpus": corpus,
-                "dataset_id": resolved_dataset_id,
-                "split": resolved_split,
-                "text_column": resolved_text_column,
-                "streaming": streaming,
-                "limit": limit,
-                "tokenizer_task_id": tokenizer_task_id,
-                "tokenizer_artifact": "sentencepiece-model",
-                "tokenizer_artifact_file": staged_tokenizer_model.name,
-                "output_artifact_file": output_path.name,
-                "smoothing": smoothing,
-                "unigram_weight": unigram_weight,
-                "bigram_weight": bigram_weight,
-                "trigram_weight": trigram_weight,
-                "discount": discount,
-                "text_normalization": text_normalization,
+                "Run": {
+                    "command": "src.cli.train",
+                    "artifact_store": "clearml",
+                },
+                "Data": {
+                    "corpus": corpus,
+                    "dataset_id": resolved_dataset_id,
+                    "split": resolved_split,
+                    "text_column": resolved_text_column,
+                    "streaming": streaming,
+                    "limit": limit,
+                    "text_normalization": text_normalization,
+                },
+                "Model": {
+                    "model": model_definition.name,
+                    "smoothing": smoothing,
+                    "unigram_weight": unigram_weight,
+                    "bigram_weight": bigram_weight,
+                    "trigram_weight": trigram_weight,
+                    "discount": discount,
+                },
+                "Tokenizer": {
+                    "tokenizer_task_id": tokenizer_task_id,
+                },
+                "Artifacts": {
+                    "tokenizer_artifact": "sentencepiece-model",
+                    "tokenizer_artifact_file": staged_tokenizer_model.name,
+                    "output_artifact_file": output_path.name,
+                },
             }
         )
 

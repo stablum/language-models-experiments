@@ -104,18 +104,25 @@ def main(
         default_task_name=f"corpus stats {corpus}",
         task_type="data_processing",
     ) as clearml_run:
-        clearml_run.connect_parameters(
+        clearml_run.connect_parameter_sections(
             {
-                "command": "src.cli.corpus_stats",
-                "corpus": corpus,
-                "dataset_id": resolved_dataset_id,
-                "split": resolved_split,
-                "text_column": resolved_text_column,
-                "streaming": streaming,
-                "limit": limit,
-                "top_n_lengths": top_n_lengths,
-                "preview_chars": preview_chars,
-                "text_normalization": text_normalization,
+                "Run": {
+                    "command": "src.cli.corpus_stats",
+                    "artifact_store": "clearml",
+                },
+                "Data": {
+                    "corpus": corpus,
+                    "dataset_id": resolved_dataset_id,
+                    "split": resolved_split,
+                    "text_column": resolved_text_column,
+                    "streaming": streaming,
+                    "limit": limit,
+                    "text_normalization": text_normalization,
+                },
+                "Reporting": {
+                    "top_n_lengths": top_n_lengths,
+                    "preview_chars": preview_chars,
+                },
             }
         )
 

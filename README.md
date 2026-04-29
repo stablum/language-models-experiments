@@ -269,7 +269,7 @@ uv run python -m src.cli.evaluate --model bigram --streaming --limit 1000 --mode
 uv run python -m src.cli.query --model bigram --prompt "Once upon" --model-task-id $modelTaskId
 ```
 
-The CLIs connect options as hyperparameters, report final metrics, upload useful artifacts, and register trained tokenizer/model files. Use `--clearml-project`, `--clearml-task-name`, `--clearml-config-file`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the task.
+The CLIs connect options as grouped ClearML hyperparameter sections, report final metrics, upload useful artifacts, and register trained tokenizer/model files. Use `--clearml-project`, `--clearml-task-name`, `--clearml-config-file`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the task.
 
 ### ClearML Smoke Test
 
@@ -288,7 +288,7 @@ Expected result:
 ```text
 The ClearML task ID and task page are printed in the terminal.
 The ClearML UI shows a completed task tagged smoke.
-The task has CLI hyperparameters, tokenizer/model/evaluation/query scalar metrics, tokenizer artifacts, a trained model JSON artifact, evaluation summary artifacts, and query result artifacts.
+The task has grouped hyperparameter sections, tokenizer/model/evaluation/query scalar metrics, tokenizer artifacts, a trained model JSON artifact, evaluation summary artifacts, and query result artifacts.
 The Models page contains registered model records for the tokenizer and n-gram model files.
 The uploaded files are also visible under .clearml/fileserver/.
 ```

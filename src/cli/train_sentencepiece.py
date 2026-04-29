@@ -136,23 +136,29 @@ def main(
         resolved_output_prefix = Path(staging_root, resolved_artifact_name)
         task_id = clearml_run.task_id
         task_url = clearml_run.task_url
-        clearml_run.connect_parameters(
+        clearml_run.connect_parameter_sections(
             {
-                "command": "src.cli.train_sentencepiece",
-                "artifact_store": "clearml",
-                "corpus": corpus,
-                "dataset_id": resolved_dataset_id,
-                "split": resolved_split,
-                "text_column": resolved_text_column,
-                "streaming": streaming,
-                "limit": limit,
-                "vocab_size": vocab_size,
-                "artifact_name": resolved_artifact_name,
-                "model_type": model_type,
-                "character_coverage": character_coverage,
-                "hard_vocab_limit": hard_vocab_limit,
-                "max_sentence_length": max_sentence_length,
-                "text_normalization": text_normalization,
+                "Run": {
+                    "command": "src.cli.train_sentencepiece",
+                    "artifact_store": "clearml",
+                },
+                "Data": {
+                    "corpus": corpus,
+                    "dataset_id": resolved_dataset_id,
+                    "split": resolved_split,
+                    "text_column": resolved_text_column,
+                    "streaming": streaming,
+                    "limit": limit,
+                    "text_normalization": text_normalization,
+                },
+                "Tokenizer": {
+                    "vocab_size": vocab_size,
+                    "artifact_name": resolved_artifact_name,
+                    "model_type": model_type,
+                    "character_coverage": character_coverage,
+                    "hard_vocab_limit": hard_vocab_limit,
+                    "max_sentence_length": max_sentence_length,
+                },
             }
         )
 

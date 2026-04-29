@@ -137,22 +137,32 @@ def main(
 
         task_id = clearml_run.task_id
         task_url = clearml_run.task_url
-        clearml_run.connect_parameters(
+        clearml_run.connect_parameter_sections(
             {
-                "command": "src.cli.evaluate",
-                "artifact_store": "clearml",
-                "model": model_definition.name,
-                "corpus": corpus,
-                "dataset_id": resolved_dataset_id,
-                "split": resolved_split,
-                "text_column": resolved_text_column,
-                "streaming": streaming,
-                "limit": limit,
-                "model_task_id": model_task_id,
-                "model_artifact": "trained-model-json",
-                "tokenizer_artifact": "input-tokenizer-model",
-                "model_artifact_file": staged_model_path.name,
-                "top_k": top_k,
+                "Run": {
+                    "command": "src.cli.evaluate",
+                    "artifact_store": "clearml",
+                },
+                "Data": {
+                    "corpus": corpus,
+                    "dataset_id": resolved_dataset_id,
+                    "split": resolved_split,
+                    "text_column": resolved_text_column,
+                    "streaming": streaming,
+                    "limit": limit,
+                },
+                "Model": {
+                    "model": model_definition.name,
+                    "model_task_id": model_task_id,
+                },
+                "Evaluation": {
+                    "top_k": top_k,
+                },
+                "Artifacts": {
+                    "model_artifact": "trained-model-json",
+                    "tokenizer_artifact": "input-tokenizer-model",
+                    "model_artifact_file": staged_model_path.name,
+                },
             }
         )
 
