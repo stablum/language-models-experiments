@@ -2,7 +2,7 @@
 
 Small language-model experiments around BabyLM-style corpora.
 
-The project is intentionally lightweight, but ClearML is the experiment system of record. Training, evaluation, query, and corpus-stat commands create ClearML tasks and store generated experiment artifacts there. Local storage is reserved for corpus caches and the repo-local ClearML/Docker service state.
+The project is intentionally lightweight, but ClearML is the experiment system of record. The end-to-end pipeline runs as a ClearML PipelineController DAG, and the training, evaluation, query, and corpus-stat commands create ClearML tasks that store generated experiment artifacts there. Local storage is reserved for corpus caches and the repo-local ClearML/Docker service state.
 
 It is not configured as an installable Python package; use `uv run python -m ...` from the repository root.
 
@@ -60,7 +60,7 @@ Registered corpus source splits are treated as input shards, not evaluation part
 
 The default split is `train_ratio = 0.8`, so roughly 80% of merged rows go to `train` and 20% go to `validation`. Change it with `--train-ratio` or `train_ratio` in `config.toml`. The assignment is deterministic and randomized with `--split-seed` / `split_seed`; it hashes the source split name, row index, and seed, so the same dataset, ratio, and seed always produce the same partitions without storing duplicated split datasets.
 
-Every training, evaluation, and pipeline task logs a split ID and uploads a `data-split-plan-json` artifact. Downstream model training inherits the split plan from the tokenizer task when `--tokenizer-task-id` is used, and evaluation inherits the split plan embedded in the trained model JSON when `--model-task-id` is used. This keeps tokenizer training, model training, and validation evaluation on the same reusable partition definition.
+Every training, evaluation, and pipeline stage task logs a split ID and uploads a `data-split-plan-json` artifact. Downstream model training inherits the split plan from the tokenizer task when `--tokenizer-task-id` is used, and evaluation inherits the split plan embedded in the trained model JSON when `--model-task-id` is used. This keeps tokenizer training, model training, and validation evaluation on the same reusable partition definition.
 
 Evaluation defaults to the `validation` partition. To intentionally inspect training-partition metrics, pass `--evaluation-partition train`.
 
@@ -82,7 +82,7 @@ Stats use the deliberately lossy `lossy-ascii` text normalization by default. It
 
 ## End-to-End Pipeline
 
-Run tokenizer training, language-model training, evaluation, and a final query as one ClearML task:
+Run tokenizer training, language-model training, evaluation, and a final query as a ClearML PipelineController DAG:
 
 ```powershell
 uv run python -m src.cli.pipeline --model bigram --streaming
@@ -100,24 +100,40 @@ With the checked-in defaults, this can also be shortened to:
 uv run python -m src.cli.pipeline
 ```
 
-The pipeline command prints one ClearML task ID and stores:
+The pipeline command prints the controller task ID and creates stage tasks named:
 
 ```text
-ClearML artifact: sentencepiece-model
-ClearML artifact: sentencepiece-vocabulary
-ClearML artifact: input-tokenizer-model
-ClearML artifact: trained-model-json
-ClearML artifact: data-split-plan-json
-ClearML artifact: evaluation-summary
-ClearML artifact: query-result
-ClearML artifact: pipeline-summary
+train_tokenizer
+train_model
+evaluate
+query
 ```
 
-The printed pipeline task ID can also be used as a model task ID for later query or re-evaluation commands:
+The pipeline identity is the ClearML project plus `pipeline_name` plus `pipeline_version`. The default `pipeline_version` follows the project version in `pyproject.toml`. Keep `pipeline_name` stable when you want repeated runs of the same DAG definition instead of a separate pipeline identity.
+
+By default, the controller and step tasks execute locally through ClearML PipelineController. To enqueue the controller and step tasks on ClearML agents, pass queues explicitly:
 
 ```powershell
-uv run python -m src.cli.query --model bigram --model-task-id <PIPELINE_TASK_ID> --prompt "Once upon" --max-tokens 80 --seed 1
-uv run python -m src.cli.evaluate --model bigram --model-task-id <PIPELINE_TASK_ID> --streaming --limit 1000
+uv run python -m src.cli.pipeline --pipeline-queued --controller-queue services --execution-queue default
+```
+
+The controller task monitors the main stage artifacts, and the stage tasks store the canonical artifacts:
+
+```text
+train_tokenizer artifact: sentencepiece-model
+train_tokenizer artifact: sentencepiece-vocabulary
+train_model artifact: input-tokenizer-model
+train_model artifact: trained-model-json
+train_model artifact: data-split-plan-json
+evaluate artifact: evaluation-summary
+query artifact: query-result
+```
+
+The `train_model` stage task ID is the canonical model task ID for later query or re-evaluation commands. The controller task also monitors the trained model artifacts after a completed run:
+
+```powershell
+uv run python -m src.cli.query --model bigram --model-task-id <TRAIN_MODEL_STAGE_TASK_ID> --prompt "Once upon" --max-tokens 80 --seed 1
+uv run python -m src.cli.evaluate --model bigram --model-task-id <TRAIN_MODEL_STAGE_TASK_ID> --streaming --limit 1000
 ```
 
 Use `--tokenizer-limit`, `--training-limit`, and `--evaluation-limit` when those stages should use different row counts. These limits are applied after partitioning, so they do not create overlapping train/validation slices. Use `--source-split` only when you want to restrict the source rows before partitioning; leave it unset to merge all source splits. Use `--evaluation-partition` to choose which reusable project partition is evaluated. Use `--query-prompt`, `--query-max-tokens`, `--query-decoding`, `--query-temperature`, and `--query-seed` to control the mandatory final query.
@@ -271,7 +287,7 @@ For most experiments, use the end-to-end pipeline:
 uv run python -m src.cli.pipeline --model bigram --streaming
 ```
 
-You can also run the stages manually. Every CLI run creates a ClearML task. Use task IDs printed by earlier commands to connect the artifact flow:
+You can also run the stages manually for ad hoc debugging or reuse. Every CLI run creates a ClearML task. Use task IDs printed by earlier commands to connect the artifact flow:
 
 ```powershell
 uv run python -m src.cli.train_sentencepiece --streaming --limit 1000
@@ -284,7 +300,7 @@ uv run python -m src.cli.evaluate --model bigram --streaming --limit 1000 --mode
 uv run python -m src.cli.query --model bigram --prompt "Once upon" --model-task-id $modelTaskId
 ```
 
-The CLIs connect options as grouped ClearML hyperparameter sections, report final metrics, upload useful artifacts, and register trained tokenizer/model files. Evaluation metrics in ClearML are partition-prefixed, and split plans are uploaded as `data-split-plan-json`. Use `--clearml-project`, `--clearml-task-name`, `--clearml-config-file`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the task.
+The pipeline and stage CLIs connect options as grouped ClearML hyperparameter sections, report final metrics, upload useful artifacts, and register trained tokenizer/model files. Evaluation metrics in ClearML are partition-prefixed, and split plans are uploaded as `data-split-plan-json`. Use `--clearml-project`, `--pipeline-name`, `--pipeline-version`, `--clearml-config-file`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the pipeline run.
 
 ### ClearML Smoke Test
 
@@ -295,15 +311,16 @@ uv sync
 docker compose -f docker-compose.clearml.yml up -d
 Copy-Item clearml.local.conf.example clearml.conf
 
-uv run python -m src.cli.pipeline --model bigram --streaming --limit 50 --vocab-size 100 --no-hard-vocab-limit --clearml-task-name "clearml smoke pipeline" --clearml-tag smoke
+uv run python -m src.cli.pipeline --model bigram --streaming --limit 50 --vocab-size 100 --no-hard-vocab-limit --clearml-tag smoke
 ```
 
 Expected result:
 
 ```text
-The ClearML task ID and task page are printed in the terminal.
-The ClearML UI shows a completed task tagged smoke.
-The task has grouped hyperparameter sections, tokenizer/model/evaluation/query scalar metrics, tokenizer artifacts, a data split plan artifact, a trained model JSON artifact, evaluation summary artifacts, and query result artifacts.
+The ClearML pipeline controller task ID and task page are printed in the terminal.
+The ClearML UI shows a completed pipeline controller tagged smoke.
+The pipeline has stage tasks named train_tokenizer, train_model, evaluate, and query.
+The stage tasks have grouped hyperparameter sections, tokenizer/model/evaluation/query scalar metrics, tokenizer artifacts, a data split plan artifact, a trained model JSON artifact, evaluation summary artifacts, and query result artifacts.
 The Models page contains registered model records for the tokenizer and n-gram model files.
 The uploaded files are also visible under .clearml/fileserver/.
 ```

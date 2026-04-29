@@ -1,55 +1,113 @@
-"""End-to-end ClearML-backed tokenizer, model, evaluation, and query pipeline."""
+"""Mandatory ClearML PipelineController DAG for end-to-end experiments."""
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from typing import Any
 
 import click
 
-from src.cli.data_splits import (
-    build_cli_split_plan,
-    split_plan_parameter_sections,
-    upload_split_plan_artifact,
-)
 from src.cli.config import configured_command
-from src.cli.output import highlight_stage_title, stage_title
-from src.cli.evaluate import (
-    evaluation_metrics,
-    evaluation_metrics_for_partition,
-    evaluation_payload,
+from src.cli.pipeline_steps import (
+    EVALUATION_STAGE,
+    MODEL_STAGE,
+    QUERY_STAGE,
+    TOKENIZER_STAGE,
+    PIPELINE_STEP_HELPERS,
+    evaluate_pipeline_step,
+    output_uri_value,
+    pipeline_artifact_monitors,
+    pipeline_metric_monitors,
+    query_pipeline_step,
+    stage_tags,
+    train_model_pipeline_step,
+    train_tokenizer_pipeline_step,
 )
-from src.cli.query import query_metrics, query_payload
-from src.cli.train import training_summary_metrics
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
-from src.corpora.registry import (
-    DEFAULT_CORPUS_NAME,
-    corpus_names,
-    get_corpus,
-    split_note_for,
-)
+from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
 from src.corpora.splits import (
-    DataSplitPlan,
     DEFAULT_SPLIT_SEED,
     DEFAULT_TRAIN_RATIO,
     PROJECT_PARTITIONS,
-    TRAIN_PARTITION,
     VALIDATION_PARTITION,
-    attach_split_plan_to_json_model,
-    load_partition_texts,
-    source_split_label,
-    split_ratio_label,
 )
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
-from src.tracking.clearml import clearml_options, clearml_settings, start_clearml_run
-from src.tokenizers.sentencepiece_training import train_sentencepiece
+from src.tracking.clearml import (
+    assert_clearml_endpoints_reachable,
+    clearml_options,
+    clearml_settings,
+    configure_clearml_config_file,
+)
+
+
+DEFAULT_PIPELINE_NAME = "language-models-experiments"
+DEFAULT_CONTROLLER_QUEUE = "services"
+DEFAULT_PIPELINE_VERSION_FALLBACK = "0.4.4"
+
+
+def project_version() -> str:
+    pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    try:
+        with pyproject_path.open("rb") as pyproject_file:
+            data = tomllib.load(pyproject_file)
+    except OSError:
+        return DEFAULT_PIPELINE_VERSION_FALLBACK
+
+    project = data.get("project")
+    if not isinstance(project, dict):
+        return DEFAULT_PIPELINE_VERSION_FALLBACK
+    version = project.get("version")
+    return str(version) if version else DEFAULT_PIPELINE_VERSION_FALLBACK
+
+
+DEFAULT_PIPELINE_VERSION = project_version()
 
 
 @configured_command(
     "pipeline",
     context_settings={"help_option_names": ["-h", "--help"]},
-    help="Run tokenizer training, model training, evaluation, and query in one ClearML task.",
+    help="Run tokenizer training, model training, evaluation, and query as a ClearML Pipeline DAG.",
+)
+@click.option(
+    "--pipeline-name",
+    default=DEFAULT_PIPELINE_NAME,
+    show_default=True,
+    help="Reusable ClearML pipeline DAG name.",
+)
+@click.option(
+    "--pipeline-version",
+    default=DEFAULT_PIPELINE_VERSION,
+    show_default=True,
+    help="Reusable ClearML pipeline DAG version.",
+)
+@click.option(
+    "--pipeline-local/--pipeline-queued",
+    default=True,
+    show_default=True,
+    help="Run the ClearML pipeline locally, or enqueue the controller and steps.",
+)
+@click.option(
+    "--controller-queue",
+    default=DEFAULT_CONTROLLER_QUEUE,
+    show_default=True,
+    help="ClearML queue for the controller when --pipeline-queued is used.",
+)
+@click.option(
+    "--execution-queue",
+    default=None,
+    help="ClearML queue for step tasks when --pipeline-queued is used.",
+)
+@click.option(
+    "--wait/--no-wait",
+    default=True,
+    show_default=True,
+    help="Wait for queued pipeline completion. Local pipeline runs always wait.",
+)
+@click.option(
+    "--add-run-number/--no-add-run-number",
+    default=True,
+    show_default=True,
+    help="Append ClearML's run number to the controller task name.",
 )
 @click.option(
     "--model",
@@ -259,6 +317,13 @@ from src.tokenizers.sentencepiece_training import train_sentencepiece
 )
 @clearml_options
 def main(
+    pipeline_name: str,
+    pipeline_version: str,
+    pipeline_local: bool,
+    controller_queue: str,
+    execution_queue: str | None,
+    wait: bool,
+    add_run_number: bool,
     model_name: str,
     corpus: str,
     dataset_id: str | None,
@@ -304,7 +369,10 @@ def main(
         raise click.ClickException(f"Model does not support evaluation yet: {model_name}")
     if model_definition.query is None or model_definition.query_lines is None:
         raise click.ClickException(f"Model does not support querying yet: {model_name}")
+    if pipeline_local and not wait:
+        raise click.ClickException("--no-wait is only supported with --pipeline-queued.")
 
+    resolved_pipeline_name = clearml_task_name or pipeline_name
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
     resolved_source_split = source_split if source_split is not None else corpus_definition.split
     resolved_text_column = text_column or corpus_definition.text_column
@@ -312,383 +380,305 @@ def main(
     resolved_tokenizer_limit = tokenizer_limit if tokenizer_limit is not None else limit
     resolved_training_limit = training_limit if training_limit is not None else limit
     resolved_evaluation_limit = evaluation_limit if evaluation_limit is not None else limit
-    split_plan = build_cli_split_plan(
-        corpus_definition,
+
+    settings = clearml_settings(
+        project_name=clearml_project,
+        task_name=resolved_pipeline_name,
+        config_file=clearml_config_file,
+        connectivity_check=clearml_connectivity_check,
+        output_uri=clearml_output_uri,
+        tags=clearml_tags,
+    )
+    resolved_config_file = configure_clearml_config_file(settings.config_file)
+    if settings.connectivity_check:
+        assert_clearml_endpoints_reachable(resolved_config_file, settings.output_uri)
+
+    pipeline = build_pipeline_controller(
+        pipeline_name=resolved_pipeline_name,
+        pipeline_version=pipeline_version,
+        clearml_project=settings.project_name,
+        clearml_tags=settings.tags,
+        clearml_output_uri=settings.output_uri,
+        add_run_number=add_run_number,
+    )
+    add_pipeline_steps(
+        pipeline,
+        clearml_project=settings.project_name,
+        clearml_output_uri=settings.output_uri,
+        clearml_tags=settings.tags,
+        clearml_config_file=resolved_config_file if pipeline_local else None,
+        execution_queue=None if pipeline_local else execution_queue,
+        model_name=model_definition.name,
         corpus=corpus,
         dataset_id=resolved_dataset_id,
         source_split=resolved_source_split,
+        text_column=resolved_text_column,
+        streaming=streaming,
         train_ratio=train_ratio,
         split_seed=split_seed,
+        evaluation_partition=evaluation_partition,
+        tokenizer_limit=resolved_tokenizer_limit,
+        training_limit=resolved_training_limit,
+        evaluation_limit=resolved_evaluation_limit,
+        vocab_size=vocab_size,
+        artifact_name=resolved_artifact_name,
+        model_type=model_type,
+        character_coverage=character_coverage,
+        hard_vocab_limit=hard_vocab_limit,
+        max_sentence_length=max_sentence_length,
+        smoothing=smoothing,
+        unigram_weight=unigram_weight,
+        bigram_weight=bigram_weight,
+        trigram_weight=trigram_weight,
+        discount=discount,
+        top_k=top_k,
+        query_prompt=query_prompt,
+        query_max_tokens=query_max_tokens,
+        query_top_k=query_top_k,
+        query_decoding=query_decoding,
+        query_temperature=query_temperature,
+        query_seed=query_seed,
+        text_normalization=text_normalization,
     )
 
-    task_id: str | None = None
-    task_url: str | None = None
-    click.echo(stage_title(1, 5, "ClearML setup"), color=True)
-    with (
-        TemporaryDirectory(prefix="lme-pipeline-") as staging_root,
-        start_clearml_run(
-            clearml_settings(
-                project_name=clearml_project,
-                task_name=clearml_task_name,
-                config_file=clearml_config_file,
-                connectivity_check=clearml_connectivity_check,
-                output_uri=clearml_output_uri,
-                tags=clearml_tags,
-            ),
-            default_task_name=f"pipeline {model_definition.name} {corpus}",
-            task_type="training",
-        ) as clearml_run,
-    ):
-        staging_dir = Path(staging_root)
-        tokenizer_output_prefix = staging_dir / resolved_artifact_name
-        model_output_path = staging_dir / f"{corpus}-sentencepiece-{model_definition.name}.json"
-        task_id = clearml_run.task_id
-        task_url = clearml_run.task_url
+    click.echo(f"ClearML pipeline: {settings.project_name}/{resolved_pipeline_name}")
+    click.echo(f"Pipeline version: {pipeline_version}")
+    click.echo(f"Pipeline controller task ID: {pipeline.task.id}")
+    task_url = pipeline.task.get_output_log_web_page()
+    if task_url:
+        click.echo(f"Pipeline controller URL: {task_url}")
+    click.echo(f"Stage tasks: {TOKENIZER_STAGE}, {MODEL_STAGE}, {EVALUATION_STAGE}, {QUERY_STAGE}")
 
-        clearml_run.connect_parameter_sections(
-            {
-                "Run": {
-                    "command": "src.cli.pipeline",
-                    "artifact_store": "clearml",
-                },
-                "Data": {
-                    "corpus": corpus,
-                    "dataset_id": resolved_dataset_id,
-                    "source_split": source_split_label(resolved_source_split),
-                    "training_partition": TRAIN_PARTITION,
-                    "evaluation_partition": evaluation_partition,
-                    "text_column": resolved_text_column,
-                    "streaming": streaming,
-                    "limit": limit,
-                    "tokenizer_limit": resolved_tokenizer_limit,
-                    "training_limit": resolved_training_limit,
-                    "evaluation_limit": resolved_evaluation_limit,
-                    "text_normalization": text_normalization,
-                },
-                **split_plan_parameter_sections(split_plan),
-                "Tokenizer": {
-                    "vocab_size": vocab_size,
-                    "artifact_name": resolved_artifact_name,
-                    "model_type": model_type,
-                    "character_coverage": character_coverage,
-                    "hard_vocab_limit": hard_vocab_limit,
-                    "max_sentence_length": max_sentence_length,
-                },
-                "Model": {
-                    "model": model_definition.name,
-                    "smoothing": smoothing,
-                    "unigram_weight": unigram_weight,
-                    "bigram_weight": bigram_weight,
-                    "trigram_weight": trigram_weight,
-                    "discount": discount,
-                },
-                "Evaluation": {
-                    "top_k": top_k,
-                },
-                "Query": {
-                    "query_prompt": query_prompt,
-                    "query_max_tokens": query_max_tokens,
-                    "query_top_k": query_top_k,
-                    "query_decoding": query_decoding,
-                    "query_temperature": query_temperature,
-                    "query_seed": query_seed,
-                },
-                "Artifacts": {
-                    "tokenizer_artifact": "sentencepiece-model",
-                    "model_artifact": "trained-model-json",
-                    "evaluation_artifact": "evaluation-summary",
-                    "query_artifact": "query-result",
-                },
-            }
+    if pipeline_local:
+        click.echo("Execution mode: local ClearML PipelineController")
+        pipeline.start_locally(run_pipeline_steps_locally=True)
+    else:
+        click.echo(f"Execution mode: queued controller on {controller_queue}")
+        if execution_queue is not None:
+            click.echo(f"Step execution queue: {execution_queue}")
+        pipeline.start(queue=controller_queue, wait=wait)
+
+    click.echo("ClearML pipeline submitted.")
+    if wait:
+        assert_pipeline_finished_successfully(pipeline)
+        click.echo("ClearML pipeline run completed.")
+
+
+def build_pipeline_controller(
+    *,
+    pipeline_name: str,
+    pipeline_version: str,
+    clearml_project: str,
+    clearml_tags: tuple[str, ...],
+    clearml_output_uri: str | None,
+    add_run_number: bool,
+) -> object:
+    try:
+        from clearml.automation import PipelineController
+    except ImportError as error:
+        raise click.ClickException(
+            "ClearML pipelines require the clearml Python package. "
+            "Run `uv sync` before using the pipeline CLI."
+        ) from error
+
+    pipeline = PipelineController(
+        name=pipeline_name,
+        project=clearml_project,
+        version=pipeline_version,
+        add_pipeline_tags=True,
+        target_project=clearml_project,
+        abort_on_failure=True,
+        add_run_number=add_run_number,
+        output_uri=output_uri_value(clearml_output_uri),
+        working_dir=str(Path.cwd()),
+    )
+    pipeline.add_tags(list(dict.fromkeys(("pipeline", *clearml_tags))))
+    return pipeline
+
+
+def assert_pipeline_finished_successfully(pipeline: object) -> None:
+    task = getattr(pipeline, "task", None)
+    if task is None:
+        return
+
+    reload_task = getattr(task, "reload", None)
+    if callable(reload_task):
+        reload_task()
+
+    status = str(getattr(task, "status", "") or "").lower()
+    if status in {"failed", "stopped", "aborted"}:
+        raise click.ClickException(
+            f"ClearML pipeline finished with status {status}. "
+            "Open the controller task or failed stage task for details."
         )
 
-        click.echo(stage_title(2, 5, "Tokenizer training"), color=True)
-        tokenizer_model, tokenizer_vocab = train_sentencepiece(
-            load_partition_texts(
-                corpus_definition,
-                dataset_id=resolved_dataset_id,
-                plan=split_plan,
-                partition=TRAIN_PARTITION,
-                streaming=streaming,
-                text_column=resolved_text_column,
-                limit=resolved_tokenizer_limit,
-            ),
-            output_prefix=tokenizer_output_prefix,
-            vocab_size=vocab_size,
-            model_type=model_type,
-            character_coverage=character_coverage,
-            hard_vocab_limit=hard_vocab_limit,
-            max_sentence_length=max_sentence_length,
-            text_normalization=text_normalization,
-        )
-        clearml_run.log_metrics(
-            "Tokenizer training",
-            {
-                "vocab_size": vocab_size,
-                "character_coverage": character_coverage,
-                "hard_vocab_limit": hard_vocab_limit,
-                "limit": resolved_tokenizer_limit,
-            },
-        )
-        upload_split_plan_artifact(
-            clearml_run,
-            staging_dir=staging_dir,
-            plan=split_plan,
-            metadata={"corpus": corpus, "stage": "pipeline"},
-        )
-        clearml_run.upload_artifact(
-            "sentencepiece-model",
-            tokenizer_model,
-            metadata={"corpus": corpus, "vocab_size": vocab_size},
-        )
-        clearml_run.upload_artifact(
-            "sentencepiece-vocabulary",
-            tokenizer_vocab,
-            metadata={"corpus": corpus, "vocab_size": vocab_size},
-        )
-        clearml_run.upload_artifact(
-            "input-tokenizer-model",
-            tokenizer_model,
-            metadata={"model": model_definition.name, "corpus": corpus},
-        )
-        clearml_run.register_model(
-            name=tokenizer_model.stem,
-            model_path=tokenizer_model,
-            framework="custom",
-            tags=("tokenizer", corpus),
-            comment="SentencePiece tokenizer model.",
-        )
 
-        click.echo(stage_title(3, 5, "Model training"), color=True)
-        model_options = {
+def add_pipeline_steps(
+    pipeline: object,
+    *,
+    clearml_project: str,
+    clearml_output_uri: str | None,
+    clearml_tags: tuple[str, ...],
+    clearml_config_file: Path | None,
+    execution_queue: str | None,
+    model_name: str,
+    corpus: str,
+    dataset_id: str,
+    source_split: str | None,
+    text_column: str,
+    streaming: bool,
+    train_ratio: float,
+    split_seed: int,
+    evaluation_partition: str,
+    tokenizer_limit: int | None,
+    training_limit: int | None,
+    evaluation_limit: int | None,
+    vocab_size: int,
+    artifact_name: str,
+    model_type: str,
+    character_coverage: float,
+    hard_vocab_limit: bool,
+    max_sentence_length: int | None,
+    smoothing: float,
+    unigram_weight: float,
+    bigram_weight: float,
+    trigram_weight: float,
+    discount: float,
+    top_k: int,
+    query_prompt: str,
+    query_max_tokens: int,
+    query_top_k: int,
+    query_decoding: str,
+    query_temperature: float,
+    query_seed: int | None,
+    text_normalization: str,
+) -> None:
+    artifact_monitors = pipeline_artifact_monitors()
+    metric_monitors = pipeline_metric_monitors(evaluation_partition)
+    common_step_kwargs = {
+        "clearml_output_uri": clearml_output_uri,
+        "clearml_tags": "\n".join(clearml_tags),
+        "clearml_config_file": str(clearml_config_file) if clearml_config_file else None,
+    }
+    step_options = {
+        "project_name": clearml_project,
+        "execution_queue": execution_queue,
+        "output_uri": output_uri_value(clearml_output_uri),
+        "auto_connect_frameworks": False,
+        "auto_connect_arg_parser": False,
+        "helper_functions": PIPELINE_STEP_HELPERS,
+    }
+
+    pipeline.add_function_step(
+        name=TOKENIZER_STAGE,
+        function=train_tokenizer_pipeline_step,
+        function_kwargs={
             "corpus": corpus,
-            "tokenizer_model": tokenizer_model,
-            "output": model_output_path,
-            "stored_tokenizer_model": Path(tokenizer_model.name),
+            "dataset_id": dataset_id,
+            "source_split": source_split,
+            "text_column": text_column,
+            "streaming": streaming,
+            "limit": tokenizer_limit,
+            "train_ratio": train_ratio,
+            "split_seed": split_seed,
+            "vocab_size": vocab_size,
+            "artifact_name": artifact_name,
+            "model_type": model_type,
+            "character_coverage": character_coverage,
+            "hard_vocab_limit": hard_vocab_limit,
+            "max_sentence_length": max_sentence_length,
+            "text_normalization": text_normalization,
+            **common_step_kwargs,
+        },
+        task_name=TOKENIZER_STAGE,
+        task_type="training",
+        monitor_artifacts=artifact_monitors[TOKENIZER_STAGE],
+        monitor_metrics=metric_monitors[TOKENIZER_STAGE],
+        tags=stage_tags(clearml_tags, TOKENIZER_STAGE),
+        stage=TOKENIZER_STAGE,
+        **step_options,
+    )
+    pipeline.add_function_step(
+        name=MODEL_STAGE,
+        function=train_model_pipeline_step,
+        function_kwargs={
+            "tokenizer_task_id": f"${{{TOKENIZER_STAGE}.id}}",
+            "model_name": model_name,
+            "corpus": corpus,
+            "dataset_id": dataset_id,
+            "source_split": source_split,
+            "text_column": text_column,
+            "streaming": streaming,
+            "limit": training_limit,
+            "train_ratio": train_ratio,
+            "split_seed": split_seed,
             "smoothing": smoothing,
             "unigram_weight": unigram_weight,
             "bigram_weight": bigram_weight,
             "trigram_weight": trigram_weight,
             "discount": discount,
             "text_normalization": text_normalization,
-        }
-        model_definition.validate_options(model_options)
-        training_summary = model_definition.train(
-            load_partition_texts(
-                corpus_definition,
-                dataset_id=resolved_dataset_id,
-                plan=split_plan,
-                partition=TRAIN_PARTITION,
-                streaming=streaming,
-                text_column=resolved_text_column,
-                limit=resolved_training_limit,
-            ),
-            model_options,
-        )
-        attach_split_plan_to_json_model(training_summary.output_path, split_plan)
-        clearml_run.log_metrics("Model training", training_summary_metrics(training_summary))
-        clearml_run.upload_artifact(
-            "trained-model-json",
-            training_summary.output_path,
-            metadata={"model": model_definition.name, "corpus": corpus},
-        )
-        clearml_run.register_model(
-            name=training_summary.output_path.stem,
-            model_path=training_summary.output_path,
-            framework="custom",
-            tags=("language-model", model_definition.name, corpus),
-            comment="Token n-gram language model JSON.",
-        )
-
-        click.echo(stage_title(4, 5, "Evaluation"), color=True)
-        evaluation_options = {
+            **common_step_kwargs,
+        },
+        parents=[TOKENIZER_STAGE],
+        task_name=MODEL_STAGE,
+        task_type="training",
+        monitor_artifacts=artifact_monitors[MODEL_STAGE],
+        monitor_metrics=metric_monitors[MODEL_STAGE],
+        tags=stage_tags(clearml_tags, MODEL_STAGE),
+        stage=MODEL_STAGE,
+        **step_options,
+    )
+    pipeline.add_function_step(
+        name=EVALUATION_STAGE,
+        function=evaluate_pipeline_step,
+        function_kwargs={
+            "model_task_id": f"${{{MODEL_STAGE}.id}}",
+            "model_name": model_name,
             "corpus": corpus,
-            "model_path": training_summary.output_path,
+            "dataset_id": dataset_id,
+            "source_split": source_split,
+            "text_column": text_column,
+            "streaming": streaming,
+            "limit": evaluation_limit,
+            "train_ratio": train_ratio,
+            "split_seed": split_seed,
+            "evaluation_partition": evaluation_partition,
             "top_k": top_k,
-        }
-        if model_definition.validate_evaluation_options is not None:
-            model_definition.validate_evaluation_options(evaluation_options)
-        evaluation_summary = model_definition.evaluate(
-            load_partition_texts(
-                corpus_definition,
-                dataset_id=resolved_dataset_id,
-                plan=split_plan,
-                partition=evaluation_partition,
-                streaming=streaming,
-                text_column=resolved_text_column,
-                limit=resolved_evaluation_limit,
-            ),
-            evaluation_options,
-        )
-        clearml_run.log_metrics(
-            "Evaluation",
-            evaluation_metrics_for_partition(
-                evaluation_summary,
-                partition=evaluation_partition,
-            ),
-        )
-        clearml_run.upload_artifact(
-            "evaluation-summary",
-            pipeline_evaluation_payload(
-                evaluation_summary,
-                evaluation_partition=evaluation_partition,
-                evaluation_limit=resolved_evaluation_limit,
-                split_plan=split_plan,
-            ),
-            metadata={
-                "model": model_definition.name,
-                "corpus": corpus,
-                "evaluation_partition": evaluation_partition,
-                "split_id": split_plan.split_id,
-            },
-        )
-
-        click.echo(stage_title(5, 5, "Query"), color=True)
-        query_options = {
+            **common_step_kwargs,
+        },
+        parents=[MODEL_STAGE],
+        task_name=EVALUATION_STAGE,
+        task_type="testing",
+        monitor_artifacts=artifact_monitors[EVALUATION_STAGE],
+        monitor_metrics=metric_monitors[EVALUATION_STAGE],
+        tags=stage_tags(clearml_tags, EVALUATION_STAGE),
+        stage=EVALUATION_STAGE,
+        **step_options,
+    )
+    pipeline.add_function_step(
+        name=QUERY_STAGE,
+        function=query_pipeline_step,
+        function_kwargs={
+            "model_task_id": f"${{{MODEL_STAGE}.id}}",
+            "model_name": model_name,
             "corpus": corpus,
-            "model_path": training_summary.output_path,
             "prompt": query_prompt,
             "max_tokens": query_max_tokens,
             "top_k": query_top_k,
             "decoding": query_decoding,
             "temperature": query_temperature,
             "seed": query_seed,
-        }
-        if model_definition.validate_query_options is not None:
-            model_definition.validate_query_options(query_options)
-        query_result = model_definition.query(query_options)
-        clearml_run.log_metrics("Query", query_metrics(query_result))
-        clearml_run.upload_artifact(
-            "query-result",
-            pipeline_query_payload(query_result),
-            metadata={"model": model_definition.name, "corpus": corpus},
-        )
-        clearml_run.upload_artifact(
-            "pipeline-summary",
-            pipeline_payload(
-                model_name=model_definition.name,
-                corpus=corpus,
-                dataset_id=resolved_dataset_id,
-                source_split=resolved_source_split,
-                training_partition=TRAIN_PARTITION,
-                evaluation_partition=evaluation_partition,
-                text_column=resolved_text_column,
-                split_plan=split_plan,
-                tokenizer_model=tokenizer_model,
-                tokenizer_vocab=tokenizer_vocab,
-                training_summary=training_summary,
-                evaluation_summary=evaluation_summary,
-                query_result=query_result,
-            ),
-            metadata={"model": model_definition.name, "corpus": corpus},
-        )
-
-    click.echo(f"Pipeline: {model_definition.name} on {corpus}")
-    click.echo(f"Dataset: {resolved_dataset_id}")
-    click.echo(f"Source split: {source_split_label(resolved_source_split)}")
-    click.echo(f"Training partition: {TRAIN_PARTITION}")
-    click.echo(f"Evaluation partition: {evaluation_partition}")
-    click.echo(f"Split ratio train/validation: {split_ratio_label(split_plan)}")
-    click.echo(f"Split seed: {split_plan.split_seed}")
-    click.echo(f"Split ID: {split_plan.split_id}")
-    split_note = split_note_for(
-        corpus_definition,
-        dataset_id_override=dataset_id,
-    )
-    if split_note is not None:
-        click.echo(f"Split note: {split_note}")
-    click.echo(f"Text column: {resolved_text_column}")
-    click.echo(f"Text normalization: {text_normalization}")
-    echo_limit("Tokenizer limit", resolved_tokenizer_limit)
-    echo_limit("Training limit", resolved_training_limit)
-    echo_limit("Evaluation limit", resolved_evaluation_limit)
-    click.echo("")
-    click.echo(highlight_stage_title("Model training:"), color=True)
-    for label, value in model_definition.summary_items(training_summary):
-        click.echo(f"{label}: {value}")
-    click.echo("")
-    click.echo(highlight_stage_title("Evaluation:"), color=True)
-    for label, value in model_definition.evaluation_items(evaluation_summary):
-        click.echo(f"{label}: {value}")
-    click.echo("")
-    click.echo(highlight_stage_title("Query:"), color=True)
-    for line in model_definition.query_lines(query_result):
-        click.echo(line)
-    click.echo("")
-    click.echo(f"ClearML task ID: {task_id}")
-    if task_url is not None:
-        click.echo(f"ClearML task URL: {task_url}")
-    click.echo("Data split artifact: data-split-plan-json")
-    click.echo("Tokenizer artifact: sentencepiece-model")
-    click.echo("Model artifact: trained-model-json")
-    click.echo("Evaluation artifact: evaluation-summary")
-    click.echo("Query artifact: query-result")
-
-
-def pipeline_evaluation_payload(
-    summary: object,
-    *,
-    evaluation_partition: str,
-    evaluation_limit: int | None,
-    split_plan: DataSplitPlan,
-) -> dict[str, object]:
-    return {
-        **evaluation_payload(summary),
-        "evaluation_partition": evaluation_partition,
-        "evaluation_limit": evaluation_limit,
-        "data_split": split_plan.to_payload(),
-    }
-
-
-def pipeline_query_payload(result: object) -> dict[str, object]:
-    return query_payload(result)
-
-
-def pipeline_payload(
-    *,
-    model_name: str,
-    corpus: str,
-    dataset_id: str,
-    source_split: str | None,
-    training_partition: str,
-    evaluation_partition: str,
-    text_column: str,
-    split_plan: DataSplitPlan,
-    tokenizer_model: Path,
-    tokenizer_vocab: Path,
-    training_summary: object,
-    evaluation_summary: object,
-    query_result: object,
-) -> dict[str, Any]:
-    return {
-        "model": model_name,
-        "corpus": corpus,
-        "dataset_id": dataset_id,
-        "source_split": source_split_label(source_split),
-        "training_partition": training_partition,
-        "evaluation_partition": evaluation_partition,
-        "text_column": text_column,
-        "data_split": split_plan.to_payload(),
-        "artifacts": {
-            "sentencepiece_model": tokenizer_model.name,
-            "sentencepiece_vocabulary": tokenizer_vocab.name,
-            "input_tokenizer_model": tokenizer_model.name,
-            "trained_model_json": getattr(training_summary, "output_path").name,
-            "evaluation_summary": "evaluation-summary",
-            "query_result": "query-result",
+            **common_step_kwargs,
         },
-        "training_metrics": training_summary_metrics(training_summary),
-        "evaluation_metrics": evaluation_metrics(evaluation_summary),
-        "query_metrics": query_metrics(query_result),
-    }
-
-
-def echo_limit(label: str, limit: int | None) -> None:
-    if limit is None:
-        click.echo(f"{label}: none")
-        return
-    click.echo(f"{label}: first {limit:,} rows")
-
-
+        parents=[MODEL_STAGE],
+        task_name=QUERY_STAGE,
+        task_type="inference",
+        monitor_artifacts=artifact_monitors[QUERY_STAGE],
+        monitor_metrics=metric_monitors[QUERY_STAGE],
+        tags=stage_tags(clearml_tags, QUERY_STAGE),
+        stage=QUERY_STAGE,
+        **step_options,
+    )
 if __name__ == "__main__":
     main()

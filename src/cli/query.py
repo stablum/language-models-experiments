@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -222,16 +224,18 @@ def stage_model_artifacts(
     validate_model_source(model_task_id=model_task_id, model_path=model_path)
 
     if model_task_id is not None:
-        download_task_artifact(
-            task_id=model_task_id,
-            artifact_name="input-tokenizer-model",
-            destination_dir=staging_dir,
-        )
-        return download_task_artifact(
+        staged_model_path = download_task_artifact(
             task_id=model_task_id,
             artifact_name="trained-model-json",
             destination_dir=staging_dir,
         )
+        download_task_artifact(
+            task_id=model_task_id,
+            artifact_name="input-tokenizer-model",
+            destination_dir=staging_dir,
+            filename=stored_tokenizer_filename(staged_model_path),
+        )
+        return staged_model_path
 
     return model_path
 
@@ -291,6 +295,20 @@ def artifact_file(path: object) -> str | None:
     if path is None:
         return None
     return Path(path).name
+
+
+def stored_tokenizer_filename(model_path: Path) -> str | None:
+    try:
+        payload = json.loads(model_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+
+    tokenizer_model = payload.get("tokenizer_model")
+    if tokenizer_model is None:
+        return None
+    return Path(str(tokenizer_model)).name
 
 
 if __name__ == "__main__":

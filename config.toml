@@ -22,6 +22,11 @@ clearml_output_uri = "http://localhost:8081"
 clearml_tags = []
 
 [pipeline]
+# pipeline_version defaults to the project version in pyproject.toml.
+pipeline_name = "language-models-experiments"
+pipeline_local = true
+controller_queue = "services"
+add_run_number = true
 model = "trigram"
 vocab_size = 1000
 model_type = "unigram"

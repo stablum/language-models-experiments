@@ -37,6 +37,9 @@ from src.tracking.clearml import (
 )
 
 
+STAGED_TOKENIZER_MODEL_NAME = "input-tokenizer.model"
+
+
 @configured_command(
     "train",
     context_settings={"help_option_names": ["-h", "--help"]},
@@ -385,10 +388,11 @@ def stage_tokenizer_model(
             task_id=tokenizer_task_id,
             artifact_name="sentencepiece-model",
             destination_dir=staging_dir,
+            filename=STAGED_TOKENIZER_MODEL_NAME,
         )
 
     staging_dir.mkdir(parents=True, exist_ok=True)
-    destination = staging_dir / tokenizer_model.name
+    destination = staging_dir / STAGED_TOKENIZER_MODEL_NAME
     if tokenizer_model.resolve() != destination.resolve():
         shutil.copy2(tokenizer_model, destination)
     return destination

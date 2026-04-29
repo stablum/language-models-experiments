@@ -21,7 +21,7 @@
                 "kind": "build",
                 "isDefault": true
             },
-            "detail": "Run the pipeline through uv using config.toml defaults.",
+            "detail": "Run the ClearML pipeline DAG through uv using config.toml defaults.",
             "problemMatcher": []
         }
     ]
