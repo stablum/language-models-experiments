@@ -254,9 +254,9 @@ def start_clearml_run(
         reuse_last_task_id=False,
         auto_connect_arg_parser=False,
         auto_connect_frameworks=False,
-        # If switching to dict mode, list every desired stream explicitly:
-        # ClearML treats omitted stdout/stderr/logging keys as False.
-        auto_connect_streams=False,
+        # In dict mode, ClearML treats omitted stdout/stderr/logging keys as
+        # False, so list every desired stream explicitly.
+        auto_connect_streams={"stdout": True, "stderr": True, "logging": False},
     )
     return ClearMLRun(
         task=task,
