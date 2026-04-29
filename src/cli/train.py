@@ -146,7 +146,7 @@ def main(
         tokenizer_model=tokenizer_model,
     )
 
-    click.echo(stage_title(1, 1, "Model training"))
+    click.echo(stage_title(1, 1, "Model training"), color=True)
     task_id: str | None = None
     task_url: str | None = None
     with (

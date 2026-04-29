@@ -91,7 +91,7 @@ def main(
     resolved_split = split or corpus_definition.split
     resolved_text_column = text_column or corpus_definition.text_column
 
-    click.echo(stage_title(1, 1, "Corpus stats"))
+    click.echo(stage_title(1, 1, "Corpus stats"), color=True)
     with start_clearml_run(
         clearml_settings(
             project_name=clearml_project,

@@ -268,7 +268,7 @@ def main(
 
     task_id: str | None = None
     task_url: str | None = None
-    click.echo(stage_title(1, 5, "ClearML setup"))
+    click.echo(stage_title(1, 5, "ClearML setup"), color=True)
     with (
         TemporaryDirectory(prefix="lme-pipeline-") as staging_root,
         start_clearml_run(
@@ -331,7 +331,7 @@ def main(
             }
         )
 
-        click.echo(stage_title(2, 5, "Tokenizer training"))
+        click.echo(stage_title(2, 5, "Tokenizer training"), color=True)
         tokenizer_model, tokenizer_vocab = train_sentencepiece(
             load_texts(
                 corpus_definition,
@@ -381,7 +381,7 @@ def main(
             comment="SentencePiece tokenizer model.",
         )
 
-        click.echo(stage_title(3, 5, "Model training"))
+        click.echo(stage_title(3, 5, "Model training"), color=True)
         model_options = {
             "corpus": corpus,
             "tokenizer_model": tokenizer_model,
@@ -420,7 +420,7 @@ def main(
             comment="Token n-gram language model JSON.",
         )
 
-        click.echo(stage_title(4, 5, "Evaluation"))
+        click.echo(stage_title(4, 5, "Evaluation"), color=True)
         evaluation_options = {
             "corpus": corpus,
             "model_path": training_summary.output_path,
@@ -450,7 +450,7 @@ def main(
             metadata={"model": model_definition.name, "corpus": corpus},
         )
 
-        click.echo(stage_title(5, 5, "Query"))
+        click.echo(stage_title(5, 5, "Query"), color=True)
         query_options = {
             "corpus": corpus,
             "model_path": training_summary.output_path,
@@ -498,15 +498,15 @@ def main(
     echo_limit("Training limit", resolved_training_limit)
     echo_limit("Evaluation limit", resolved_evaluation_limit)
     click.echo("")
-    click.echo(highlight_stage_title("Model training:"))
+    click.echo(highlight_stage_title("Model training:"), color=True)
     for label, value in model_definition.summary_items(training_summary):
         click.echo(f"{label}: {value}")
     click.echo("")
-    click.echo(highlight_stage_title("Evaluation:"))
+    click.echo(highlight_stage_title("Evaluation:"), color=True)
     for label, value in model_definition.evaluation_items(evaluation_summary):
         click.echo(f"{label}: {value}")
     click.echo("")
-    click.echo(highlight_stage_title("Query:"))
+    click.echo(highlight_stage_title("Query:"), color=True)
     for line in model_definition.query_lines(query_result):
         click.echo(line)
     click.echo("")

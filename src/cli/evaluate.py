@@ -104,7 +104,7 @@ def main(
     resolved_text_column = text_column or corpus_definition.text_column
     validate_model_source(model_task_id=model_task_id, model_path=model_path)
 
-    click.echo(stage_title(1, 1, "Evaluation"))
+    click.echo(stage_title(1, 1, "Evaluation"), color=True)
     task_id: str | None = None
     task_url: str | None = None
     with (

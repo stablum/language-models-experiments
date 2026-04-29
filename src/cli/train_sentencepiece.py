@@ -117,7 +117,7 @@ def main(
     task_id: str | None = None
     task_url: str | None = None
 
-    click.echo(stage_title(1, 1, "Tokenizer training"))
+    click.echo(stage_title(1, 1, "Tokenizer training"), color=True)
     with (
         TemporaryDirectory(prefix="lme-tokenizer-") as staging_root,
         start_clearml_run(

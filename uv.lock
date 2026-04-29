@@ -435,7 +435,7 @@ wheels = [
 
 [[package]]
 name = "language-models-experiments"
-version = "0.3.15"
+version = "0.3.16"
 source = { virtual = "." }
 dependencies = [
     { name = "clearml" },
