@@ -58,7 +58,9 @@ Python CLI output lines are prepended with a local timestamp and per-line delta 
 
 Registered corpus source splits are treated as input shards, not evaluation partitions. When `--source-split` is omitted, the CLIs load all available source splits and merge them into one logical row stream. They then assign rows to reusable project partitions named `train` and `validation`.
 
-The default split is `train_ratio = 0.8`, so roughly 80% of merged rows go to `train` and 20% go to `validation`. Change it with `--train-ratio` or `train_ratio` in `config.toml`. The assignment is deterministic and randomized with `--split-seed` / `split_seed`; it hashes the source split name, row index, and seed, so the same dataset, ratio, and seed always produce the same partitions without storing duplicated split datasets.
+The default split is `train_ratio = 0.8`, so roughly 80% of merged rows go to `train` and 20% go to `validation`. Change it with `--train-ratio` or `train_ratio` in `config.toml`. The assignment is deterministic and randomized with `--split-seed` / `split_seed`; each row gets an independent score by hashing the seed, source split name, and row index. Rows below the train-ratio threshold go to `train`, and the rest go to `validation`.
+
+This avoids mutable random-number-generator state entirely. Extra calls to `random` elsewhere in the program cannot shift the split assignments, and streaming the corpus does not require a precomputed list of row IDs. The split artifact stores the recipe, not the corpus rows or membership lists, so reproducibility depends on the upstream dataset ID, source split names, row order, ratio, seed, and split algorithm staying stable.
 
 Every training, evaluation, and pipeline stage task logs a split ID and uploads a `data-split-plan-json` artifact. Downstream model training inherits the split plan from the tokenizer task when `--tokenizer-task-id` is used, and evaluation inherits the split plan embedded in the trained model JSON when `--model-task-id` is used. This keeps tokenizer training, model training, and validation evaluation on the same reusable partition definition.
 
