@@ -60,6 +60,20 @@ Registered corpus source splits are treated as input shards, not evaluation part
 
 The default split is `train_ratio = 0.8`, so roughly 80% of merged rows go to `train` and 20% go to `validation`. Change it with `--train-ratio` or `train_ratio` in `config.toml`. The assignment is deterministic and randomized with `--split-seed` / `split_seed`; each row gets an independent score by hashing the seed, source split name, and row index. Rows below the train-ratio threshold go to `train`, and the rest go to `validation`.
 
+The core split decision is equivalent to:
+
+```text
+key = split_seed + "\0" + source_split + "\0" + row_index
+score = int(blake2b(key, digest_size=8)) / 2**64
+
+if score < train_ratio:
+    partition = "train"
+else:
+    partition = "validation"
+```
+
+`split_seed` is the configured seed, `source_split` is the upstream corpus split name such as `train` or `validation`, and `row_index` is the row's position within that source split. The resulting `score` is a stable floating-point value in `[0, 1)`, so changing `train_ratio` moves the threshold while keeping each row's score fixed.
+
 This avoids mutable random-number-generator state entirely. Extra calls to `random` elsewhere in the program cannot shift the split assignments, and streaming the corpus does not require a precomputed list of row IDs. The split artifact stores the recipe, not the corpus rows or membership lists, so reproducibility depends on the upstream dataset ID, source split names, row order, ratio, seed, and split algorithm staying stable.
 
 Every training, evaluation, and pipeline stage task logs a split ID and uploads a `data-split-plan-json` artifact. Downstream model training inherits the split plan from the tokenizer task when `--tokenizer-task-id` is used, and evaluation inherits the split plan embedded in the trained model JSON when `--model-task-id` is used. This keeps tokenizer training, model training, and validation evaluation on the same reusable partition definition.
