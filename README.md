@@ -230,13 +230,20 @@ The evaluation command reports next-token accuracy, top-k accuracy, average nega
 
 ## Corpora
 
-The CLI is corpus-generic. BabyLM 2026 Strict-Small is currently registered as:
+The CLI is corpus-generic. These corpora are currently registered:
 
 ```text
 babylm-2026-strict-small
+tinystories
 ```
 
 The registered BabyLM corpus uses the Hugging Face dataset `BabyLM-community/BabyLM-2026-Strict-Small`, whose only known source split is `train`. The project still creates reusable `train` and `validation` partitions from that source split.
+
+The registered TinyStories corpus uses the Hugging Face dataset `roneneldan/TinyStories`,
+whose source splits are `train` and `validation`. Because source splits are input
+shards in this project, omitting `--source-split` merges both TinyStories source splits
+before creating reusable project partitions. Pass `--source-split train` when you want
+to train and evaluate only from the original TinyStories training split.
 
 To add another corpus, add a loader module under `src/corpora/` and register a new `CorpusDefinition` in `src/corpora/registry.py`.
 

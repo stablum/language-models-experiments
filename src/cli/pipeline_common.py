@@ -413,6 +413,7 @@ def list_pipeline_controller_candidates(
     if not project_rows:
         return ()
 
+    # pipeline controller runs are just a special type of task
     tasks = client.tasks.get_all(
         project=[project_rows[0].id],
         system_tags=["pipeline"],
