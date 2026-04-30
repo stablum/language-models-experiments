@@ -2,26 +2,38 @@
 
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 
 import click
 
 from src.cli.config import configured_command
-from src.cli.pipeline_steps import (
+from src.cli.pipeline_common import (
+    DEFAULT_PIPELINE_NAME,
     EVALUATION_STAGE,
     MODEL_STAGE,
+    PIPELINE_STAGES,
     QUERY_STAGE,
     TOKENIZER_STAGE,
-    PIPELINE_STEP_HELPERS,
-    evaluate_pipeline_step,
+    assert_pipeline_finished_successfully,
+    build_pipeline_controller,
+    configure_pipeline_control,
+    connect_controller_experiment_parameters,
     output_uri_value,
+    pipeline_options,
+    pipeline_resume_option,
+    print_stage_task_ids,
+    resume_pipeline_controller_stage,
+    stage_gate_callback,
+)
+from src.cli.pipeline_steps import (
     pipeline_artifact_monitors,
     pipeline_metric_monitors,
-    query_pipeline_step,
-    stage_tags,
-    train_model_pipeline_step,
-    train_tokenizer_pipeline_step,
+)
+from src.cli.stage_pipeline_steps import (
+    evaluate_stage_entry,
+    query_stage_entry,
+    train_model_stage_entry,
+    train_tokenizer_stage_entry,
 )
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
@@ -40,75 +52,28 @@ from src.tracking.clearml import (
 )
 
 
-DEFAULT_PIPELINE_NAME = "language-models-experiments"
-DEFAULT_CONTROLLER_QUEUE = "services"
-DEFAULT_PIPELINE_VERSION_FALLBACK = "0.4.4"
-
-
-def project_version() -> str:
-    pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
-    try:
-        with pyproject_path.open("rb") as pyproject_file:
-            data = tomllib.load(pyproject_file)
-    except OSError:
-        return DEFAULT_PIPELINE_VERSION_FALLBACK
-
-    project = data.get("project")
-    if not isinstance(project, dict):
-        return DEFAULT_PIPELINE_VERSION_FALLBACK
-    version = project.get("version")
-    return str(version) if version else DEFAULT_PIPELINE_VERSION_FALLBACK
-
-
-DEFAULT_PIPELINE_VERSION = project_version()
-
-
 @configured_command(
     "pipeline",
     context_settings={"help_option_names": ["-h", "--help"]},
     help="Run tokenizer training, model training, evaluation, and query as a ClearML Pipeline DAG.",
 )
+@pipeline_resume_option
 @click.option(
-    "--pipeline-name",
-    default=DEFAULT_PIPELINE_NAME,
-    show_default=True,
-    help="Reusable ClearML pipeline DAG name.",
-)
-@click.option(
-    "--pipeline-version",
-    default=DEFAULT_PIPELINE_VERSION,
-    show_default=True,
-    help="Reusable ClearML pipeline DAG version.",
-)
-@click.option(
-    "--pipeline-local/--pipeline-queued",
-    default=True,
-    show_default=True,
-    help="Run the ClearML pipeline locally, or enqueue the controller and steps.",
-)
-@click.option(
-    "--controller-queue",
-    default=DEFAULT_CONTROLLER_QUEUE,
-    show_default=True,
-    help="ClearML queue for the controller when --pipeline-queued is used.",
-)
-@click.option(
-    "--execution-queue",
+    "--run-stage",
+    type=click.Choice(PIPELINE_STAGES),
     default=None,
-    help="ClearML queue for step tasks when --pipeline-queued is used.",
+    help=(
+        "Resume an existing controller and run only this stage. "
+        "If --pipeline-controller-id is omitted, the newest eligible run is selected."
+    ),
 )
 @click.option(
-    "--wait/--no-wait",
-    default=True,
-    show_default=True,
-    help="Wait for queued pipeline completion. Local pipeline runs always wait.",
+    "--run-until-stage",
+    type=click.Choice(PIPELINE_STAGES),
+    default=None,
+    help="Create a new controller run and stop after this stage has run.",
 )
-@click.option(
-    "--add-run-number/--no-add-run-number",
-    default=True,
-    show_default=True,
-    help="Append ClearML's run number to the controller task name.",
-)
+@pipeline_options(default_name=DEFAULT_PIPELINE_NAME)
 @click.option(
     "--model",
     "model_name",
@@ -324,6 +289,9 @@ def main(
     execution_queue: str | None,
     wait: bool,
     add_run_number: bool,
+    run_until_stage: str | None,
+    run_stage: str | None,
+    pipeline_controller_id: str | None,
     model_name: str,
     corpus: str,
     dataset_id: str | None,
@@ -381,6 +349,41 @@ def main(
     resolved_training_limit = training_limit if training_limit is not None else limit
     resolved_evaluation_limit = evaluation_limit if evaluation_limit is not None else limit
 
+    if run_stage is not None and run_until_stage is not None:
+        raise click.ClickException("--run-stage and --run-until-stage are mutually exclusive.")
+    if pipeline_controller_id is not None and run_stage is None:
+        raise click.ClickException("--pipeline-controller-id must be used with --run-stage.")
+
+    parameter_filters = {
+        "model": model_definition.name,
+        "corpus": corpus,
+        "dataset_id": resolved_dataset_id,
+        "source_split": resolved_source_split or "",
+        "evaluation_partition": evaluation_partition,
+    }
+    if run_stage is not None or pipeline_controller_id is not None:
+        if pipeline_local:
+            raise click.ClickException(
+                "Existing PipelineController runs are resumed by re-enqueueing the controller task. "
+                "Use --pipeline-queued when passing --run-stage or --pipeline-controller-id."
+            )
+        resume_pipeline_controller_stage(
+            stage_name=run_stage or TOKENIZER_STAGE,
+            pipeline_controller_id=pipeline_controller_id,
+            pipeline_name=resolved_pipeline_name,
+            pipeline_version=pipeline_version,
+            controller_queue=controller_queue,
+            wait=wait,
+            clearml_project=clearml_project,
+            clearml_task_name=clearml_task_name,
+            clearml_config_file=clearml_config_file,
+            clearml_connectivity_check=clearml_connectivity_check,
+            clearml_output_uri=clearml_output_uri,
+            clearml_tags=clearml_tags,
+            parameter_filters=parameter_filters,
+        )
+        return
+
     settings = clearml_settings(
         project_name=clearml_project,
         task_name=resolved_pipeline_name,
@@ -400,6 +403,23 @@ def main(
         clearml_tags=settings.tags,
         clearml_output_uri=settings.output_uri,
         add_run_number=add_run_number,
+    )
+    configure_pipeline_control(
+        pipeline.task,
+        run_stage=None,
+        run_until_stage=run_until_stage,
+        updated_by="pipeline-cli",
+    )
+    connect_controller_experiment_parameters(
+        pipeline.task,
+        {
+            "model": model_definition.name,
+            "corpus": corpus,
+            "dataset_id": resolved_dataset_id,
+            "source_split": resolved_source_split or "",
+            "text_column": resolved_text_column,
+            "evaluation_partition": evaluation_partition,
+        },
     )
     add_pipeline_steps(
         pipeline,
@@ -447,6 +467,8 @@ def main(
     task_url = pipeline.task.get_output_log_web_page()
     if task_url:
         click.echo(f"Pipeline controller URL: {task_url}")
+    if run_until_stage is not None:
+        click.echo(f"Run until stage: {run_until_stage}")
     click.echo(f"Stage tasks: {TOKENIZER_STAGE}, {MODEL_STAGE}, {EVALUATION_STAGE}, {QUERY_STAGE}")
 
     if pipeline_local:
@@ -461,56 +483,11 @@ def main(
     click.echo("ClearML pipeline submitted.")
     if wait:
         assert_pipeline_finished_successfully(pipeline)
-        click.echo("ClearML pipeline run completed.")
-
-
-def build_pipeline_controller(
-    *,
-    pipeline_name: str,
-    pipeline_version: str,
-    clearml_project: str,
-    clearml_tags: tuple[str, ...],
-    clearml_output_uri: str | None,
-    add_run_number: bool,
-) -> object:
-    try:
-        from clearml.automation import PipelineController
-    except ImportError as error:
-        raise click.ClickException(
-            "ClearML pipelines require the clearml Python package. "
-            "Run `uv sync` before using the pipeline CLI."
-        ) from error
-
-    pipeline = PipelineController(
-        name=pipeline_name,
-        project=clearml_project,
-        version=pipeline_version,
-        add_pipeline_tags=True,
-        target_project=clearml_project,
-        abort_on_failure=True,
-        add_run_number=add_run_number,
-        output_uri=output_uri_value(clearml_output_uri),
-        working_dir=str(Path.cwd()),
-    )
-    pipeline.add_tags(list(dict.fromkeys(("pipeline", *clearml_tags))))
-    return pipeline
-
-
-def assert_pipeline_finished_successfully(pipeline: object) -> None:
-    task = getattr(pipeline, "task", None)
-    if task is None:
-        return
-
-    reload_task = getattr(task, "reload", None)
-    if callable(reload_task):
-        reload_task()
-
-    status = str(getattr(task, "status", "") or "").lower()
-    if status in {"failed", "stopped", "aborted"}:
-        raise click.ClickException(
-            f"ClearML pipeline finished with status {status}. "
-            "Open the controller task or failed stage task for details."
+        print_stage_task_ids(
+            pipeline.task.id,
+            (TOKENIZER_STAGE, MODEL_STAGE, EVALUATION_STAGE, QUERY_STAGE),
         )
+        click.echo("ClearML pipeline run completed.")
 
 
 def add_pipeline_steps(
@@ -566,12 +543,13 @@ def add_pipeline_steps(
         "output_uri": output_uri_value(clearml_output_uri),
         "auto_connect_frameworks": False,
         "auto_connect_arg_parser": False,
-        "helper_functions": PIPELINE_STEP_HELPERS,
+        "pre_execute_callback": stage_gate_callback,
+        "tags": list(clearml_tags) if clearml_tags else None,
     }
 
     pipeline.add_function_step(
         name=TOKENIZER_STAGE,
-        function=train_tokenizer_pipeline_step,
+        function=train_tokenizer_stage_entry,
         function_kwargs={
             "corpus": corpus,
             "dataset_id": dataset_id,
@@ -594,13 +572,12 @@ def add_pipeline_steps(
         task_type="training",
         monitor_artifacts=artifact_monitors[TOKENIZER_STAGE],
         monitor_metrics=metric_monitors[TOKENIZER_STAGE],
-        tags=stage_tags(clearml_tags, TOKENIZER_STAGE),
         stage=TOKENIZER_STAGE,
         **step_options,
     )
     pipeline.add_function_step(
         name=MODEL_STAGE,
-        function=train_model_pipeline_step,
+        function=train_model_stage_entry,
         function_kwargs={
             "tokenizer_task_id": f"${{{TOKENIZER_STAGE}.id}}",
             "model_name": model_name,
@@ -625,13 +602,12 @@ def add_pipeline_steps(
         task_type="training",
         monitor_artifacts=artifact_monitors[MODEL_STAGE],
         monitor_metrics=metric_monitors[MODEL_STAGE],
-        tags=stage_tags(clearml_tags, MODEL_STAGE),
         stage=MODEL_STAGE,
         **step_options,
     )
     pipeline.add_function_step(
         name=EVALUATION_STAGE,
-        function=evaluate_pipeline_step,
+        function=evaluate_stage_entry,
         function_kwargs={
             "model_task_id": f"${{{MODEL_STAGE}.id}}",
             "model_name": model_name,
@@ -652,13 +628,12 @@ def add_pipeline_steps(
         task_type="testing",
         monitor_artifacts=artifact_monitors[EVALUATION_STAGE],
         monitor_metrics=metric_monitors[EVALUATION_STAGE],
-        tags=stage_tags(clearml_tags, EVALUATION_STAGE),
         stage=EVALUATION_STAGE,
         **step_options,
     )
     pipeline.add_function_step(
         name=QUERY_STAGE,
-        function=query_pipeline_step,
+        function=query_stage_entry,
         function_kwargs={
             "model_task_id": f"${{{MODEL_STAGE}.id}}",
             "model_name": model_name,
@@ -676,7 +651,6 @@ def add_pipeline_steps(
         task_type="inference",
         monitor_artifacts=artifact_monitors[QUERY_STAGE],
         monitor_metrics=metric_monitors[QUERY_STAGE],
-        tags=stage_tags(clearml_tags, QUERY_STAGE),
         stage=QUERY_STAGE,
         **step_options,
     )

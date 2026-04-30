@@ -586,7 +586,7 @@ def _current_step_run(
             "This pipeline step must run inside a ClearML task created by PipelineController."
         )
 
-    tags = tuple(dict.fromkeys((*_normalize_tags(clearml_tags), f"stage:{stage}")))
+    tags = tuple(dict.fromkeys(_normalize_tags(clearml_tags)))
     if tags:
         task.add_tags(list(tags))
     return ClearMLRun(
@@ -661,10 +661,6 @@ def pipeline_metric_monitors(evaluation_partition: str) -> dict[str, list[tuple[
             ("Query", "top_next_token_probability"),
         ],
     }
-
-
-def stage_tags(clearml_tags: tuple[str, ...], stage: str) -> list[str]:
-    return list(dict.fromkeys((*clearml_tags, f"stage:{stage}")))
 
 
 def output_uri_value(clearml_output_uri: str | None) -> str | bool:

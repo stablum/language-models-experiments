@@ -2,7 +2,7 @@
 
 Small language-model experiments around BabyLM-style corpora.
 
-The project is intentionally lightweight, but ClearML is the experiment system of record. The end-to-end pipeline runs as a ClearML PipelineController DAG, and the training, evaluation, query, and corpus-stat commands create ClearML tasks that store generated experiment artifacts there. Local storage is reserved for corpus caches and the repo-local ClearML/Docker service state.
+The project is intentionally lightweight, but ClearML is the experiment system of record. The end-to-end pipeline runs as a ClearML PipelineController DAG, and the training, evaluation, and query entrypoints create or resume PipelineController runs rather than standalone experiment tasks. Local storage is reserved for corpus caches and the repo-local ClearML/Docker service state.
 
 It is not configured as an installable Python package; use `uv run python -m ...` from the repository root.
 
@@ -287,20 +287,28 @@ For most experiments, use the end-to-end pipeline:
 uv run python -m src.cli.pipeline --model bigram --streaming
 ```
 
-You can also run the stages manually for ad hoc debugging or reuse. Every CLI run creates a ClearML task. Use task IDs printed by earlier commands to connect the artifact flow:
+You can also stop and resume the same ClearML PipelineController run at stage boundaries. Start the canonical DAG through the tokenizer stage:
 
 ```powershell
 uv run python -m src.cli.train_sentencepiece --streaming --limit 1000
-
-$tokenizerTaskId = "<task ID printed by train_sentencepiece>"
-uv run python -m src.cli.train --model bigram --streaming --limit 1000 --tokenizer-task-id $tokenizerTaskId
-
-$modelTaskId = "<task ID printed by train>"
-uv run python -m src.cli.evaluate --model bigram --streaming --limit 1000 --model-task-id $modelTaskId
-uv run python -m src.cli.query --model bigram --prompt "Once upon" --model-task-id $modelTaskId
 ```
 
-The pipeline and stage CLIs connect options as grouped ClearML hyperparameter sections, report final metrics, upload useful artifacts, and register trained tokenizer/model files. Evaluation metrics in ClearML are partition-prefixed, and split plans are uploaded as `data-split-plan-json`. Use `--clearml-project`, `--pipeline-name`, `--pipeline-version`, `--clearml-config-file`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the pipeline run.
+Then resume the newest eligible controller run for later stages:
+
+```powershell
+uv run python -m src.cli.train --model bigram --streaming --limit 1000
+uv run python -m src.cli.evaluate --model bigram --streaming --limit 1000
+uv run python -m src.cli.query --model bigram --prompt "Once upon"
+```
+
+Stage resume commands re-enqueue the controller task on the controller queue, so run a ClearML agent for queued continuation. You can disambiguate with `--pipeline-controller-id`, or use the full pipeline CLI directly:
+
+```powershell
+uv run python -m src.cli.pipeline --run-until-stage train_model --model bigram --streaming
+uv run python -m src.cli.pipeline --pipeline-queued --no-wait --run-stage evaluate --model bigram --streaming
+```
+
+The pipeline and stage CLIs connect options as grouped ClearML hyperparameter sections, report final metrics, upload useful artifacts, and register trained tokenizer/model files. Stage identity comes from the controller task plus child task names and `parent` links, not custom stage tags. Evaluation metrics in ClearML are partition-prefixed, and split plans are uploaded as `data-split-plan-json`. Use `--clearml-project`, `--pipeline-name`, `--pipeline-version`, `--clearml-config-file`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the pipeline run.
 
 ### ClearML Smoke Test
 

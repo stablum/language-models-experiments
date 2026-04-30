@@ -14,16 +14,25 @@ from src.cli.data_splits import (
     upload_split_plan_artifact,
 )
 from src.cli.output import stage_title
+from src.cli.pipeline_common import (
+    DEFAULT_PIPELINE_NAME,
+    TOKENIZER_STAGE,
+    pipeline_options,
+    pipeline_resume_option,
+    resume_pipeline_controller_stage,
+)
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
 from src.corpora.splits import (
     DEFAULT_SPLIT_SEED,
     DEFAULT_TRAIN_RATIO,
     TRAIN_PARTITION,
+    VALIDATION_PARTITION,
     load_partition_texts,
     source_split_label,
     split_ratio_label,
 )
+from src.models.registry import DEFAULT_MODEL_NAME
 from src.tracking.clearml import clearml_options, clearml_settings, start_clearml_run
 from src.tokenizers.sentencepiece_training import train_sentencepiece
 
@@ -33,6 +42,8 @@ from src.tokenizers.sentencepiece_training import train_sentencepiece
     context_settings={"help_option_names": ["-h", "--help"]},
     help="Train a SentencePiece tokenizer from a registered corpus.",
 )
+@pipeline_resume_option
+@pipeline_options(default_name=DEFAULT_PIPELINE_NAME)
 @click.option(
     "--corpus",
     type=click.Choice(corpus_names()),
@@ -124,6 +135,14 @@ from src.tokenizers.sentencepiece_training import train_sentencepiece
 )
 @clearml_options
 def main(
+    pipeline_name: str,
+    pipeline_version: str,
+    pipeline_local: bool,
+    controller_queue: str,
+    execution_queue: str | None,
+    wait: bool,
+    add_run_number: bool,
+    pipeline_controller_id: str | None,
     corpus: str,
     dataset_id: str | None,
     source_split: str | None,
@@ -151,6 +170,87 @@ def main(
     resolved_source_split = source_split if source_split is not None else corpus_definition.split
     resolved_text_column = text_column or corpus_definition.text_column
     resolved_artifact_name = artifact_name or f"{corpus}-sentencepiece-{vocab_size}"
+    if pipeline_controller_id is not None:
+        if pipeline_local:
+            raise click.ClickException(
+                "Existing PipelineController runs are resumed by re-enqueueing the controller task. "
+                "Use --pipeline-queued with --pipeline-controller-id."
+            )
+        resume_pipeline_controller_stage(
+            stage_name=TOKENIZER_STAGE,
+            pipeline_controller_id=pipeline_controller_id,
+            pipeline_name=pipeline_name,
+            pipeline_version=pipeline_version,
+            controller_queue=controller_queue,
+            wait=wait,
+            clearml_project=clearml_project,
+            clearml_task_name=clearml_task_name,
+            clearml_config_file=clearml_config_file,
+            clearml_connectivity_check=clearml_connectivity_check,
+            clearml_output_uri=clearml_output_uri,
+            clearml_tags=clearml_tags,
+            parameter_filters={
+                "corpus": corpus,
+                "dataset_id": resolved_dataset_id,
+                "source_split": resolved_source_split or "",
+            },
+        )
+        return
+
+    from src.cli.pipeline import main as pipeline_command
+
+    pipeline_command.callback(
+        pipeline_name=pipeline_name,
+        pipeline_version=pipeline_version,
+        pipeline_local=pipeline_local,
+        controller_queue=controller_queue,
+        execution_queue=execution_queue,
+        wait=wait,
+        add_run_number=add_run_number,
+        run_until_stage=TOKENIZER_STAGE,
+        run_stage=None,
+        pipeline_controller_id=None,
+        model_name=DEFAULT_MODEL_NAME,
+        corpus=corpus,
+        dataset_id=resolved_dataset_id,
+        source_split=resolved_source_split,
+        train_ratio=train_ratio,
+        split_seed=split_seed,
+        evaluation_partition=VALIDATION_PARTITION,
+        text_column=resolved_text_column,
+        streaming=streaming,
+        limit=None,
+        tokenizer_limit=limit,
+        training_limit=None,
+        evaluation_limit=None,
+        vocab_size=vocab_size,
+        artifact_name=resolved_artifact_name,
+        model_type=model_type,
+        character_coverage=character_coverage,
+        hard_vocab_limit=hard_vocab_limit,
+        max_sentence_length=max_sentence_length,
+        smoothing=0.1,
+        unigram_weight=0.1,
+        bigram_weight=0.3,
+        trigram_weight=0.6,
+        discount=0.75,
+        top_k=5,
+        query_prompt="Once upon",
+        query_max_tokens=80,
+        query_top_k=10,
+        query_decoding="sample",
+        query_temperature=1.0,
+        query_seed=1,
+        text_normalization=text_normalization,
+        clearml_project=clearml_project,
+        clearml_task_name=clearml_task_name,
+        clearml_config_file=clearml_config_file,
+        clearml_connectivity_check=clearml_connectivity_check,
+        clearml_output_uri=clearml_output_uri,
+        clearml_tags=clearml_tags,
+    )
+    return
+
     split_plan = build_cli_split_plan(
         corpus_definition,
         corpus=corpus,

@@ -17,6 +17,13 @@ from src.cli.data_splits import (
     upload_split_plan_artifact,
 )
 from src.cli.output import stage_title
+from src.cli.pipeline_common import (
+    DEFAULT_PIPELINE_NAME,
+    MODEL_STAGE,
+    pipeline_options,
+    pipeline_resume_option,
+    resume_pipeline_controller_stage,
+)
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
 from src.corpora.splits import (
@@ -45,6 +52,8 @@ STAGED_TOKENIZER_MODEL_NAME = "input-tokenizer.model"
     context_settings={"help_option_names": ["-h", "--help"]},
     help="Train a registered language model from a registered corpus.",
 )
+@pipeline_resume_option
+@pipeline_options(default_name=DEFAULT_PIPELINE_NAME, default_local=False, default_wait=False)
 @click.option(
     "--model",
     "model_name",
@@ -100,16 +109,13 @@ STAGED_TOKENIZER_MODEL_NAME = "input-tokenizer.model"
 @click.option(
     "--tokenizer-task-id",
     default=None,
-    help=(
-        "ClearML task ID produced by src.cli.train_sentencepiece. "
-        "Downloads its sentencepiece-model artifact for training."
-    ),
+    help="Deprecated. Training resumes the tokenizer dependency from the pipeline controller.",
 )
 @click.option(
     "--tokenizer-model",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     default=None,
-    help="Local SentencePiece .model file to stage into ClearML-backed training.",
+    help="Deprecated. Training resumes the tokenizer dependency from the pipeline controller.",
 )
 @click.option(
     "--smoothing",
@@ -157,6 +163,14 @@ STAGED_TOKENIZER_MODEL_NAME = "input-tokenizer.model"
 @click.pass_context
 def main(
     ctx: click.Context,
+    pipeline_name: str,
+    pipeline_version: str,
+    pipeline_local: bool,
+    controller_queue: str,
+    execution_queue: str | None,
+    wait: bool,
+    add_run_number: bool,
+    pipeline_controller_id: str | None,
     model_name: str,
     corpus: str,
     dataset_id: str | None,
@@ -188,10 +202,38 @@ def main(
     resolved_train_ratio = train_ratio
     resolved_split_seed = split_seed
     resolved_text_column = text_column or corpus_definition.text_column
-    validate_tokenizer_source(
-        tokenizer_task_id=tokenizer_task_id,
-        tokenizer_model=tokenizer_model,
+    if tokenizer_task_id is not None or tokenizer_model is not None:
+        raise click.ClickException(
+            "Model training now resumes the canonical ClearML pipeline DAG. "
+            "Run train_sentencepiece in the same pipeline first instead of passing "
+            "--tokenizer-task-id or --tokenizer-model."
+        )
+    if pipeline_local:
+        raise click.ClickException(
+            "Existing PipelineController runs are resumed by re-enqueueing the controller task. "
+            "Use --pipeline-queued for stage CLIs."
+        )
+    resume_pipeline_controller_stage(
+        stage_name=MODEL_STAGE,
+        pipeline_controller_id=pipeline_controller_id,
+        pipeline_name=pipeline_name,
+        pipeline_version=pipeline_version,
+        controller_queue=controller_queue,
+        wait=wait,
+        clearml_project=clearml_project,
+        clearml_task_name=clearml_task_name,
+        clearml_config_file=clearml_config_file,
+        clearml_connectivity_check=clearml_connectivity_check,
+        clearml_output_uri=clearml_output_uri,
+        clearml_tags=clearml_tags,
+        parameter_filters={
+            "model": model_definition.name,
+            "corpus": corpus,
+            "dataset_id": resolved_dataset_id,
+            "source_split": resolved_source_split or "",
+        },
     )
+    return
 
     click.echo(stage_title(1, 1, "Model training"), color=True)
     task_id: str | None = None

@@ -18,6 +18,13 @@ from src.cli.data_splits import (
     upload_split_plan_artifact,
 )
 from src.cli.output import stage_title
+from src.cli.pipeline_common import (
+    DEFAULT_PIPELINE_NAME,
+    EVALUATION_STAGE,
+    pipeline_options,
+    pipeline_resume_option,
+    resume_pipeline_controller_stage,
+)
 from src.corpora.splits import (
     DEFAULT_SPLIT_SEED,
     DEFAULT_TRAIN_RATIO,
@@ -43,12 +50,13 @@ from src.tracking.clearml import (
     start_clearml_run,
 )
 
-
 @configured_command(
     "evaluate",
     context_settings={"help_option_names": ["-h", "--help"]},
     help="Evaluate a registered language model on a registered corpus.",
 )
+@pipeline_resume_option
+@pipeline_options(default_name=DEFAULT_PIPELINE_NAME, default_local=False, default_wait=False)
 @click.option(
     "--model",
     "model_name",
@@ -112,16 +120,13 @@ from src.tracking.clearml import (
 @click.option(
     "--model-task-id",
     default=None,
-    help=(
-        "ClearML task ID produced by src.cli.train. Downloads its trained-model-json "
-        "and input-tokenizer-model artifacts for evaluation."
-    ),
+    help="Deprecated. Evaluation resumes the model dependency from the pipeline controller.",
 )
 @click.option(
     "--model-path",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     default=None,
-    help="Local trained model file to evaluate.",
+    help="Deprecated. Evaluation resumes the model dependency from the pipeline controller.",
 )
 @click.option(
     "--top-k",
@@ -134,6 +139,14 @@ from src.tracking.clearml import (
 @click.pass_context
 def main(
     ctx: click.Context,
+    pipeline_name: str,
+    pipeline_version: str,
+    pipeline_local: bool,
+    controller_queue: str,
+    execution_queue: str | None,
+    wait: bool,
+    add_run_number: bool,
+    pipeline_controller_id: str | None,
     model_name: str,
     corpus: str,
     dataset_id: str | None,
@@ -164,7 +177,38 @@ def main(
     resolved_train_ratio = train_ratio
     resolved_split_seed = split_seed
     resolved_text_column = text_column or corpus_definition.text_column
-    validate_model_source(model_task_id=model_task_id, model_path=model_path)
+    if model_task_id is not None or model_path is not None:
+        raise click.ClickException(
+            "Evaluation now resumes the canonical ClearML pipeline DAG. "
+            "Run train first in the same pipeline instead of passing --model-task-id or --model-path."
+        )
+    if pipeline_local:
+        raise click.ClickException(
+            "Existing PipelineController runs are resumed by re-enqueueing the controller task. "
+            "Use --pipeline-queued for stage CLIs."
+        )
+    resume_pipeline_controller_stage(
+        stage_name=EVALUATION_STAGE,
+        pipeline_controller_id=pipeline_controller_id,
+        pipeline_name=pipeline_name,
+        pipeline_version=pipeline_version,
+        controller_queue=controller_queue,
+        wait=wait,
+        clearml_project=clearml_project,
+        clearml_task_name=clearml_task_name,
+        clearml_config_file=clearml_config_file,
+        clearml_connectivity_check=clearml_connectivity_check,
+        clearml_output_uri=clearml_output_uri,
+        clearml_tags=clearml_tags,
+        parameter_filters={
+            "model": model_definition.name,
+            "corpus": corpus,
+            "dataset_id": resolved_dataset_id,
+            "source_split": resolved_source_split or "",
+            "evaluation_partition": evaluation_partition,
+        },
+    )
+    return
 
     click.echo(stage_title(1, 1, "Evaluation"), color=True)
     task_id: str | None = None
