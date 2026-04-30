@@ -7,11 +7,11 @@ import os
 import sys
 import threading
 from dataclasses import dataclass
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from time import perf_counter
-from typing import TextIO
+from typing import TextIO, TypeVar
 
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -26,6 +26,9 @@ ANSI_DELTA = ANSI_COLORS["warning"]
 ERROR_MARKERS = ("error", "failed", "failure", "exception", "traceback")
 WARNING_MARKERS = ("warning", "warn:")
 NATIVE_OUTPUT_CAPTURE_ENVVAR = "LME_CAPTURE_NATIVE_OUTPUT"
+PROGRESS_BAR_WIDTH = 28
+
+T = TypeVar("T")
 
 
 @dataclass
@@ -227,6 +230,76 @@ def highlight_stage_title(text: str) -> str:
 
 def format_delta(delta_seconds: float) -> str:
     return f"+{delta_seconds:.3f}s"
+
+
+def format_progress_line(
+    label: str,
+    *,
+    count: int,
+    total: int | None,
+    unit: str,
+    elapsed_seconds: float,
+) -> str:
+    rate = count / elapsed_seconds if elapsed_seconds > 0 else 0.0
+    rate_text = f"{rate:,.1f} {unit}/s" if count else f"0.0 {unit}/s"
+    if total is None:
+        return f"{label}: {count:,} {unit} processed ({rate_text})"
+
+    clamped_total = max(total, 0)
+    clamped_count = min(max(count, 0), clamped_total)
+    ratio = clamped_count / clamped_total if clamped_total else 1.0
+    filled = round(PROGRESS_BAR_WIDTH * ratio)
+    bar = "#" * filled + "-" * (PROGRESS_BAR_WIDTH - filled)
+    return (
+        f"{label}: [{bar}] {clamped_count:,}/{clamped_total:,} {unit} "
+        f"({ratio:.1%}, {rate_text})"
+    )
+
+
+def iter_with_progress(
+    iterable: Iterable[T],
+    *,
+    label: str,
+    total: int | None,
+    unit: str = "items",
+    min_interval_seconds: float = 10.0,
+) -> Iterator[T]:
+    start = perf_counter()
+    last_emit = start
+    count = 0
+    emit_progress(label, count=count, total=total, unit=unit, start=start)
+
+    for item in iterable:
+        yield item
+        count += 1
+        now = perf_counter()
+        if total is not None and count >= total:
+            continue
+        if now - last_emit >= min_interval_seconds:
+            emit_progress(label, count=count, total=total, unit=unit, start=start, now=now)
+            last_emit = now
+
+    emit_progress(label, count=count, total=total, unit=unit, start=start)
+
+
+def emit_progress(
+    label: str,
+    *,
+    count: int,
+    total: int | None,
+    unit: str,
+    start: float,
+    now: float | None = None,
+) -> None:
+    print(
+        format_progress_line(
+            label,
+            count=count,
+            total=total,
+            unit=unit,
+            elapsed_seconds=(now or perf_counter()) - start,
+        )
+    )
 
 
 def prepare_terminal_colors() -> None:

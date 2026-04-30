@@ -228,6 +228,40 @@ def load_partition_texts(
     )
 
 
+def count_partition_rows(
+    dataset: Any,
+    *,
+    partition: str,
+    plan: DataSplitPlan,
+    limit: int | None,
+) -> int | None:
+    if partition not in PROJECT_PARTITIONS:
+        raise ValueError(f"Unknown data partition: {partition}")
+    if limit == 0:
+        return 0
+
+    source_counts = source_row_counts(dataset, plan=plan)
+    if source_counts is None:
+        return limit
+
+    selected_count = 0
+    for source_split, row_count in source_counts:
+        for row_index in range(row_count):
+            row_partition = assign_partition(
+                source_split=source_split,
+                row_index=row_index,
+                train_ratio=plan.train_ratio,
+                split_seed=plan.split_seed,
+            )
+            if row_partition != partition:
+                continue
+
+            selected_count += 1
+            if limit is not None and selected_count >= limit:
+                return selected_count
+    return selected_count
+
+
 def iter_partition_rows(
     dataset: Any,
     *,
@@ -262,6 +296,37 @@ def iter_merged_source_rows(
     source_split = plan.source_split or "dataset"
     for row_index, row in enumerate(dataset):
         yield source_split, row_index, row
+
+
+def source_row_counts(
+    dataset: Any,
+    *,
+    plan: DataSplitPlan,
+) -> tuple[tuple[str, int], ...] | None:
+    if is_split_mapping(dataset):
+        counts: list[tuple[str, int]] = []
+        for source_split in ordered_source_splits(dataset, plan.source_splits):
+            row_count = dataset_row_count(dataset[source_split])
+            if row_count is None:
+                return None
+            counts.append((source_split, row_count))
+        return tuple(counts)
+
+    row_count = dataset_row_count(dataset)
+    if row_count is None:
+        return None
+    return ((plan.source_split or "dataset", row_count),)
+
+
+def dataset_row_count(dataset: Any) -> int | None:
+    num_rows = getattr(dataset, "num_rows", None)
+    if isinstance(num_rows, int):
+        return num_rows
+
+    try:
+        return len(dataset)
+    except TypeError:
+        return None
 
 
 def is_split_mapping(dataset: Any) -> bool:

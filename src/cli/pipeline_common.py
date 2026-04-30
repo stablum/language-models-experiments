@@ -21,7 +21,7 @@ from src.tracking.clearml import (
 
 DEFAULT_PIPELINE_NAME = "language-models-experiments"
 DEFAULT_CONTROLLER_QUEUE = "services"
-DEFAULT_PIPELINE_VERSION_FALLBACK = "0.4.5"
+DEFAULT_PIPELINE_VERSION_FALLBACK = "0.4.7"
 
 TOKENIZER_STAGE = "train_tokenizer"
 MODEL_STAGE = "train_model"

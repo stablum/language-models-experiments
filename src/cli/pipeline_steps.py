@@ -16,6 +16,7 @@ from src.cli.evaluate import (
     evaluation_payload,
     stage_model_artifacts as stage_evaluation_model_artifacts,
 )
+from src.cli.output import iter_with_progress
 from src.cli.query import (
     query_metrics,
     query_payload,
@@ -26,10 +27,13 @@ from src.corpora.registry import get_corpus
 from src.corpora.splits import (
     TRAIN_PARTITION,
     attach_split_plan_to_json_model,
+    count_partition_rows,
+    iter_partition_rows,
     load_partition_texts,
     read_model_split_plan,
     source_split_label,
 )
+from src.corpora.text import iter_text_column
 from src.models.registry import get_model
 from src.tokenizers.sentencepiece_training import train_sentencepiece
 from src.tracking.clearml import ClearMLRun, configure_clearml_config_file
@@ -347,19 +351,29 @@ def evaluate_pipeline_step(
     if model_definition.evaluate is None:
         raise click.ClickException(f"Model does not support evaluation yet: {model_name}")
 
+    click.echo(
+        f"Evaluation stage started: model={model_definition.name}, corpus={corpus}, "
+        f"partition={evaluation_partition}, top_k={top_k}"
+    )
+    if limit is not None:
+        click.echo(f"Evaluation row limit: first {limit:,} selected rows")
+
     with TemporaryDirectory(prefix="lme-pipeline-evaluate-") as staging_root:
         staging_dir = Path(staging_root)
+        click.echo(f"Staging model artifacts from ClearML task {model_task_id}...")
         staged_model_path = stage_evaluation_model_artifacts(
             model_task_id=model_task_id,
             model_path=None,
             staging_dir=staging_dir,
         )
+        click.echo(f"Staged model artifact: {staged_model_path.name}")
         inherited_plan = read_model_split_plan(staged_model_path)
         if inherited_plan is not None:
             dataset_id = inherited_plan.dataset_id
             source_split = inherited_plan.source_split
             train_ratio = inherited_plan.train_ratio
             split_seed = inherited_plan.split_seed
+            click.echo(f"Using inherited data split plan: {inherited_plan.split_id}")
 
         split_plan = build_cli_split_plan(
             corpus_definition,
@@ -376,6 +390,10 @@ def evaluate_pipeline_step(
         }
         if model_definition.validate_evaluation_options is not None:
             model_definition.validate_evaluation_options(evaluation_options)
+        click.echo(
+            f"Evaluation data: dataset={dataset_id}, "
+            f"source_split={source_split_label(source_split)}, text_column={text_column}"
+        )
 
         clearml_run = _current_step_run(
             clearml_output_uri=clearml_output_uri,
@@ -415,17 +433,50 @@ def evaluate_pipeline_step(
             }
         )
 
-        texts = load_partition_texts(
-            corpus_definition,
+        click.echo(f"Loading dataset rows for {evaluation_partition} evaluation...")
+        dataset = corpus_definition.load(
             dataset_id=dataset_id,
-            plan=split_plan,
-            partition=evaluation_partition,
+            split=split_plan.source_split,
             streaming=streaming,
+        )
+        click.echo("Counting selected evaluation rows...")
+        total_rows = count_partition_rows(
+            dataset,
+            partition=evaluation_partition,
+            plan=split_plan,
+            limit=limit,
+        )
+        if total_rows is None:
+            click.echo("Evaluation row total is unknown; progress will report processed rows.")
+        else:
+            click.echo(f"Evaluation rows selected: {total_rows:,}")
+        rows = iter_partition_rows(
+            dataset,
+            partition=evaluation_partition,
+            plan=split_plan,
+        )
+        texts = iter_text_column(
+            rows,
             text_column=text_column,
             limit=limit,
         )
-        summary = model_definition.evaluate(texts, evaluation_options)
 
+        click.echo("Running model evaluation...")
+        summary = model_definition.evaluate(
+            iter_with_progress(
+                texts,
+                label=f"Evaluating {evaluation_partition} rows",
+                total=total_rows,
+                unit="rows",
+            ),
+            evaluation_options,
+        )
+        click.echo(
+            f"Evaluation complete: {summary.sequence_count:,} sequences, "
+            f"{summary.token_count:,} tokens, {summary.transition_count:,} transitions"
+        )
+
+        click.echo("Uploading evaluation metrics and artifacts...")
         clearml_run.log_metrics(
             "Evaluation",
             evaluation_metrics_for_partition(summary, partition=evaluation_partition),
@@ -461,6 +512,7 @@ def evaluate_pipeline_step(
             summary.tokenizer_model,
             metadata={"model": model_definition.name, "corpus": corpus},
         )
+        click.echo("Evaluation artifacts uploaded.")
         return _require_task_id(clearml_run)
 
 
