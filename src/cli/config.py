@@ -6,7 +6,7 @@ import os
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import click
 
@@ -28,10 +28,12 @@ class ConfigurableCommand(click.Command):
         self,
         *args: Any,
         config_section: str,
+        default_loader: Callable[[str], dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self.config_section = config_section
+        self.default_loader = default_loader or load_command_defaults
 
     def make_context(
         self,
@@ -44,7 +46,7 @@ class ConfigurableCommand(click.Command):
             if key not in extra:
                 extra[key] = value
 
-        config_defaults = load_command_defaults(self.config_section)
+        config_defaults = self.default_loader(self.config_section)
         if config_defaults:
             default_map = dict(extra.get("default_map") or {})
             default_map.update(config_defaults)
@@ -62,12 +64,22 @@ class ConfigurableCommand(click.Command):
 
 def configured_command(
     config_section: str,
+    default_loader: Callable[[str], dict[str, Any]] | None = None,
     **kwargs: Any,
 ) -> Any:
-    return click.command(cls=ConfigurableCommand, config_section=config_section, **kwargs)
+    return click.command(
+        cls=ConfigurableCommand,
+        config_section=config_section,
+        default_loader=default_loader,
+        **kwargs,
+    )
 
 
 def load_command_defaults(config_section: str) -> dict[str, Any]:
+    return load_defaults_from_sections((*SHARED_SECTIONS, config_section))
+
+
+def load_defaults_from_sections(sections: tuple[str, ...]) -> dict[str, Any]:
     config_path = configured_path()
     if not config_path.exists():
         if os.environ.get(CONFIG_ENVVAR):
@@ -78,7 +90,7 @@ def load_command_defaults(config_section: str) -> dict[str, Any]:
 
     data = load_config(config_path)
     defaults: dict[str, Any] = {}
-    for section in (*SHARED_SECTIONS, config_section):
+    for section in sections:
         defaults.update(section_defaults(data, section))
     return defaults
 

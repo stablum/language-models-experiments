@@ -27,29 +27,12 @@ pipeline_name = "language-models-experiments"
 pipeline_local = true
 controller_queue = "services"
 add_run_number = true
-model = "trigram"
-vocab_size = 1000
-model_type = "unigram"
-character_coverage = 1.0
-hard_vocab_limit = true
-smoothing = 0.1
-unigram_weight = 0.1
-bigram_weight = 0.3
-trigram_weight = 0.6
-discount = 0.75
-top_k = 5
-query_prompt = "once upon"
-query_max_tokens = 80
-query_top_k = 10
-query_decoding = "sample"
-query_temperature = 1.0
-query_seed = 1
 
 # Uncomment limits for smoke runs.
-# limit = 50
 # tokenizer_limit = 50
 # training_limit = 50
 # evaluation_limit = 50
+# Or pass --limit 50 to apply the same limit to tokenizer, training, and evaluation.
 #
 # Source dataset splits are merged before project train/validation partitioning.
 # Leave source_split unset to merge all available source splits, or set it to a
@@ -62,7 +45,7 @@ character_coverage = 1.0
 hard_vocab_limit = true
 
 [train]
-model = "bigram"
+model = "trigram"
 smoothing = 0.1
 unigram_weight = 0.1
 bigram_weight = 0.3
@@ -70,12 +53,12 @@ trigram_weight = 0.6
 discount = 0.75
 
 [evaluate]
-model = "bigram"
+model = "trigram"
 top_k = 5
 
 [query]
-model = "bigram"
-prompt = "Once upon"
+model = "trigram"
+prompt = "once upon"
 max_tokens = 80
 top_k = 10
 decoding = "sample"

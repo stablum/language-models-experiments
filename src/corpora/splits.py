@@ -363,6 +363,7 @@ def assign_partition(
 ) -> str:
     key = f"{split_seed}\0{source_split}\0{row_index}".encode("utf-8")
     digest = hashlib.blake2b(key, digest_size=8).digest()
+    # the hash digest is 8 bytes, which is a 64-bit unsigned integer
     score = int.from_bytes(digest, byteorder="big", signed=False) / float(1 << 64)
     if score < train_ratio:
         return TRAIN_PARTITION

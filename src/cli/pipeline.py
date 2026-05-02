@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 import click
 
-from src.cli.config import configured_command
+from src.cli.config import configured_command, load_defaults_from_sections
 from src.cli.pipeline_common import (
     DEFAULT_PIPELINE_NAME,
     EVALUATION_STAGE,
@@ -52,8 +53,244 @@ from src.tracking.clearml import (
 )
 
 
+PIPELINE_CONFIG_SECTION = "pipeline"
+TOKENIZER_CONFIG_SECTION = "train_sentencepiece"
+TRAIN_CONFIG_SECTION = "train"
+EVALUATE_CONFIG_SECTION = "evaluate"
+QUERY_CONFIG_SECTION = "query"
+EXPLICIT_PARAMETER_SOURCES = {"COMMANDLINE", "ENVIRONMENT"}
+
+
+def _resolve_stage_default(
+    ctx: click.Context | None,
+    *,
+    parameter_name: str,
+    current_value: object,
+    pipeline_defaults: Mapping[str, object],
+    stage_defaults: Mapping[str, object],
+    stage_key: str | None = None,
+) -> object:
+    if _parameter_is_explicit(ctx, parameter_name):
+        return current_value
+    if parameter_name in pipeline_defaults:
+        return current_value
+
+    resolved_stage_key = stage_key or parameter_name
+    if resolved_stage_key in stage_defaults:
+        return stage_defaults[resolved_stage_key]
+    return current_value
+
+
+def _resolve_consistent_stage_default(
+    ctx: click.Context | None,
+    *,
+    parameter_name: str,
+    current_value: object,
+    pipeline_defaults: Mapping[str, object],
+    candidates: tuple[tuple[str, Mapping[str, object], str], ...],
+) -> object:
+    if _parameter_is_explicit(ctx, parameter_name):
+        return current_value
+    if parameter_name in pipeline_defaults:
+        return current_value
+
+    values = [
+        (section, defaults[key])
+        for section, defaults, key in candidates
+        if key in defaults
+    ]
+    if not values:
+        return current_value
+
+    first_value = values[0][1]
+    conflicts = [
+        (section, value)
+        for section, value in values[1:]
+        if value != first_value
+    ]
+    if conflicts:
+        formatted_values = ", ".join(
+            f"[{section}] {parameter_name}={value!r}"
+            for section, value in values
+        )
+        raise click.ClickException(
+            f"Conflicting pipeline defaults for {parameter_name!r}: {formatted_values}. "
+            "Set one shared value in [defaults] or [pipeline], or make the stage sections match."
+        )
+    return first_value
+
+
+def _resolve_stage_limit(
+    ctx: click.Context | None,
+    *,
+    parameter_name: str,
+    current_value: int | None,
+    pipeline_defaults: Mapping[str, object],
+    stage_defaults: Mapping[str, object],
+    global_limit: int | None,
+) -> int | None:
+    if _parameter_is_explicit(ctx, parameter_name):
+        return current_value
+    if parameter_name in pipeline_defaults:
+        return current_value
+    if _parameter_is_explicit(ctx, "limit") or "limit" in pipeline_defaults:
+        return global_limit
+    if "limit" in stage_defaults:
+        return stage_defaults["limit"]  # type: ignore[return-value]
+    return global_limit
+
+
+def _parameter_is_explicit(ctx: click.Context | None, parameter_name: str) -> bool:
+    if ctx is None or parameter_name not in ctx.params:
+        return False
+    source = ctx.get_parameter_source(parameter_name)
+    return getattr(source, "name", None) in EXPLICIT_PARAMETER_SOURCES
+
+
+def load_pipeline_command_defaults(_config_section: str) -> dict[str, object]:
+    defaults = load_defaults_from_sections(("defaults", "clearml"))
+    tokenizer_defaults = load_defaults_from_sections((TOKENIZER_CONFIG_SECTION,))
+    train_defaults = load_defaults_from_sections((TRAIN_CONFIG_SECTION,))
+    evaluate_defaults = load_defaults_from_sections((EVALUATE_CONFIG_SECTION,))
+    query_defaults = load_defaults_from_sections((QUERY_CONFIG_SECTION,))
+    pipeline_defaults = load_defaults_from_sections((PIPELINE_CONFIG_SECTION,))
+
+    defaults.update(
+        _consistent_config_values(
+            current_defaults=defaults,
+            candidates=(
+                ("train_sentencepiece", tokenizer_defaults),
+                ("train", train_defaults),
+                ("evaluate", evaluate_defaults),
+                ("query", query_defaults),
+            ),
+            parameter_names=(
+                "corpus",
+                "dataset_id",
+                "source_split",
+                "train_ratio",
+                "split_seed",
+                "text_column",
+                "streaming",
+            ),
+        )
+    )
+    defaults.update(
+        _consistent_config_values(
+            current_defaults=defaults,
+            candidates=(
+                ("train", train_defaults),
+                ("evaluate", evaluate_defaults),
+                ("query", query_defaults),
+            ),
+            parameter_names=("model_name",),
+        )
+    )
+    defaults.update(
+        _mapped_config_values(
+            tokenizer_defaults,
+            {
+                "vocab_size": "vocab_size",
+                "artifact_name": "artifact_name",
+                "model_type": "model_type",
+                "character_coverage": "character_coverage",
+                "hard_vocab_limit": "hard_vocab_limit",
+                "max_sentence_length": "max_sentence_length",
+                "limit": "tokenizer_limit",
+                "text_normalization": "text_normalization",
+            },
+        )
+    )
+    defaults.update(
+        _mapped_config_values(
+            train_defaults,
+            {
+                "smoothing": "smoothing",
+                "unigram_weight": "unigram_weight",
+                "bigram_weight": "bigram_weight",
+                "trigram_weight": "trigram_weight",
+                "discount": "discount",
+                "limit": "training_limit",
+                "text_normalization": "text_normalization",
+            },
+        )
+    )
+    defaults.update(
+        _mapped_config_values(
+            evaluate_defaults,
+            {
+                "evaluation_partition": "evaluation_partition",
+                "top_k": "top_k",
+                "limit": "evaluation_limit",
+            },
+        )
+    )
+    defaults.update(
+        _mapped_config_values(
+            query_defaults,
+            {
+                "prompt": "query_prompt",
+                "max_tokens": "query_max_tokens",
+                "top_k": "query_top_k",
+                "decoding": "query_decoding",
+                "temperature": "query_temperature",
+                "seed": "query_seed",
+            },
+        )
+    )
+    defaults.update(pipeline_defaults)
+    return defaults
+
+
+def _consistent_config_values(
+    *,
+    current_defaults: Mapping[str, object],
+    candidates: tuple[tuple[str, Mapping[str, object]], ...],
+    parameter_names: tuple[str, ...],
+) -> dict[str, object]:
+    resolved: dict[str, object] = {}
+    for parameter_name in parameter_names:
+        values = [
+            (section, defaults[parameter_name])
+            for section, defaults in candidates
+            if parameter_name in defaults
+        ]
+        if not values:
+            continue
+        first_value = values[0][1]
+        conflicts = [
+            (section, value)
+            for section, value in values[1:]
+            if value != first_value
+        ]
+        if conflicts:
+            formatted_values = ", ".join(
+                f"[{section}] {parameter_name}={value!r}"
+                for section, value in values
+            )
+            raise click.ClickException(
+                f"Conflicting pipeline defaults for {parameter_name!r}: {formatted_values}. "
+                "Set one shared value in [defaults] or [pipeline], or make the stage sections match."
+            )
+        if parameter_name not in current_defaults or first_value != current_defaults[parameter_name]:
+            resolved[parameter_name] = first_value
+    return resolved
+
+
+def _mapped_config_values(
+    defaults: Mapping[str, object],
+    key_map: Mapping[str, str],
+) -> dict[str, object]:
+    return {
+        target_key: defaults[source_key]
+        for source_key, target_key in key_map.items()
+        if source_key in defaults
+    }
+
+
 @configured_command(
     "pipeline",
+    default_loader=load_pipeline_command_defaults,
     context_settings={"help_option_names": ["-h", "--help"]},
     help="Run tokenizer training, model training, evaluation, and query as a ClearML Pipeline DAG.",
 )
@@ -331,6 +568,280 @@ def main(
     clearml_output_uri: str | None,
     clearml_tags: tuple[str, ...],
 ) -> None:
+    ctx = click.get_current_context(silent=True)
+    pipeline_defaults = load_defaults_from_sections((PIPELINE_CONFIG_SECTION,))
+    tokenizer_defaults = load_defaults_from_sections((TOKENIZER_CONFIG_SECTION,))
+    train_defaults = load_defaults_from_sections((TRAIN_CONFIG_SECTION,))
+    evaluate_defaults = load_defaults_from_sections((EVALUATE_CONFIG_SECTION,))
+    query_defaults = load_defaults_from_sections((QUERY_CONFIG_SECTION,))
+
+    corpus = _resolve_consistent_stage_default(
+        ctx,
+        parameter_name="corpus",
+        current_value=corpus,
+        pipeline_defaults=pipeline_defaults,
+        candidates=(
+            ("train_sentencepiece", tokenizer_defaults, "corpus"),
+            ("train", train_defaults, "corpus"),
+            ("evaluate", evaluate_defaults, "corpus"),
+            ("query", query_defaults, "corpus"),
+        ),
+    )
+    model_name = _resolve_consistent_stage_default(
+        ctx,
+        parameter_name="model_name",
+        current_value=model_name,
+        pipeline_defaults=pipeline_defaults,
+        candidates=(
+            ("train", train_defaults, "model_name"),
+            ("evaluate", evaluate_defaults, "model_name"),
+            ("query", query_defaults, "model_name"),
+        ),
+    )
+    dataset_id = _resolve_consistent_stage_default(
+        ctx,
+        parameter_name="dataset_id",
+        current_value=dataset_id,
+        pipeline_defaults=pipeline_defaults,
+        candidates=(
+            ("train_sentencepiece", tokenizer_defaults, "dataset_id"),
+            ("train", train_defaults, "dataset_id"),
+            ("evaluate", evaluate_defaults, "dataset_id"),
+        ),
+    )
+    source_split = _resolve_consistent_stage_default(
+        ctx,
+        parameter_name="source_split",
+        current_value=source_split,
+        pipeline_defaults=pipeline_defaults,
+        candidates=(
+            ("train_sentencepiece", tokenizer_defaults, "source_split"),
+            ("train", train_defaults, "source_split"),
+            ("evaluate", evaluate_defaults, "source_split"),
+        ),
+    )
+    train_ratio = _resolve_consistent_stage_default(
+        ctx,
+        parameter_name="train_ratio",
+        current_value=train_ratio,
+        pipeline_defaults=pipeline_defaults,
+        candidates=(
+            ("train_sentencepiece", tokenizer_defaults, "train_ratio"),
+            ("train", train_defaults, "train_ratio"),
+            ("evaluate", evaluate_defaults, "train_ratio"),
+        ),
+    )
+    split_seed = _resolve_consistent_stage_default(
+        ctx,
+        parameter_name="split_seed",
+        current_value=split_seed,
+        pipeline_defaults=pipeline_defaults,
+        candidates=(
+            ("train_sentencepiece", tokenizer_defaults, "split_seed"),
+            ("train", train_defaults, "split_seed"),
+            ("evaluate", evaluate_defaults, "split_seed"),
+        ),
+    )
+    text_column = _resolve_consistent_stage_default(
+        ctx,
+        parameter_name="text_column",
+        current_value=text_column,
+        pipeline_defaults=pipeline_defaults,
+        candidates=(
+            ("train_sentencepiece", tokenizer_defaults, "text_column"),
+            ("train", train_defaults, "text_column"),
+            ("evaluate", evaluate_defaults, "text_column"),
+        ),
+    )
+    streaming = _resolve_consistent_stage_default(
+        ctx,
+        parameter_name="streaming",
+        current_value=streaming,
+        pipeline_defaults=pipeline_defaults,
+        candidates=(
+            ("train_sentencepiece", tokenizer_defaults, "streaming"),
+            ("train", train_defaults, "streaming"),
+            ("evaluate", evaluate_defaults, "streaming"),
+        ),
+    )
+    evaluation_partition = _resolve_stage_default(
+        ctx,
+        parameter_name="evaluation_partition",
+        current_value=evaluation_partition,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=evaluate_defaults,
+    )
+    vocab_size = _resolve_stage_default(
+        ctx,
+        parameter_name="vocab_size",
+        current_value=vocab_size,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=tokenizer_defaults,
+    )
+    artifact_name = _resolve_stage_default(
+        ctx,
+        parameter_name="artifact_name",
+        current_value=artifact_name,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=tokenizer_defaults,
+    )
+    model_type = _resolve_stage_default(
+        ctx,
+        parameter_name="model_type",
+        current_value=model_type,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=tokenizer_defaults,
+    )
+    character_coverage = _resolve_stage_default(
+        ctx,
+        parameter_name="character_coverage",
+        current_value=character_coverage,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=tokenizer_defaults,
+    )
+    hard_vocab_limit = _resolve_stage_default(
+        ctx,
+        parameter_name="hard_vocab_limit",
+        current_value=hard_vocab_limit,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=tokenizer_defaults,
+    )
+    max_sentence_length = _resolve_stage_default(
+        ctx,
+        parameter_name="max_sentence_length",
+        current_value=max_sentence_length,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=tokenizer_defaults,
+    )
+    smoothing = _resolve_stage_default(
+        ctx,
+        parameter_name="smoothing",
+        current_value=smoothing,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=train_defaults,
+    )
+    unigram_weight = _resolve_stage_default(
+        ctx,
+        parameter_name="unigram_weight",
+        current_value=unigram_weight,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=train_defaults,
+    )
+    bigram_weight = _resolve_stage_default(
+        ctx,
+        parameter_name="bigram_weight",
+        current_value=bigram_weight,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=train_defaults,
+    )
+    trigram_weight = _resolve_stage_default(
+        ctx,
+        parameter_name="trigram_weight",
+        current_value=trigram_weight,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=train_defaults,
+    )
+    discount = _resolve_stage_default(
+        ctx,
+        parameter_name="discount",
+        current_value=discount,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=train_defaults,
+    )
+    top_k = _resolve_stage_default(
+        ctx,
+        parameter_name="top_k",
+        current_value=top_k,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=evaluate_defaults,
+    )
+    query_prompt = _resolve_stage_default(
+        ctx,
+        parameter_name="query_prompt",
+        current_value=query_prompt,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=query_defaults,
+        stage_key="prompt",
+    )
+    query_max_tokens = _resolve_stage_default(
+        ctx,
+        parameter_name="query_max_tokens",
+        current_value=query_max_tokens,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=query_defaults,
+        stage_key="max_tokens",
+    )
+    query_top_k = _resolve_stage_default(
+        ctx,
+        parameter_name="query_top_k",
+        current_value=query_top_k,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=query_defaults,
+        stage_key="top_k",
+    )
+    query_decoding = _resolve_stage_default(
+        ctx,
+        parameter_name="query_decoding",
+        current_value=query_decoding,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=query_defaults,
+        stage_key="decoding",
+    )
+    query_temperature = _resolve_stage_default(
+        ctx,
+        parameter_name="query_temperature",
+        current_value=query_temperature,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=query_defaults,
+        stage_key="temperature",
+    )
+    query_seed = _resolve_stage_default(
+        ctx,
+        parameter_name="query_seed",
+        current_value=query_seed,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=query_defaults,
+        stage_key="seed",
+    )
+    tokenizer_text_normalization = _resolve_stage_default(
+        ctx,
+        parameter_name="text_normalization",
+        current_value=text_normalization,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=tokenizer_defaults,
+    )
+    training_text_normalization = _resolve_stage_default(
+        ctx,
+        parameter_name="text_normalization",
+        current_value=text_normalization,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=train_defaults,
+    )
+    resolved_tokenizer_limit = _resolve_stage_limit(
+        ctx,
+        parameter_name="tokenizer_limit",
+        current_value=tokenizer_limit,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=tokenizer_defaults,
+        global_limit=limit,
+    )
+    resolved_training_limit = _resolve_stage_limit(
+        ctx,
+        parameter_name="training_limit",
+        current_value=training_limit,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=train_defaults,
+        global_limit=limit,
+    )
+    resolved_evaluation_limit = _resolve_stage_limit(
+        ctx,
+        parameter_name="evaluation_limit",
+        current_value=evaluation_limit,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=evaluate_defaults,
+        global_limit=limit,
+    )
+
     corpus_definition = get_corpus(corpus)
     model_definition = get_model(model_name)
     if model_definition.evaluate is None or model_definition.evaluation_items is None:
@@ -345,9 +856,6 @@ def main(
     resolved_source_split = source_split if source_split is not None else corpus_definition.split
     resolved_text_column = text_column or corpus_definition.text_column
     resolved_artifact_name = artifact_name or f"{corpus}-sentencepiece-{vocab_size}"
-    resolved_tokenizer_limit = tokenizer_limit if tokenizer_limit is not None else limit
-    resolved_training_limit = training_limit if training_limit is not None else limit
-    resolved_evaluation_limit = evaluation_limit if evaluation_limit is not None else limit
 
     if run_stage is not None and run_until_stage is not None:
         raise click.ClickException("--run-stage and --run-until-stage are mutually exclusive.")
@@ -458,7 +966,8 @@ def main(
         query_decoding=query_decoding,
         query_temperature=query_temperature,
         query_seed=query_seed,
-        text_normalization=text_normalization,
+        tokenizer_text_normalization=tokenizer_text_normalization,
+        training_text_normalization=training_text_normalization,
     )
 
     click.echo(f"ClearML pipeline: {settings.project_name}/{resolved_pipeline_name}")
@@ -528,7 +1037,8 @@ def add_pipeline_steps(
     query_decoding: str,
     query_temperature: float,
     query_seed: int | None,
-    text_normalization: str,
+    tokenizer_text_normalization: str,
+    training_text_normalization: str,
 ) -> None:
     artifact_monitors = pipeline_artifact_monitors()
     metric_monitors = pipeline_metric_monitors(evaluation_partition)
@@ -565,7 +1075,7 @@ def add_pipeline_steps(
             "character_coverage": character_coverage,
             "hard_vocab_limit": hard_vocab_limit,
             "max_sentence_length": max_sentence_length,
-            "text_normalization": text_normalization,
+            "text_normalization": tokenizer_text_normalization,
             **common_step_kwargs,
         },
         task_name=TOKENIZER_STAGE,
@@ -594,7 +1104,7 @@ def add_pipeline_steps(
             "bigram_weight": bigram_weight,
             "trigram_weight": trigram_weight,
             "discount": discount,
-            "text_normalization": text_normalization,
+            "text_normalization": training_text_normalization,
             **common_step_kwargs,
         },
         parents=[TOKENIZER_STAGE],
