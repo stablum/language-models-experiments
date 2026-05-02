@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from src.cli.config import configured_command, load_command_defaults
+from src.cli.config import configured_command, load_defaults_from_sections
 from src.cli.data_splits import (
     build_cli_split_plan,
     split_plan_parameter_sections,
@@ -14,7 +14,9 @@ from src.cli.data_splits import (
 )
 from src.cli.output import stage_title
 from src.cli.pipeline_common import (
-    DEFAULT_PIPELINE_NAME,
+    DEFAULT_TOKENIZER_PIPELINE_NAME,
+    TOKENIZER_PIPELINE_STAGE_DEPENDENCIES,
+    TOKENIZER_PIPELINE_STAGES,
     TOKENIZER_STAGE,
     pipeline_options,
     pipeline_resume_option,
@@ -27,23 +29,28 @@ from src.corpora.splits import (
     DEFAULT_SPLIT_SEED,
     DEFAULT_TRAIN_RATIO,
     TRAIN_PARTITION,
-    VALIDATION_PARTITION,
     load_partition_texts,
     source_split_label,
     split_ratio_label,
 )
-from src.models.registry import DEFAULT_MODEL_NAME
 from src.tracking.clearml import clearml_options, clearml_settings, start_clearml_run
 from src.tokenizers.sentencepiece_training import train_sentencepiece
 
 
+def load_train_sentencepiece_command_defaults(_config_section: str) -> dict[str, object]:
+    defaults = load_defaults_from_sections(("defaults", "clearml", "train_sentencepiece"))
+    defaults.update(load_defaults_from_sections(("tokenizer_pipeline",)))
+    return defaults
+
+
 @configured_command(
     "train_sentencepiece",
+    default_loader=load_train_sentencepiece_command_defaults,
     context_settings={"help_option_names": ["-h", "--help"]},
     help="Train a SentencePiece tokenizer from a registered corpus.",
 )
 @pipeline_resume_option
-@pipeline_options(default_name=DEFAULT_PIPELINE_NAME)
+@pipeline_options(default_name=DEFAULT_TOKENIZER_PIPELINE_NAME)
 @click.option(
     "--corpus",
     type=click.Choice(corpus_names()),
@@ -191,17 +198,18 @@ def main(
             clearml_tags=clearml_tags,
             parameter_filters={
                 "corpus": corpus,
+                "tokenizer_model_name": resolved_artifact_name,
                 "dataset_id": resolved_dataset_id,
                 "source_split": resolved_source_split or "",
             },
+            stage_dependencies=TOKENIZER_PIPELINE_STAGE_DEPENDENCIES,
+            stage_names=TOKENIZER_PIPELINE_STAGES,
         )
         return
 
-    from src.cli.pipeline import main as pipeline_command
+    from src.cli.tokenizer_pipeline import main as tokenizer_pipeline_command
 
-    train_defaults = load_command_defaults("train")
-    pipeline_model_name = str(train_defaults.get("model_name", DEFAULT_MODEL_NAME))
-    pipeline_command.callback(
+    tokenizer_pipeline_command.callback(
         pipeline_name=pipeline_name,
         pipeline_version=pipeline_version,
         pipeline_local=pipeline_local,
@@ -209,40 +217,21 @@ def main(
         execution_queue=execution_queue,
         wait=wait,
         add_run_number=add_run_number,
-        run_until_stage=TOKENIZER_STAGE,
-        run_stage=None,
         pipeline_controller_id=None,
-        model_name=pipeline_model_name,
         corpus=corpus,
         dataset_id=resolved_dataset_id,
         source_split=resolved_source_split,
         train_ratio=train_ratio,
         split_seed=split_seed,
-        evaluation_partition=VALIDATION_PARTITION,
         text_column=resolved_text_column,
         streaming=streaming,
-        limit=None,
-        tokenizer_limit=limit,
-        training_limit=None,
-        evaluation_limit=None,
+        limit=limit,
         vocab_size=vocab_size,
         artifact_name=resolved_artifact_name,
         model_type=model_type,
         character_coverage=character_coverage,
         hard_vocab_limit=hard_vocab_limit,
         max_sentence_length=max_sentence_length,
-        smoothing=0.1,
-        unigram_weight=0.1,
-        bigram_weight=0.3,
-        trigram_weight=0.6,
-        discount=0.75,
-        top_k=5,
-        query_prompt="Once upon",
-        query_max_tokens=80,
-        query_top_k=10,
-        query_decoding="sample",
-        query_temperature=1.0,
-        query_seed=1,
         text_normalization=text_normalization,
         clearml_project=clearml_project,
         clearml_task_name=clearml_task_name,

@@ -24,21 +24,30 @@ clearml_tags = []
 [pipeline]
 # pipeline_version defaults to the project version in pyproject.toml.
 pipeline_name = "language-models-experiments"
+tokenizer_pipeline_name = "language-models-experiments-tokenizers"
 pipeline_local = true
 controller_queue = "services"
 add_run_number = true
 
 # Uncomment limits for smoke runs.
-# tokenizer_limit = 50
 # training_limit = 50
 # evaluation_limit = 50
-# Or pass --limit 50 to apply the same limit to tokenizer, training, and evaluation.
+# Or pass --limit 50 to apply the same limit to model training and evaluation.
 #
 # Source dataset splits are merged before project train/validation partitioning.
 # Leave source_split unset to merge all available source splits, or set it to a
 # source split name such as "train" to restrict the input rows before partitioning.
 
+[tokenizer_pipeline]
+# pipeline_version defaults to the project version in pyproject.toml.
+pipeline_name = "language-models-experiments-tokenizers"
+pipeline_local = true
+controller_queue = "services"
+add_run_number = true
+
 [train_sentencepiece]
+# The tokenizer model name defaults to "<corpus>-sentencepiece-<vocab_size>"
+# unless artifact_name is set explicitly.
 vocab_size = 1000
 model_type = "unigram"
 character_coverage = 1.0
@@ -46,6 +55,9 @@ hard_vocab_limit = true
 
 [train]
 model = "bigram"
+# The training pipeline resolves the latest tokenizer pipeline run matching
+# this tokenizer model name and the configured corpus.
+tokenizer_model_name = "tinystories-sentencepiece-1000"
 smoothing = 0.1
 unigram_weight = 0.1
 bigram_weight = 0.3

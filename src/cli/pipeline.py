@@ -1,4 +1,4 @@
-"""Mandatory ClearML PipelineController DAG for end-to-end experiments."""
+"""ClearML PipelineController DAG for model training experiments."""
 
 from __future__ import annotations
 
@@ -10,11 +10,12 @@ import click
 from src.cli.config import configured_command, load_defaults_from_sections
 from src.cli.pipeline_common import (
     DEFAULT_PIPELINE_NAME,
+    DEFAULT_TOKENIZER_PIPELINE_NAME,
     EVALUATION_STAGE,
     MODEL_STAGE,
-    PIPELINE_STAGES,
     QUERY_STAGE,
-    TOKENIZER_STAGE,
+    TRAINING_PIPELINE_STAGE_DEPENDENCIES,
+    TRAINING_PIPELINE_STAGES,
     assert_pipeline_finished_successfully,
     build_pipeline_controller,
     configure_pipeline_control,
@@ -23,6 +24,7 @@ from src.cli.pipeline_common import (
     pipeline_options,
     pipeline_resume_option,
     print_stage_task_ids,
+    resolve_tokenizer_pipeline_task,
     resume_pipeline_controller_stage,
     stage_gate_callback,
 )
@@ -34,7 +36,6 @@ from src.cli.stage_pipeline_steps import (
     evaluate_stage_entry,
     query_stage_entry,
     train_model_stage_entry,
-    train_tokenizer_stage_entry,
 )
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
@@ -54,7 +55,6 @@ from src.tracking.clearml import (
 
 
 PIPELINE_CONFIG_SECTION = "pipeline"
-TOKENIZER_CONFIG_SECTION = "train_sentencepiece"
 TRAIN_CONFIG_SECTION = "train"
 EVALUATE_CONFIG_SECTION = "evaluate"
 QUERY_CONFIG_SECTION = "query"
@@ -149,7 +149,6 @@ def _parameter_is_explicit(ctx: click.Context | None, parameter_name: str) -> bo
 
 def load_pipeline_command_defaults(_config_section: str) -> dict[str, object]:
     defaults = load_defaults_from_sections(("defaults", "clearml"))
-    tokenizer_defaults = load_defaults_from_sections((TOKENIZER_CONFIG_SECTION,))
     train_defaults = load_defaults_from_sections((TRAIN_CONFIG_SECTION,))
     evaluate_defaults = load_defaults_from_sections((EVALUATE_CONFIG_SECTION,))
     query_defaults = load_defaults_from_sections((QUERY_CONFIG_SECTION,))
@@ -159,7 +158,6 @@ def load_pipeline_command_defaults(_config_section: str) -> dict[str, object]:
         _consistent_config_values(
             current_defaults=defaults,
             candidates=(
-                ("train_sentencepiece", tokenizer_defaults),
                 ("train", train_defaults),
                 ("evaluate", evaluate_defaults),
                 ("query", query_defaults),
@@ -188,23 +186,9 @@ def load_pipeline_command_defaults(_config_section: str) -> dict[str, object]:
     )
     defaults.update(
         _mapped_config_values(
-            tokenizer_defaults,
-            {
-                "vocab_size": "vocab_size",
-                "artifact_name": "artifact_name",
-                "model_type": "model_type",
-                "character_coverage": "character_coverage",
-                "hard_vocab_limit": "hard_vocab_limit",
-                "max_sentence_length": "max_sentence_length",
-                "limit": "tokenizer_limit",
-                "text_normalization": "text_normalization",
-            },
-        )
-    )
-    defaults.update(
-        _mapped_config_values(
             train_defaults,
             {
+                "tokenizer_model_name": "tokenizer_model_name",
                 "smoothing": "smoothing",
                 "unigram_weight": "unigram_weight",
                 "bigram_weight": "bigram_weight",
@@ -292,12 +276,12 @@ def _mapped_config_values(
     "pipeline",
     default_loader=load_pipeline_command_defaults,
     context_settings={"help_option_names": ["-h", "--help"]},
-    help="Run tokenizer training, model training, evaluation, and query as a ClearML Pipeline DAG.",
+    help="Run model training, evaluation, and query as a ClearML Pipeline DAG.",
 )
 @pipeline_resume_option
 @click.option(
     "--run-stage",
-    type=click.Choice(PIPELINE_STAGES),
+    type=click.Choice(TRAINING_PIPELINE_STAGES),
     default=None,
     help=(
         "Resume an existing controller and run only this stage. "
@@ -306,7 +290,7 @@ def _mapped_config_values(
 )
 @click.option(
     "--run-until-stage",
-    type=click.Choice(PIPELINE_STAGES),
+    type=click.Choice(TRAINING_PIPELINE_STAGES),
     default=None,
     help="Create a new controller run and stop after this stage has run.",
 )
@@ -318,6 +302,17 @@ def _mapped_config_values(
     default=DEFAULT_MODEL_NAME,
     show_default=True,
     help="Registered model to train, evaluate, and query.",
+)
+@click.option(
+    "--tokenizer-model-name",
+    default=None,
+    help="Registered tokenizer model name to resolve from the tokenizer pipeline.",
+)
+@click.option(
+    "--tokenizer-pipeline-name",
+    default=DEFAULT_TOKENIZER_PIPELINE_NAME,
+    show_default=True,
+    help="ClearML tokenizer pipeline name to search for reusable tokenizer artifacts.",
 )
 @click.option(
     "--corpus",
@@ -369,13 +364,7 @@ def _mapped_config_values(
     "--limit",
     type=click.IntRange(min=0),
     default=None,
-    help="Apply the same row limit to tokenizer training, model training, and evaluation.",
-)
-@click.option(
-    "--tokenizer-limit",
-    type=click.IntRange(min=0),
-    default=None,
-    help="Train the tokenizer on only the first N rows. Overrides --limit for this stage.",
+    help="Apply the same row limit to model training and evaluation.",
 )
 @click.option(
     "--training-limit",
@@ -388,44 +377,6 @@ def _mapped_config_values(
     type=click.IntRange(min=0),
     default=None,
     help="Evaluate on only the first N rows. Overrides --limit for this stage.",
-)
-@click.option(
-    "--vocab-size",
-    type=click.IntRange(min=1),
-    default=1000,
-    show_default=True,
-    help="SentencePiece vocabulary size.",
-)
-@click.option(
-    "--artifact-name",
-    default=None,
-    help="Base name for the tokenizer artifacts stored in ClearML.",
-)
-@click.option(
-    "--model-type",
-    type=click.Choice(("unigram", "bpe", "char", "word")),
-    default="unigram",
-    show_default=True,
-    help="SentencePiece model type.",
-)
-@click.option(
-    "--character-coverage",
-    type=float,
-    default=1.0,
-    show_default=True,
-    help="Fraction of characters covered by the tokenizer.",
-)
-@click.option(
-    "--hard-vocab-limit/--no-hard-vocab-limit",
-    default=True,
-    show_default=True,
-    help="Require SentencePiece to produce exactly vocab-size pieces.",
-)
-@click.option(
-    "--max-sentence-length",
-    type=click.IntRange(min=1),
-    default=None,
-    help="Maximum sentence length passed to SentencePiece.",
 )
 @click.option(
     "--smoothing",
@@ -515,7 +466,7 @@ def _mapped_config_values(
     type=click.Choice(TEXT_NORMALIZATION_MODES),
     default=DEFAULT_TEXT_NORMALIZATION,
     show_default=True,
-    help="Text normalization applied before tokenizer and model training.",
+    help="Text normalization applied before model training.",
 )
 @clearml_options
 def main(
@@ -530,6 +481,8 @@ def main(
     run_stage: str | None,
     pipeline_controller_id: str | None,
     model_name: str,
+    tokenizer_model_name: str | None,
+    tokenizer_pipeline_name: str,
     corpus: str,
     dataset_id: str | None,
     source_split: str | None,
@@ -539,15 +492,8 @@ def main(
     text_column: str | None,
     streaming: bool,
     limit: int | None,
-    tokenizer_limit: int | None,
     training_limit: int | None,
     evaluation_limit: int | None,
-    vocab_size: int,
-    artifact_name: str | None,
-    model_type: str,
-    character_coverage: float,
-    hard_vocab_limit: bool,
-    max_sentence_length: int | None,
     smoothing: float,
     unigram_weight: float,
     bigram_weight: float,
@@ -570,7 +516,6 @@ def main(
 ) -> None:
     ctx = click.get_current_context(silent=True)
     pipeline_defaults = load_defaults_from_sections((PIPELINE_CONFIG_SECTION,))
-    tokenizer_defaults = load_defaults_from_sections((TOKENIZER_CONFIG_SECTION,))
     train_defaults = load_defaults_from_sections((TRAIN_CONFIG_SECTION,))
     evaluate_defaults = load_defaults_from_sections((EVALUATE_CONFIG_SECTION,))
     query_defaults = load_defaults_from_sections((QUERY_CONFIG_SECTION,))
@@ -581,7 +526,6 @@ def main(
         current_value=corpus,
         pipeline_defaults=pipeline_defaults,
         candidates=(
-            ("train_sentencepiece", tokenizer_defaults, "corpus"),
             ("train", train_defaults, "corpus"),
             ("evaluate", evaluate_defaults, "corpus"),
             ("query", query_defaults, "corpus"),
@@ -598,13 +542,19 @@ def main(
             ("query", query_defaults, "model_name"),
         ),
     )
+    tokenizer_model_name = _resolve_stage_default(
+        ctx,
+        parameter_name="tokenizer_model_name",
+        current_value=tokenizer_model_name,
+        pipeline_defaults=pipeline_defaults,
+        stage_defaults=train_defaults,
+    )
     dataset_id = _resolve_consistent_stage_default(
         ctx,
         parameter_name="dataset_id",
         current_value=dataset_id,
         pipeline_defaults=pipeline_defaults,
         candidates=(
-            ("train_sentencepiece", tokenizer_defaults, "dataset_id"),
             ("train", train_defaults, "dataset_id"),
             ("evaluate", evaluate_defaults, "dataset_id"),
         ),
@@ -615,7 +565,6 @@ def main(
         current_value=source_split,
         pipeline_defaults=pipeline_defaults,
         candidates=(
-            ("train_sentencepiece", tokenizer_defaults, "source_split"),
             ("train", train_defaults, "source_split"),
             ("evaluate", evaluate_defaults, "source_split"),
         ),
@@ -626,7 +575,6 @@ def main(
         current_value=train_ratio,
         pipeline_defaults=pipeline_defaults,
         candidates=(
-            ("train_sentencepiece", tokenizer_defaults, "train_ratio"),
             ("train", train_defaults, "train_ratio"),
             ("evaluate", evaluate_defaults, "train_ratio"),
         ),
@@ -637,7 +585,6 @@ def main(
         current_value=split_seed,
         pipeline_defaults=pipeline_defaults,
         candidates=(
-            ("train_sentencepiece", tokenizer_defaults, "split_seed"),
             ("train", train_defaults, "split_seed"),
             ("evaluate", evaluate_defaults, "split_seed"),
         ),
@@ -648,7 +595,6 @@ def main(
         current_value=text_column,
         pipeline_defaults=pipeline_defaults,
         candidates=(
-            ("train_sentencepiece", tokenizer_defaults, "text_column"),
             ("train", train_defaults, "text_column"),
             ("evaluate", evaluate_defaults, "text_column"),
         ),
@@ -659,7 +605,6 @@ def main(
         current_value=streaming,
         pipeline_defaults=pipeline_defaults,
         candidates=(
-            ("train_sentencepiece", tokenizer_defaults, "streaming"),
             ("train", train_defaults, "streaming"),
             ("evaluate", evaluate_defaults, "streaming"),
         ),
@@ -670,48 +615,6 @@ def main(
         current_value=evaluation_partition,
         pipeline_defaults=pipeline_defaults,
         stage_defaults=evaluate_defaults,
-    )
-    vocab_size = _resolve_stage_default(
-        ctx,
-        parameter_name="vocab_size",
-        current_value=vocab_size,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=tokenizer_defaults,
-    )
-    artifact_name = _resolve_stage_default(
-        ctx,
-        parameter_name="artifact_name",
-        current_value=artifact_name,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=tokenizer_defaults,
-    )
-    model_type = _resolve_stage_default(
-        ctx,
-        parameter_name="model_type",
-        current_value=model_type,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=tokenizer_defaults,
-    )
-    character_coverage = _resolve_stage_default(
-        ctx,
-        parameter_name="character_coverage",
-        current_value=character_coverage,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=tokenizer_defaults,
-    )
-    hard_vocab_limit = _resolve_stage_default(
-        ctx,
-        parameter_name="hard_vocab_limit",
-        current_value=hard_vocab_limit,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=tokenizer_defaults,
-    )
-    max_sentence_length = _resolve_stage_default(
-        ctx,
-        parameter_name="max_sentence_length",
-        current_value=max_sentence_length,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=tokenizer_defaults,
     )
     smoothing = _resolve_stage_default(
         ctx,
@@ -803,27 +706,12 @@ def main(
         stage_defaults=query_defaults,
         stage_key="seed",
     )
-    tokenizer_text_normalization = _resolve_stage_default(
-        ctx,
-        parameter_name="text_normalization",
-        current_value=text_normalization,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=tokenizer_defaults,
-    )
-    training_text_normalization = _resolve_stage_default(
+    text_normalization = _resolve_stage_default(
         ctx,
         parameter_name="text_normalization",
         current_value=text_normalization,
         pipeline_defaults=pipeline_defaults,
         stage_defaults=train_defaults,
-    )
-    resolved_tokenizer_limit = _resolve_stage_limit(
-        ctx,
-        parameter_name="tokenizer_limit",
-        current_value=tokenizer_limit,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=tokenizer_defaults,
-        global_limit=limit,
     )
     resolved_training_limit = _resolve_stage_limit(
         ctx,
@@ -855,7 +743,12 @@ def main(
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
     resolved_source_split = source_split if source_split is not None else corpus_definition.split
     resolved_text_column = text_column or corpus_definition.text_column
-    resolved_artifact_name = artifact_name or f"{corpus}-sentencepiece-{vocab_size}"
+    resolved_tokenizer_model_name = str(tokenizer_model_name or "").strip()
+    if not resolved_tokenizer_model_name:
+        raise click.ClickException(
+            "Training pipeline requires --tokenizer-model-name, or tokenizer_model_name in [train]. "
+            "Run the tokenizer pipeline first and use its tokenizer model name."
+        )
 
     if run_stage is not None and run_until_stage is not None:
         raise click.ClickException("--run-stage and --run-until-stage are mutually exclusive.")
@@ -865,6 +758,7 @@ def main(
     parameter_filters = {
         "model": model_definition.name,
         "corpus": corpus,
+        "tokenizer_model_name": resolved_tokenizer_model_name,
         "dataset_id": resolved_dataset_id,
         "source_split": resolved_source_split or "",
         "evaluation_partition": evaluation_partition,
@@ -876,7 +770,7 @@ def main(
                 "Use --pipeline-queued when passing --run-stage or --pipeline-controller-id."
             )
         resume_pipeline_controller_stage(
-            stage_name=run_stage or TOKENIZER_STAGE,
+            stage_name=run_stage or MODEL_STAGE,
             pipeline_controller_id=pipeline_controller_id,
             pipeline_name=resolved_pipeline_name,
             pipeline_version=pipeline_version,
@@ -889,6 +783,8 @@ def main(
             clearml_output_uri=clearml_output_uri,
             clearml_tags=clearml_tags,
             parameter_filters=parameter_filters,
+            stage_dependencies=TRAINING_PIPELINE_STAGE_DEPENDENCIES,
+            stage_names=TRAINING_PIPELINE_STAGES,
         )
         return
 
@@ -903,6 +799,13 @@ def main(
     resolved_config_file = configure_clearml_config_file(settings.config_file)
     if settings.connectivity_check:
         assert_clearml_endpoints_reachable(resolved_config_file, settings.output_uri)
+
+    tokenizer_resolution = resolve_tokenizer_pipeline_task(
+        tokenizer_pipeline_name=tokenizer_pipeline_name,
+        clearml_project=settings.project_name,
+        corpus=corpus,
+        tokenizer_model_name=resolved_tokenizer_model_name,
+    )
 
     pipeline = build_pipeline_controller(
         pipeline_name=resolved_pipeline_name,
@@ -923,6 +826,10 @@ def main(
         {
             "model": model_definition.name,
             "corpus": corpus,
+            "tokenizer_model_name": resolved_tokenizer_model_name,
+            "tokenizer_pipeline_name": tokenizer_pipeline_name,
+            "tokenizer_pipeline_controller_id": tokenizer_resolution.controller_id,
+            "tokenizer_task_id": tokenizer_resolution.tokenizer_task_id,
             "dataset_id": resolved_dataset_id,
             "source_split": resolved_source_split or "",
             "text_column": resolved_text_column,
@@ -936,6 +843,7 @@ def main(
         clearml_tags=settings.tags,
         clearml_config_file=resolved_config_file if pipeline_local else None,
         execution_queue=None if pipeline_local else execution_queue,
+        tokenizer_task_id=tokenizer_resolution.tokenizer_task_id,
         model_name=model_definition.name,
         corpus=corpus,
         dataset_id=resolved_dataset_id,
@@ -945,15 +853,8 @@ def main(
         train_ratio=train_ratio,
         split_seed=split_seed,
         evaluation_partition=evaluation_partition,
-        tokenizer_limit=resolved_tokenizer_limit,
         training_limit=resolved_training_limit,
         evaluation_limit=resolved_evaluation_limit,
-        vocab_size=vocab_size,
-        artifact_name=resolved_artifact_name,
-        model_type=model_type,
-        character_coverage=character_coverage,
-        hard_vocab_limit=hard_vocab_limit,
-        max_sentence_length=max_sentence_length,
         smoothing=smoothing,
         unigram_weight=unigram_weight,
         bigram_weight=bigram_weight,
@@ -966,19 +867,21 @@ def main(
         query_decoding=query_decoding,
         query_temperature=query_temperature,
         query_seed=query_seed,
-        tokenizer_text_normalization=tokenizer_text_normalization,
-        training_text_normalization=training_text_normalization,
+        text_normalization=text_normalization,
     )
 
     click.echo(f"ClearML pipeline: {settings.project_name}/{resolved_pipeline_name}")
     click.echo(f"Pipeline version: {pipeline_version}")
+    click.echo(f"Tokenizer model: {resolved_tokenizer_model_name}")
+    click.echo(f"Tokenizer pipeline controller task ID: {tokenizer_resolution.controller_id}")
+    click.echo(f"Tokenizer stage task ID: {tokenizer_resolution.tokenizer_task_id}")
     click.echo(f"Pipeline controller task ID: {pipeline.task.id}")
     task_url = pipeline.task.get_output_log_web_page()
     if task_url:
         click.echo(f"Pipeline controller URL: {task_url}")
     if run_until_stage is not None:
         click.echo(f"Run until stage: {run_until_stage}")
-    click.echo(f"Stage tasks: {TOKENIZER_STAGE}, {MODEL_STAGE}, {EVALUATION_STAGE}, {QUERY_STAGE}")
+    click.echo(f"Stage tasks: {MODEL_STAGE}, {EVALUATION_STAGE}, {QUERY_STAGE}")
 
     if pipeline_local:
         click.echo("Execution mode: local ClearML PipelineController")
@@ -994,7 +897,8 @@ def main(
         assert_pipeline_finished_successfully(pipeline)
         print_stage_task_ids(
             pipeline.task.id,
-            (TOKENIZER_STAGE, MODEL_STAGE, EVALUATION_STAGE, QUERY_STAGE),
+            TRAINING_PIPELINE_STAGES,
+            stage_names=TRAINING_PIPELINE_STAGES,
         )
         click.echo("ClearML pipeline run completed.")
 
@@ -1007,6 +911,7 @@ def add_pipeline_steps(
     clearml_tags: tuple[str, ...],
     clearml_config_file: Path | None,
     execution_queue: str | None,
+    tokenizer_task_id: str,
     model_name: str,
     corpus: str,
     dataset_id: str,
@@ -1016,15 +921,8 @@ def add_pipeline_steps(
     train_ratio: float,
     split_seed: int,
     evaluation_partition: str,
-    tokenizer_limit: int | None,
     training_limit: int | None,
     evaluation_limit: int | None,
-    vocab_size: int,
-    artifact_name: str,
-    model_type: str,
-    character_coverage: float,
-    hard_vocab_limit: bool,
-    max_sentence_length: int | None,
     smoothing: float,
     unigram_weight: float,
     bigram_weight: float,
@@ -1037,8 +935,7 @@ def add_pipeline_steps(
     query_decoding: str,
     query_temperature: float,
     query_seed: int | None,
-    tokenizer_text_normalization: str,
-    training_text_normalization: str,
+    text_normalization: str,
 ) -> None:
     artifact_monitors = pipeline_artifact_monitors()
     metric_monitors = pipeline_metric_monitors(evaluation_partition)
@@ -1058,38 +955,10 @@ def add_pipeline_steps(
     }
 
     pipeline.add_function_step(
-        name=TOKENIZER_STAGE,
-        function=train_tokenizer_stage_entry,
-        function_kwargs={
-            "corpus": corpus,
-            "dataset_id": dataset_id,
-            "source_split": source_split,
-            "text_column": text_column,
-            "streaming": streaming,
-            "limit": tokenizer_limit,
-            "train_ratio": train_ratio,
-            "split_seed": split_seed,
-            "vocab_size": vocab_size,
-            "artifact_name": artifact_name,
-            "model_type": model_type,
-            "character_coverage": character_coverage,
-            "hard_vocab_limit": hard_vocab_limit,
-            "max_sentence_length": max_sentence_length,
-            "text_normalization": tokenizer_text_normalization,
-            **common_step_kwargs,
-        },
-        task_name=TOKENIZER_STAGE,
-        task_type="training",
-        monitor_artifacts=artifact_monitors[TOKENIZER_STAGE],
-        monitor_metrics=metric_monitors[TOKENIZER_STAGE],
-        stage=TOKENIZER_STAGE,
-        **step_options,
-    )
-    pipeline.add_function_step(
         name=MODEL_STAGE,
         function=train_model_stage_entry,
         function_kwargs={
-            "tokenizer_task_id": f"${{{TOKENIZER_STAGE}.id}}",
+            "tokenizer_task_id": tokenizer_task_id,
             "model_name": model_name,
             "corpus": corpus,
             "dataset_id": dataset_id,
@@ -1104,10 +973,9 @@ def add_pipeline_steps(
             "bigram_weight": bigram_weight,
             "trigram_weight": trigram_weight,
             "discount": discount,
-            "text_normalization": training_text_normalization,
+            "text_normalization": text_normalization,
             **common_step_kwargs,
         },
-        parents=[TOKENIZER_STAGE],
         task_name=MODEL_STAGE,
         task_type="training",
         monitor_artifacts=artifact_monitors[MODEL_STAGE],
@@ -1164,5 +1032,7 @@ def add_pipeline_steps(
         stage=QUERY_STAGE,
         **step_options,
     )
+
+
 if __name__ == "__main__":
     main()

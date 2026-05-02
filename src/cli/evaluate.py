@@ -20,6 +20,8 @@ from src.cli.output import stage_title
 from src.cli.pipeline_common import (
     DEFAULT_PIPELINE_NAME,
     EVALUATION_STAGE,
+    TRAINING_PIPELINE_STAGE_DEPENDENCIES,
+    TRAINING_PIPELINE_STAGES,
     pipeline_options,
     pipeline_resume_option,
     resume_pipeline_controller_stage,
@@ -56,6 +58,8 @@ def load_evaluate_command_defaults(_config_section: str) -> dict[str, object]:
     train_defaults = load_defaults_from_sections(("train",))
     if "model_name" in train_defaults:
         defaults["model_name"] = train_defaults["model_name"]
+    if "tokenizer_model_name" in train_defaults:
+        defaults["tokenizer_model_name"] = train_defaults["tokenizer_model_name"]
     defaults.update(load_defaults_from_sections(("evaluate",)))
     return defaults
 
@@ -75,6 +79,11 @@ def load_evaluate_command_defaults(_config_section: str) -> dict[str, object]:
     default=DEFAULT_MODEL_NAME,
     show_default=True,
     help="Registered model to evaluate.",
+)
+@click.option(
+    "--tokenizer-model-name",
+    default=None,
+    help="Registered tokenizer model name used by the training pipeline.",
 )
 @click.option(
     "--corpus",
@@ -159,6 +168,7 @@ def main(
     add_run_number: bool,
     pipeline_controller_id: str | None,
     model_name: str,
+    tokenizer_model_name: str | None,
     corpus: str,
     dataset_id: str | None,
     source_split: str | None,
@@ -188,6 +198,11 @@ def main(
     resolved_train_ratio = train_ratio
     resolved_split_seed = split_seed
     resolved_text_column = text_column or corpus_definition.text_column
+    resolved_tokenizer_model_name = str(tokenizer_model_name or "").strip()
+    if not resolved_tokenizer_model_name:
+        raise click.ClickException(
+            "Evaluation requires --tokenizer-model-name, or tokenizer_model_name in [train]."
+        )
     if model_task_id is not None or model_path is not None:
         raise click.ClickException(
             "Evaluation now resumes the canonical ClearML pipeline DAG. "
@@ -213,11 +228,14 @@ def main(
         clearml_tags=clearml_tags,
         parameter_filters={
             "model": model_definition.name,
+            "tokenizer_model_name": resolved_tokenizer_model_name,
             "corpus": corpus,
             "dataset_id": resolved_dataset_id,
             "source_split": resolved_source_split or "",
             "evaluation_partition": evaluation_partition,
         },
+        stage_dependencies=TRAINING_PIPELINE_STAGE_DEPENDENCIES,
+        stage_names=TRAINING_PIPELINE_STAGES,
     )
     return
 

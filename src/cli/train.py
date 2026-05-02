@@ -19,6 +19,8 @@ from src.cli.output import stage_title
 from src.cli.pipeline_common import (
     DEFAULT_PIPELINE_NAME,
     MODEL_STAGE,
+    TRAINING_PIPELINE_STAGE_DEPENDENCIES,
+    TRAINING_PIPELINE_STAGES,
     pipeline_options,
     pipeline_resume_option,
     resume_pipeline_controller_stage,
@@ -61,6 +63,11 @@ STAGED_TOKENIZER_MODEL_NAME = "input-tokenizer.model"
     default=DEFAULT_MODEL_NAME,
     show_default=True,
     help="Registered model to train.",
+)
+@click.option(
+    "--tokenizer-model-name",
+    default=None,
+    help="Registered tokenizer model name used by the training pipeline.",
 )
 @click.option(
     "--corpus",
@@ -109,13 +116,13 @@ STAGED_TOKENIZER_MODEL_NAME = "input-tokenizer.model"
 @click.option(
     "--tokenizer-task-id",
     default=None,
-    help="Deprecated. Training resumes the tokenizer dependency from the pipeline controller.",
+    help="Deprecated. Training resolves tokenizers by --tokenizer-model-name.",
 )
 @click.option(
     "--tokenizer-model",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     default=None,
-    help="Deprecated. Training resumes the tokenizer dependency from the pipeline controller.",
+    help="Deprecated. Training resolves tokenizers by --tokenizer-model-name.",
 )
 @click.option(
     "--smoothing",
@@ -172,6 +179,7 @@ def main(
     add_run_number: bool,
     pipeline_controller_id: str | None,
     model_name: str,
+    tokenizer_model_name: str | None,
     corpus: str,
     dataset_id: str | None,
     source_split: str | None,
@@ -197,6 +205,11 @@ def main(
 ) -> None:
     corpus_definition = get_corpus(corpus)
     model_definition = get_model(model_name)
+    resolved_tokenizer_model_name = str(tokenizer_model_name or "").strip()
+    if not resolved_tokenizer_model_name:
+        raise click.ClickException(
+            "Model training requires --tokenizer-model-name, or tokenizer_model_name in [train]."
+        )
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
     resolved_source_split = source_split if source_split is not None else corpus_definition.split
     resolved_train_ratio = train_ratio
@@ -204,9 +217,9 @@ def main(
     resolved_text_column = text_column or corpus_definition.text_column
     if tokenizer_task_id is not None or tokenizer_model is not None:
         raise click.ClickException(
-            "Model training now resumes the canonical ClearML pipeline DAG. "
-            "Run train_sentencepiece in the same pipeline first instead of passing "
-            "--tokenizer-task-id or --tokenizer-model."
+            "Model training now resolves tokenizer artifacts from the tokenizer pipeline. "
+            "Set --tokenizer-model-name instead of passing --tokenizer-task-id or "
+            "--tokenizer-model."
         )
     if pipeline_local:
         raise click.ClickException(
@@ -228,10 +241,13 @@ def main(
         clearml_tags=clearml_tags,
         parameter_filters={
             "model": model_definition.name,
+            "tokenizer_model_name": resolved_tokenizer_model_name,
             "corpus": corpus,
             "dataset_id": resolved_dataset_id,
             "source_split": resolved_source_split or "",
         },
+        stage_dependencies=TRAINING_PIPELINE_STAGE_DEPENDENCIES,
+        stage_names=TRAINING_PIPELINE_STAGES,
     )
     return
 
@@ -451,9 +467,8 @@ def validate_tokenizer_source(
 
     if tokenizer_task_id is None and tokenizer_model is None:
         raise click.ClickException(
-            "Language model training now uses ClearML as the artifact store. "
-            "Pass --tokenizer-task-id from src.cli.train_sentencepiece, or pass "
-            "--tokenizer-model to stage a local tokenizer file."
+            "Language model training now resolves tokenizer artifacts from the tokenizer pipeline. "
+            "Set --tokenizer-model-name on the training pipeline."
         )
 
 

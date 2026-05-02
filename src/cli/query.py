@@ -13,6 +13,8 @@ from src.cli.output import stage_title
 from src.cli.pipeline_common import (
     DEFAULT_PIPELINE_NAME,
     QUERY_STAGE,
+    TRAINING_PIPELINE_STAGE_DEPENDENCIES,
+    TRAINING_PIPELINE_STAGES,
     pipeline_options,
     pipeline_resume_option,
     resume_pipeline_controller_stage,
@@ -33,6 +35,8 @@ def load_query_command_defaults(_config_section: str) -> dict[str, object]:
     train_defaults = load_defaults_from_sections(("train",))
     if "model_name" in train_defaults:
         defaults["model_name"] = train_defaults["model_name"]
+    if "tokenizer_model_name" in train_defaults:
+        defaults["tokenizer_model_name"] = train_defaults["tokenizer_model_name"]
     defaults.update(load_defaults_from_sections(("query",)))
     return defaults
 
@@ -54,11 +58,16 @@ def load_query_command_defaults(_config_section: str) -> dict[str, object]:
     help="Registered model to query.",
 )
 @click.option(
+    "--tokenizer-model-name",
+    default=None,
+    help="Registered tokenizer model name used by the training pipeline.",
+)
+@click.option(
     "--corpus",
     type=click.Choice(corpus_names()),
     default=DEFAULT_CORPUS_NAME,
     show_default=True,
-    help="Registered corpus used to resolve the default model path.",
+    help="Registered corpus used by the training pipeline.",
 )
 @click.option(
     "--model-task-id",
@@ -122,6 +131,7 @@ def main(
     add_run_number: bool,
     pipeline_controller_id: str | None,
     model_name: str,
+    tokenizer_model_name: str | None,
     corpus: str,
     model_task_id: str | None,
     model_path: Path | None,
@@ -141,6 +151,11 @@ def main(
     model_definition = get_model(model_name)
     if model_definition.query is None or model_definition.query_lines is None:
         raise click.ClickException(f"Model does not support querying yet: {model_name}")
+    resolved_tokenizer_model_name = str(tokenizer_model_name or "").strip()
+    if not resolved_tokenizer_model_name:
+        raise click.ClickException(
+            "Query requires --tokenizer-model-name, or tokenizer_model_name in [train]."
+        )
     if model_task_id is not None or model_path is not None:
         raise click.ClickException(
             "Query now resumes the canonical ClearML pipeline DAG. "
@@ -166,8 +181,11 @@ def main(
         clearml_tags=clearml_tags,
         parameter_filters={
             "model": model_definition.name,
+            "tokenizer_model_name": resolved_tokenizer_model_name,
             "corpus": corpus,
         },
+        stage_dependencies=TRAINING_PIPELINE_STAGE_DEPENDENCIES,
+        stage_names=TRAINING_PIPELINE_STAGES,
     )
     return
 

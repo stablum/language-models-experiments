@@ -18,6 +18,7 @@ DEFAULT_CONFIG_PATH = Path("config.toml")
 SHARED_SECTIONS = ("defaults", "clearml")
 KEY_ALIASES = {
     "model": "model_name",
+    "tokenizer_model": "tokenizer_model_name",
 }
 
 

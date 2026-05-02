@@ -20,21 +20,33 @@ from src.tracking.clearml import (
 
 
 DEFAULT_PIPELINE_NAME = "language-models-experiments"
+DEFAULT_TOKENIZER_PIPELINE_NAME = f"{DEFAULT_PIPELINE_NAME}-tokenizers"
 DEFAULT_CONTROLLER_QUEUE = "services"
-DEFAULT_PIPELINE_VERSION_FALLBACK = "0.4.7"
+DEFAULT_PIPELINE_VERSION_FALLBACK = "0.4.13"
 
 TOKENIZER_STAGE = "train_tokenizer"
 MODEL_STAGE = "train_model"
 EVALUATION_STAGE = "evaluate"
 QUERY_STAGE = "query"
 PIPELINE_STAGES = (TOKENIZER_STAGE, MODEL_STAGE, EVALUATION_STAGE, QUERY_STAGE)
+TOKENIZER_PIPELINE_STAGES = (TOKENIZER_STAGE,)
+TRAINING_PIPELINE_STAGES = (MODEL_STAGE, EVALUATION_STAGE, QUERY_STAGE)
 PIPELINE_STAGE_DEPENDENCIES = {
     TOKENIZER_STAGE: (),
     MODEL_STAGE: (TOKENIZER_STAGE,),
     EVALUATION_STAGE: (MODEL_STAGE,),
     QUERY_STAGE: (MODEL_STAGE,),
 }
+TOKENIZER_PIPELINE_STAGE_DEPENDENCIES = {
+    TOKENIZER_STAGE: (),
+}
+TRAINING_PIPELINE_STAGE_DEPENDENCIES = {
+    MODEL_STAGE: (),
+    EVALUATION_STAGE: (MODEL_STAGE,),
+    QUERY_STAGE: (MODEL_STAGE,),
+}
 PIPELINE_STAGE_INDEX = {stage: index for index, stage in enumerate(PIPELINE_STAGES)}
+TOKENIZER_MODEL_ARTIFACT = "sentencepiece-model"
 
 PIPELINE_CONTROL_SECTION = "Pipeline Control"
 PIPELINE_CONTROL_MODE = f"{PIPELINE_CONTROL_SECTION}/run_mode"
@@ -74,6 +86,14 @@ class ControllerCandidate:
     name: str
     status: str
     last_update: object | None = None
+
+
+@dataclass(frozen=True)
+class TokenizerPipelineResolution:
+    controller_id: str
+    tokenizer_task_id: str
+    tokenizer_model_name: str
+    corpus: str
 
 
 @dataclass(frozen=True)
@@ -309,6 +329,8 @@ def resume_pipeline_controller_stage(
     clearml_output_uri: str | None,
     clearml_tags: tuple[str, ...],
     parameter_filters: Mapping[str, object] | None = None,
+    stage_dependencies: Mapping[str, Sequence[str]] = PIPELINE_STAGE_DEPENDENCIES,
+    stage_names: Sequence[str] = PIPELINE_STAGES,
 ) -> str:
     settings = clearml_settings(
         project_name=clearml_project,
@@ -329,12 +351,16 @@ def resume_pipeline_controller_stage(
         pipeline_version=pipeline_version,
         clearml_project=settings.project_name,
         parameter_filters=parameter_filters or {},
+        stage_dependencies=stage_dependencies,
+        stage_names=stage_names,
     )
     task = _get_clearml_task(resolved_controller_id)
     assert_controller_can_run_stage(
         controller_id=resolved_controller_id,
         stage_name=stage_name,
         parameter_filters=parameter_filters or {},
+        stage_dependencies=stage_dependencies,
+        stage_names=stage_names,
     )
     configure_pipeline_control(
         task,
@@ -351,7 +377,7 @@ def resume_pipeline_controller_stage(
     if wait:
         wait_for_controller_completion(resolved_controller_id)
         assert_controller_task_succeeded(resolved_controller_id)
-        print_stage_task_ids(resolved_controller_id, (stage_name,))
+        print_stage_task_ids(resolved_controller_id, (stage_name,), stage_names=stage_names)
         click.echo("ClearML pipeline run completed.")
     else:
         click.echo("ClearML pipeline controller enqueued.")
@@ -362,9 +388,11 @@ def resolve_pipeline_controller_id(
     *,
     stage_name: str,
     pipeline_name: str,
-    pipeline_version: str,
+    pipeline_version: str | None,
     clearml_project: str,
     parameter_filters: Mapping[str, object],
+    stage_dependencies: Mapping[str, Sequence[str]] = PIPELINE_STAGE_DEPENDENCIES,
+    stage_names: Sequence[str] = PIPELINE_STAGES,
 ) -> str:
     candidates = list_pipeline_controller_candidates(
         pipeline_name=pipeline_name,
@@ -377,6 +405,8 @@ def resolve_pipeline_controller_id(
             controller_id=candidate.id,
             stage_name=stage_name,
             parameter_filters=parameter_filters,
+            stage_dependencies=stage_dependencies,
+            stage_names=stage_names,
         )
         if eligibility.eligible:
             return candidate.id
@@ -392,10 +422,73 @@ def resolve_pipeline_controller_id(
     )
 
 
+def resolve_tokenizer_pipeline_task(
+    *,
+    tokenizer_pipeline_name: str,
+    clearml_project: str,
+    corpus: str,
+    tokenizer_model_name: str,
+) -> TokenizerPipelineResolution:
+    candidates = list_pipeline_controller_candidates(
+        pipeline_name=tokenizer_pipeline_name,
+        pipeline_version=None,
+        clearml_project=clearml_project,
+    )
+    parameter_filters = {
+        "corpus": corpus,
+        "tokenizer_model_name": tokenizer_model_name,
+    }
+    reasons: list[str] = []
+    for candidate in candidates:
+        if candidate.status not in COMPLETED_STATUSES:
+            reasons.append(f"{candidate.id}: controller status is {candidate.status}")
+            continue
+        if not controller_parameters_match(candidate.id, parameter_filters):
+            reasons.append(f"{candidate.id}: tokenizer parameters do not match")
+            continue
+
+        stage_tasks = pipeline_stage_tasks(
+            candidate.id,
+            stage_names=TOKENIZER_PIPELINE_STAGES,
+        )
+        completed_tokenizer_tasks = [
+            task
+            for task in stage_tasks.get(TOKENIZER_STAGE, ())
+            if task.status in COMPLETED_STATUSES
+        ]
+        if not completed_tokenizer_tasks:
+            reasons.append(f"{candidate.id}: no completed {TOKENIZER_STAGE} stage task")
+            continue
+
+        for stage_task in completed_tokenizer_tasks:
+            if _task_has_artifact(stage_task.id, TOKENIZER_MODEL_ARTIFACT):
+                return TokenizerPipelineResolution(
+                    controller_id=candidate.id,
+                    tokenizer_task_id=stage_task.id,
+                    tokenizer_model_name=tokenizer_model_name,
+                    corpus=corpus,
+                )
+        reasons.append(
+            f"{candidate.id}: completed {TOKENIZER_STAGE} task has no "
+            f"{TOKENIZER_MODEL_ARTIFACT!r} artifact"
+        )
+
+    detail = ""
+    if reasons:
+        detail = " Checked candidates: " + "; ".join(reasons[:5])
+    raise click.ClickException(
+        "Could not find a completed tokenizer pipeline run for "
+        f"corpus={corpus!r} and tokenizer_model_name={tokenizer_model_name!r}. "
+        f"Run `python -m src.cli.tokenizer_pipeline` first, or change "
+        f"--tokenizer-pipeline-name from {tokenizer_pipeline_name!r}."
+        f"{detail}"
+    )
+
+
 def list_pipeline_controller_candidates(
     *,
     pipeline_name: str,
-    pipeline_version: str,
+    pipeline_version: str | None,
     clearml_project: str,
 ) -> tuple[ControllerCandidate, ...]:
     try:
@@ -425,8 +518,9 @@ def list_pipeline_controller_candidates(
     name_pattern = re.compile(rf"^{re.escape(pipeline_name)}( #[0-9]+)?$")
     for task in tasks or []:
         runtime = getattr(task, "runtime", {}) or {}
-        if str(runtime.get("version") or "") != str(pipeline_version):
-            continue
+        if pipeline_version is not None:
+            if str(runtime.get("version") or "") != str(pipeline_version):
+                continue
         if not name_pattern.match(str(task.name)):
             continue
         candidates.append(
@@ -445,11 +539,15 @@ def assert_controller_can_run_stage(
     controller_id: str,
     stage_name: str,
     parameter_filters: Mapping[str, object],
+    stage_dependencies: Mapping[str, Sequence[str]] = PIPELINE_STAGE_DEPENDENCIES,
+    stage_names: Sequence[str] = PIPELINE_STAGES,
 ) -> None:
     eligibility = pipeline_stage_eligibility(
         controller_id=controller_id,
         stage_name=stage_name,
         parameter_filters=parameter_filters,
+        stage_dependencies=stage_dependencies,
+        stage_names=stage_names,
     )
     if not eligibility.eligible:
         raise click.ClickException(
@@ -463,8 +561,10 @@ def pipeline_stage_eligibility(
     controller_id: str,
     stage_name: str,
     parameter_filters: Mapping[str, object],
+    stage_dependencies: Mapping[str, Sequence[str]] = PIPELINE_STAGE_DEPENDENCIES,
+    stage_names: Sequence[str] = PIPELINE_STAGES,
 ) -> StageEligibility:
-    if stage_name not in PIPELINE_STAGE_DEPENDENCIES:
+    if stage_name not in stage_dependencies:
         return StageEligibility(False, f"unknown stage {stage_name!r}", {})
 
     if not controller_parameters_match(controller_id, parameter_filters):
@@ -475,10 +575,10 @@ def pipeline_stage_eligibility(
     if controller_status in ACTIVE_STATUSES:
         return StageEligibility(False, f"controller is already {controller_status}", {})
 
-    stage_tasks = pipeline_stage_tasks(controller_id)
+    stage_tasks = pipeline_stage_tasks(controller_id, stage_names=stage_names)
     missing_dependencies = [
         dependency
-        for dependency in PIPELINE_STAGE_DEPENDENCIES[stage_name]
+        for dependency in stage_dependencies[stage_name]
         if not any(
             task.status in COMPLETED_STATUSES
             for task in stage_tasks.get(dependency, ())
@@ -521,7 +621,11 @@ def controller_parameters_match(
     return True
 
 
-def pipeline_stage_tasks(controller_id: str) -> dict[str, tuple[StageTask, ...]]:
+def pipeline_stage_tasks(
+    controller_id: str,
+    *,
+    stage_names: Sequence[str] = PIPELINE_STAGES,
+) -> dict[str, tuple[StageTask, ...]]:
     try:
         from clearml.backend_api.session.client import APIClient
     except ImportError as error:
@@ -537,7 +641,7 @@ def pipeline_stage_tasks(controller_id: str) -> dict[str, tuple[StageTask, ...]]
         only_fields=["id", "name", "status", "parent", "last_update"],
         order_by=["-last_update"],
     )
-    grouped: dict[str, list[StageTask]] = {stage: [] for stage in PIPELINE_STAGES}
+    grouped: dict[str, list[StageTask]] = {stage: [] for stage in stage_names}
     for task in tasks or []:
         name = str(task.name)
         if name not in grouped:
@@ -554,8 +658,13 @@ def pipeline_stage_tasks(controller_id: str) -> dict[str, tuple[StageTask, ...]]
     return {stage: tuple(tasks) for stage, tasks in grouped.items()}
 
 
-def print_stage_task_ids(pipeline_task_id: str, stages: Sequence[str]) -> None:
-    stage_tasks = pipeline_stage_tasks(pipeline_task_id)
+def print_stage_task_ids(
+    pipeline_task_id: str,
+    stages: Sequence[str],
+    *,
+    stage_names: Sequence[str] = PIPELINE_STAGES,
+) -> None:
+    stage_tasks = pipeline_stage_tasks(pipeline_task_id, stage_names=stage_names)
     for stage in stages:
         task_ids = [task.id for task in stage_tasks.get(stage, ())]
         if task_ids:
@@ -641,6 +750,12 @@ def _get_clearml_task(task_id: str) -> object:
             "Run `uv sync` before using the pipeline CLIs."
         ) from error
     return Task.get_task(task_id=task_id)
+
+
+def _task_has_artifact(task_id: str, artifact_name: str) -> bool:
+    task = _get_clearml_task(task_id)
+    artifacts = getattr(task, "artifacts", {}) or {}
+    return artifact_name in artifacts
 
 
 def _enqueue_pipeline_controller(controller_id: str, queue_name: str) -> None:
