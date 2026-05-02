@@ -12,6 +12,13 @@ import sentencepiece as spm
 
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TextNormalization
 from src.models import ngram
+from src.models.definition import ModelDefinition, ModelOptionError, ModelOptions
+from src.models.formatting import (
+    artifact_filename,
+    format_interpolation_weights,
+    format_ngram_evaluation_metrics,
+    format_ngram_query,
+)
 from src.models.trigram_common import (
     BaseTrigramModel,
     Context,
@@ -23,6 +30,9 @@ from src.models.trigram_common import (
     parse_unigram_counts,
     trigram_counts_payload,
 )
+
+
+MODEL_NAME = "trigram"
 
 
 @dataclass(frozen=True)
@@ -252,3 +262,154 @@ def train_trigram_model(
         trigram_weight=normalized_weights[2],
         text_normalization=text_normalization,
     )
+
+
+def default_tokenizer_model(corpus: str) -> Path:
+    return Path("artifacts", "tokenizers", f"{corpus}-sentencepiece-1000.model")
+
+
+def default_output(corpus: str) -> Path:
+    return Path("artifacts", "models", f"{corpus}-sentencepiece-trigram.json")
+
+
+def default_model(corpus: str) -> Path:
+    return default_output(corpus)
+
+
+def resolve_tokenizer_model(options: ModelOptions) -> Path:
+    tokenizer_model = options.get("tokenizer_model")
+    if tokenizer_model:
+        return Path(tokenizer_model)
+    return default_tokenizer_model(str(options["corpus"]))
+
+
+def resolve_output(options: ModelOptions) -> Path:
+    output = options.get("output")
+    return Path(output) if output else default_output(str(options["corpus"]))
+
+
+def resolve_model(options: ModelOptions) -> Path:
+    model_path = options.get("model_path")
+    return Path(model_path) if model_path else default_model(str(options["corpus"]))
+
+
+def validate_options(options: ModelOptions) -> None:
+    tokenizer_model = resolve_tokenizer_model(options)
+    if not tokenizer_model.exists():
+        raise ModelOptionError(
+            f"Tokenizer model not found: {tokenizer_model}. "
+            "Train it first with src.cli.train_sentencepiece."
+        )
+
+    try:
+        normalize_interpolation_weights(
+            unigram_weight=options["unigram_weight"],
+            bigram_weight=options["bigram_weight"],
+            trigram_weight=options["trigram_weight"],
+        )
+    except ValueError as error:
+        raise ModelOptionError(str(error)) from error
+
+
+def validate_query_options(options: ModelOptions) -> None:
+    model_path = resolve_model(options)
+    if not model_path.exists():
+        raise ModelOptionError(
+            f"Trigram model not found: {model_path}. "
+            "Train it first with src.cli.train."
+        )
+
+
+def train_from_options(
+    texts: Iterable[str],
+    options: ModelOptions,
+) -> TrigramTrainingSummary:
+    stored_tokenizer_model = options.get("stored_tokenizer_model")
+    return train_trigram_model(
+        texts,
+        tokenizer_model=resolve_tokenizer_model(options),
+        output_path=resolve_output(options),
+        stored_tokenizer_model=Path(stored_tokenizer_model) if stored_tokenizer_model else None,
+        smoothing=options["smoothing"],
+        unigram_weight=options["unigram_weight"],
+        bigram_weight=options["bigram_weight"],
+        trigram_weight=options["trigram_weight"],
+        text_normalization=options["text_normalization"],
+    )
+
+
+def query_from_options(options: ModelOptions) -> TrigramQueryResult:
+    model = load_trigram_model(resolve_model(options))
+    return model.query(
+        prompt=options["prompt"],
+        max_tokens=options["max_tokens"],
+        top_k=options["top_k"],
+        decoding=options["decoding"],
+        temperature=options["temperature"],
+        seed=options["seed"],
+    )
+
+
+def evaluate_from_options(
+    texts: Iterable[str],
+    options: ModelOptions,
+) -> TrigramEvaluationSummary:
+    model = load_trigram_model(resolve_model(options))
+    return model.evaluate(texts, top_k=options["top_k"])
+
+
+def format_summary(summary: TrigramTrainingSummary) -> list[tuple[str, str]]:
+    return [
+        ("Tokenizer artifact file", artifact_filename(summary.tokenizer_model)),
+        ("Trigram model artifact file", artifact_filename(summary.output_path)),
+        ("Text normalization", summary.text_normalization),
+        ("Vocabulary size", f"{summary.vocab_size:,}"),
+        ("Sequences", f"{summary.sequence_count:,}"),
+        ("Tokens", f"{summary.token_count:,}"),
+        ("Unigrams", f"{summary.unigram_count:,}"),
+        ("Bigram transitions", f"{summary.bigram_transition_count:,}"),
+        ("Trigram transitions", f"{summary.trigram_transition_count:,}"),
+        (
+            "Interpolation weights",
+            format_interpolation_weights(
+                unigram_weight=summary.unigram_weight,
+                bigram_weight=summary.bigram_weight,
+                trigram_weight=summary.trigram_weight,
+            ),
+        ),
+    ]
+
+
+def format_evaluation(summary: TrigramEvaluationSummary) -> list[tuple[str, str]]:
+    return [
+        ("Model artifact file", artifact_filename(summary.model_path)),
+        ("Tokenizer artifact file", artifact_filename(summary.tokenizer_model)),
+        ("Text normalization", summary.text_normalization),
+        (
+            "Interpolation weights",
+            format_interpolation_weights(
+                unigram_weight=summary.unigram_weight,
+                bigram_weight=summary.bigram_weight,
+                trigram_weight=summary.trigram_weight,
+            ),
+        ),
+        *format_ngram_evaluation_metrics(summary),
+    ]
+
+
+def format_query(result: TrigramQueryResult) -> list[str]:
+    return format_ngram_query(result)
+
+
+MODEL_DEFINITION = ModelDefinition(
+    name=MODEL_NAME,
+    train=train_from_options,
+    validate_options=validate_options,
+    summary_items=format_summary,
+    query=query_from_options,
+    validate_query_options=validate_query_options,
+    query_lines=format_query,
+    evaluate=evaluate_from_options,
+    validate_evaluation_options=validate_query_options,
+    evaluation_items=format_evaluation,
+)

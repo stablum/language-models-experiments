@@ -32,6 +32,7 @@ from src.corpora.splits import (
     source_split_label,
 )
 from src.corpora.text import iter_text_column
+from src.models.definition import ModelOptionError
 from src.models.registry import get_model
 from src.tokenizers.sentencepiece_training import train_sentencepiece
 from src.tracking.clearml import ClearMLRun, configure_clearml_config_file
@@ -235,7 +236,10 @@ def train_model_pipeline_step(
             "discount": discount,
             "text_normalization": text_normalization,
         }
-        model_definition.validate_options(model_options)
+        try:
+            model_definition.validate_options(model_options)
+        except ModelOptionError as error:
+            raise click.ClickException(str(error)) from error
 
         clearml_run = _current_step_run(
             clearml_output_uri=clearml_output_uri,
@@ -384,7 +388,10 @@ def evaluate_pipeline_step(
             "top_k": top_k,
         }
         if model_definition.validate_evaluation_options is not None:
-            model_definition.validate_evaluation_options(evaluation_options)
+            try:
+                model_definition.validate_evaluation_options(evaluation_options)
+            except ModelOptionError as error:
+                raise click.ClickException(str(error)) from error
         click.echo(
             f"Evaluation data: dataset={dataset_id}, "
             f"source_split={source_split_label(source_split)}, text_column={text_column}"
@@ -550,7 +557,10 @@ def query_pipeline_step(
             "seed": seed,
         }
         if model_definition.validate_query_options is not None:
-            model_definition.validate_query_options(query_options)
+            try:
+                model_definition.validate_query_options(query_options)
+            except ModelOptionError as error:
+                raise click.ClickException(str(error)) from error
 
         clearml_run = _current_step_run(
             clearml_output_uri=clearml_output_uri,
