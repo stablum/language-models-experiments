@@ -36,6 +36,9 @@ class LineTimingState:
     last_emission_monotonic: float | None = None
 
 
+_fallback_timing_state = LineTimingState()
+
+
 class FileDescriptorCapture:
     """Forward low-level file-descriptor writes through a timestamped writer.
 
@@ -232,6 +235,16 @@ def format_delta(delta_seconds: float) -> str:
     return f"+{delta_seconds:.3f}s"
 
 
+def emit_timestamped_line(text: str, stream: TextIO | None = None) -> None:
+    target = stream or sys.stdout
+    if isinstance(target, TimestampedLineWriter):
+        target.write(f"{text}\n")
+        return
+
+    writer = TimestampedLineWriter(target, timing_state=_fallback_timing_state)
+    writer.write(f"{text}\n")
+
+
 def format_progress_line(
     label: str,
     *,
@@ -291,7 +304,7 @@ def emit_progress(
     start: float,
     now: float | None = None,
 ) -> None:
-    print(
+    emit_timestamped_line(
         format_progress_line(
             label,
             count=count,
