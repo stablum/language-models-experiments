@@ -10,19 +10,17 @@ from src.cli.data_splits import (
     split_plan_parameter_sections,
     upload_split_plan_artifact,
 )
-from src.cli.evaluate import (
+from src.cli.output import iter_with_progress
+from src.cli.pipeline_stage_support import (
     evaluation_metrics_for_partition,
     evaluation_payload,
-    stage_model_artifacts as stage_evaluation_model_artifacts,
-)
-from src.cli.output import iter_with_progress
-from src.cli.query import (
     query_metrics,
     query_payload,
-    stage_model_artifacts as stage_query_model_artifacts,
+    stage_model_artifacts,
+    stage_tokenizer_model,
+    training_summary_metrics,
 )
 from src.cli.staging import temporary_staging_directory
-from src.cli.train import stage_tokenizer_model, training_summary_metrics
 from src.corpora.registry import get_corpus
 from src.corpora.splits import (
     TRAIN_PARTITION,
@@ -358,7 +356,7 @@ def evaluate_pipeline_step(
 
     with temporary_staging_directory(prefix="lme-pipeline-evaluate-") as staging_dir:
         click.echo(f"Staging model artifacts from ClearML task {model_task_id}...")
-        staged_model_path = stage_evaluation_model_artifacts(
+        staged_model_path = stage_model_artifacts(
             model_task_id=model_task_id,
             model_path=None,
             staging_dir=staging_dir,
@@ -536,7 +534,7 @@ def query_pipeline_step(
         raise click.ClickException(f"Model does not support querying yet: {model_name}")
 
     with temporary_staging_directory(prefix="lme-pipeline-query-") as staging_dir:
-        staged_model_path = stage_query_model_artifacts(
+        staged_model_path = stage_model_artifacts(
             model_task_id=model_task_id,
             model_path=None,
             staging_dir=staging_dir,

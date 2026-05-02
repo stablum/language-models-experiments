@@ -7,12 +7,6 @@ from pathlib import Path
 import click
 
 from src.cli.config import configured_command, load_defaults_from_sections
-from src.cli.data_splits import (
-    build_cli_split_plan,
-    split_plan_parameter_sections,
-    upload_split_plan_artifact,
-)
-from src.cli.output import stage_title
 from src.cli.pipeline_common import (
     DEFAULT_TOKENIZER_PIPELINE_NAME,
     TOKENIZER_PIPELINE_STAGE_DEPENDENCIES,
@@ -22,19 +16,13 @@ from src.cli.pipeline_common import (
     pipeline_resume_option,
     resume_pipeline_controller_stage,
 )
-from src.cli.staging import temporary_staging_directory
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
 from src.corpora.splits import (
     DEFAULT_SPLIT_SEED,
     DEFAULT_TRAIN_RATIO,
-    TRAIN_PARTITION,
-    load_partition_texts,
-    source_split_label,
-    split_ratio_label,
 )
-from src.tracking.clearml import clearml_options, clearml_settings, start_clearml_run
-from src.tokenizers.sentencepiece_training import train_sentencepiece
+from src.tracking.clearml import clearml_options
 
 
 def load_train_sentencepiece_command_defaults(_config_section: str) -> dict[str, object]:
@@ -240,137 +228,6 @@ def main(
         clearml_output_uri=clearml_output_uri,
         clearml_tags=clearml_tags,
     )
-    return
-
-    split_plan = build_cli_split_plan(
-        corpus_definition,
-        corpus=corpus,
-        dataset_id=resolved_dataset_id,
-        source_split=resolved_source_split,
-        train_ratio=train_ratio,
-        split_seed=split_seed,
-    )
-    task_id: str | None = None
-    task_url: str | None = None
-
-    click.echo(stage_title(1, 1, "Tokenizer training"), color=True)
-    with (
-        temporary_staging_directory(prefix="lme-tokenizer-") as staging_dir,
-        start_clearml_run(
-            clearml_settings(
-                project_name=clearml_project,
-                task_name=clearml_task_name,
-                config_file=clearml_config_file,
-                connectivity_check=clearml_connectivity_check,
-                output_uri=clearml_output_uri,
-                tags=clearml_tags,
-            ),
-            default_task_name=f"train sentencepiece {corpus} vocab-{vocab_size}",
-            task_type="training",
-        ) as clearml_run,
-    ):
-        resolved_output_prefix = staging_dir / resolved_artifact_name
-        task_id = clearml_run.task_id
-        task_url = clearml_run.task_url
-        clearml_run.connect_parameter_sections(
-            {
-                "Run": {
-                    "command": "src.cli.train_sentencepiece",
-                    "artifact_store": "clearml",
-                },
-                "Data": {
-                    "corpus": corpus,
-                    "dataset_id": resolved_dataset_id,
-                    "source_split": source_split_label(resolved_source_split),
-                    "training_partition": TRAIN_PARTITION,
-                    "text_column": resolved_text_column,
-                    "streaming": streaming,
-                    "limit": limit,
-                    "text_normalization": text_normalization,
-                },
-                "Tokenizer": {
-                    "vocab_size": vocab_size,
-                    "artifact_name": resolved_artifact_name,
-                    "model_type": model_type,
-                    "character_coverage": character_coverage,
-                    "hard_vocab_limit": hard_vocab_limit,
-                    "max_sentence_length": max_sentence_length,
-                },
-                **split_plan_parameter_sections(split_plan),
-            }
-        )
-
-        texts = load_partition_texts(
-            corpus_definition,
-            dataset_id=resolved_dataset_id,
-            plan=split_plan,
-            partition=TRAIN_PARTITION,
-            streaming=streaming,
-            text_column=resolved_text_column,
-            limit=limit,
-        )
-
-        model_path, vocab_path = train_sentencepiece(
-            texts,
-            output_prefix=resolved_output_prefix,
-            vocab_size=vocab_size,
-            model_type=model_type,
-            character_coverage=character_coverage,
-            hard_vocab_limit=hard_vocab_limit,
-            max_sentence_length=max_sentence_length,
-            text_normalization=text_normalization,
-        )
-
-        clearml_run.log_metrics(
-            "Tokenizer training",
-            {
-                "vocab_size": vocab_size,
-                "character_coverage": character_coverage,
-                "hard_vocab_limit": hard_vocab_limit,
-                "limit": limit,
-            },
-        )
-        upload_split_plan_artifact(
-            clearml_run,
-            staging_dir=staging_dir,
-            plan=split_plan,
-            metadata={"corpus": corpus, "stage": "tokenizer-training"},
-        )
-        clearml_run.upload_artifact(
-            "sentencepiece-model",
-            model_path,
-            metadata={"corpus": corpus, "vocab_size": vocab_size},
-        )
-        clearml_run.upload_artifact(
-            "sentencepiece-vocabulary",
-            vocab_path,
-            metadata={"corpus": corpus, "vocab_size": vocab_size},
-        )
-        clearml_run.register_model(
-            name=model_path.stem,
-            model_path=model_path,
-            framework="custom",
-            tags=("tokenizer", corpus),
-            comment="SentencePiece tokenizer model.",
-        )
-
-    click.echo(f"Corpus: {corpus}")
-    click.echo(f"Dataset: {resolved_dataset_id}")
-    click.echo(f"Source split: {source_split_label(resolved_source_split)}")
-    click.echo(f"Training partition: {TRAIN_PARTITION}")
-    click.echo(f"Split ratio train/validation: {split_ratio_label(split_plan)}")
-    click.echo(f"Split seed: {split_plan.split_seed}")
-    click.echo(f"Split ID: {split_plan.split_id}")
-    click.echo(f"Text column: {resolved_text_column}")
-    click.echo(f"Text normalization: {text_normalization}")
-    if limit is not None:
-        click.echo(f"Limit: first {limit:,} rows")
-    click.echo(f"ClearML task ID: {task_id}")
-    if task_url is not None:
-        click.echo(f"ClearML task URL: {task_url}")
-    click.echo("Data split artifact: data-split-plan-json")
-    click.echo("Model artifact: sentencepiece-model")
-    click.echo("Vocabulary artifact: sentencepiece-vocabulary")
 
 
 if __name__ == "__main__":

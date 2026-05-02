@@ -2,21 +2,11 @@
 
 from __future__ import annotations
 
-import json
-from collections.abc import Mapping
 from pathlib import Path
 
 import click
 
 from src.cli.config import configured_command, load_defaults_from_sections
-from src.cli.data_splits import (
-    build_cli_split_plan,
-    explicit_parameter,
-    resolve_from_plan,
-    split_plan_parameter_sections,
-    upload_split_plan_artifact,
-)
-from src.cli.output import stage_title
 from src.cli.pipeline_common import (
     DEFAULT_PIPELINE_NAME,
     EVALUATION_STAGE,
@@ -26,31 +16,19 @@ from src.cli.pipeline_common import (
     pipeline_resume_option,
     resume_pipeline_controller_stage,
 )
-from src.cli.staging import temporary_staging_directory
 from src.corpora.splits import (
     DEFAULT_SPLIT_SEED,
     DEFAULT_TRAIN_RATIO,
     PROJECT_PARTITIONS,
     VALIDATION_PARTITION,
-    load_partition_texts,
-    partitioned_metric_names,
-    read_model_split_plan,
-    source_split_label,
-    split_ratio_label,
 )
 from src.corpora.registry import (
     DEFAULT_CORPUS_NAME,
     corpus_names,
     get_corpus,
-    split_note_for,
 )
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
-from src.tracking.clearml import (
-    clearml_options,
-    clearml_settings,
-    download_task_artifact,
-    start_clearml_run,
-)
+from src.tracking.clearml import clearml_options
 
 
 def load_evaluate_command_defaults(_config_section: str) -> dict[str, object]:
@@ -156,9 +134,7 @@ def load_evaluate_command_defaults(_config_section: str) -> dict[str, object]:
     help="K value for top-k next-token accuracy.",
 )
 @clearml_options
-@click.pass_context
 def main(
-    ctx: click.Context,
     pipeline_name: str,
     pipeline_version: str,
     pipeline_local: bool,
@@ -195,9 +171,6 @@ def main(
 
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
     resolved_source_split = source_split if source_split is not None else corpus_definition.split
-    resolved_train_ratio = train_ratio
-    resolved_split_seed = split_seed
-    resolved_text_column = text_column or corpus_definition.text_column
     resolved_tokenizer_model_name = str(tokenizer_model_name or "").strip()
     if not resolved_tokenizer_model_name:
         raise click.ClickException(
@@ -237,299 +210,6 @@ def main(
         stage_dependencies=TRAINING_PIPELINE_STAGE_DEPENDENCIES,
         stage_names=TRAINING_PIPELINE_STAGES,
     )
-    return
-
-    click.echo(stage_title(1, 1, "Evaluation"), color=True)
-    task_id: str | None = None
-    task_url: str | None = None
-    with (
-        temporary_staging_directory(prefix="lme-evaluate-") as staging_dir,
-        start_clearml_run(
-            clearml_settings(
-                project_name=clearml_project,
-                task_name=clearml_task_name,
-                config_file=clearml_config_file,
-                connectivity_check=clearml_connectivity_check,
-                output_uri=clearml_output_uri,
-                tags=clearml_tags,
-            ),
-            default_task_name=f"evaluate {model_definition.name} {corpus}",
-            task_type="testing",
-        ) as clearml_run,
-    ):
-        staged_model_path = stage_model_artifacts(
-            model_task_id=model_task_id,
-            model_path=model_path,
-            staging_dir=staging_dir,
-        )
-        inherited_plan = read_model_split_plan(staged_model_path)
-        if inherited_plan is not None and not any(
-            explicit_parameter(ctx, parameter)
-            for parameter in ("dataset_id", "source_split", "train_ratio", "split_seed")
-        ):
-            split_plan = inherited_plan
-            resolved_dataset_id = split_plan.dataset_id
-            resolved_source_split = split_plan.source_split
-            resolved_train_ratio = split_plan.train_ratio
-            resolved_split_seed = split_plan.split_seed
-        else:
-            resolved_dataset_id = resolve_from_plan(
-                ctx,
-                parameter_name="dataset_id",
-                value=resolved_dataset_id,
-                inherited_plan=inherited_plan,
-                inherited_attribute="dataset_id",
-            )
-            resolved_source_split = resolve_from_plan(
-                ctx,
-                parameter_name="source_split",
-                value=resolved_source_split,
-                inherited_plan=inherited_plan,
-                inherited_attribute="source_split",
-            )
-            resolved_train_ratio = resolve_from_plan(
-                ctx,
-                parameter_name="train_ratio",
-                value=resolved_train_ratio,
-                inherited_plan=inherited_plan,
-                inherited_attribute="train_ratio",
-            )
-            resolved_split_seed = resolve_from_plan(
-                ctx,
-                parameter_name="split_seed",
-                value=resolved_split_seed,
-                inherited_plan=inherited_plan,
-                inherited_attribute="split_seed",
-            )
-            split_plan = build_cli_split_plan(
-                corpus_definition,
-                corpus=corpus,
-                dataset_id=resolved_dataset_id,
-                source_split=resolved_source_split,
-                train_ratio=resolved_train_ratio,
-                split_seed=resolved_split_seed,
-            )
-        model_options = {
-            "corpus": corpus,
-            "model_path": staged_model_path,
-            "top_k": top_k,
-        }
-        if model_definition.validate_evaluation_options is not None:
-            model_definition.validate_evaluation_options(model_options)
-
-        task_id = clearml_run.task_id
-        task_url = clearml_run.task_url
-        clearml_run.connect_parameter_sections(
-            {
-                "Run": {
-                    "command": "src.cli.evaluate",
-                    "artifact_store": "clearml",
-                },
-                "Data": {
-                    "corpus": corpus,
-                    "dataset_id": resolved_dataset_id,
-                    "source_split": source_split_label(resolved_source_split),
-                    "evaluation_partition": evaluation_partition,
-                    "text_column": resolved_text_column,
-                    "streaming": streaming,
-                    "limit": limit,
-                },
-                "Model": {
-                    "model": model_definition.name,
-                    "model_task_id": model_task_id,
-                },
-                "Evaluation": {
-                    "top_k": top_k,
-                },
-                **split_plan_parameter_sections(split_plan),
-                "Artifacts": {
-                    "model_artifact": "trained-model-json",
-                    "tokenizer_artifact": "input-tokenizer-model",
-                    "model_artifact_file": staged_model_path.name,
-                },
-            }
-        )
-
-        texts = load_partition_texts(
-            corpus_definition,
-            dataset_id=resolved_dataset_id,
-            plan=split_plan,
-            partition=evaluation_partition,
-            streaming=streaming,
-            text_column=resolved_text_column,
-            limit=limit,
-        )
-
-        summary = model_definition.evaluate(texts, model_options)
-
-        clearml_run.log_metrics(
-            "Evaluation",
-            evaluation_metrics_for_partition(summary, partition=evaluation_partition),
-        )
-        upload_split_plan_artifact(
-            clearml_run,
-            staging_dir=staging_dir,
-            plan=split_plan,
-            metadata={"model": model_definition.name, "corpus": corpus, "stage": "evaluation"},
-        )
-        clearml_run.upload_artifact(
-            "evaluation-summary",
-            {
-                **evaluation_payload(summary),
-                "evaluation_partition": evaluation_partition,
-                "data_split": split_plan.to_payload(),
-            },
-            metadata={
-                "model": model_definition.name,
-                "corpus": corpus,
-                "evaluation_partition": evaluation_partition,
-                "split_id": split_plan.split_id,
-            },
-        )
-        clearml_run.upload_artifact(
-            "evaluated-model",
-            summary.model_path,
-            metadata={"model": model_definition.name, "corpus": corpus},
-        )
-        clearml_run.upload_artifact(
-            "tokenizer-model",
-            summary.tokenizer_model,
-            metadata={"model": model_definition.name, "corpus": corpus},
-        )
-
-    click.echo(f"Model: {model_definition.name}")
-    click.echo(f"Corpus: {corpus}")
-    click.echo(f"Dataset: {resolved_dataset_id}")
-    click.echo(f"Source split: {source_split_label(resolved_source_split)}")
-    click.echo(f"Evaluation partition: {evaluation_partition}")
-    click.echo(f"Split ratio train/validation: {split_ratio_label(split_plan)}")
-    click.echo(f"Split seed: {split_plan.split_seed}")
-    click.echo(f"Split ID: {split_plan.split_id}")
-    split_note = split_note_for(
-        corpus_definition,
-        dataset_id_override=dataset_id,
-    )
-    if split_note is not None:
-        click.echo(f"Split note: {split_note}")
-    click.echo(f"Text column: {resolved_text_column}")
-    if limit is not None:
-        click.echo(f"Limit: first {limit:,} rows")
-    for label, value in model_definition.evaluation_items(summary):
-        click.echo(f"{label}: {value}")
-    click.echo(f"ClearML task ID: {task_id}")
-    if task_url is not None:
-        click.echo(f"ClearML task URL: {task_url}")
-    click.echo("Data split artifact: data-split-plan-json")
-    click.echo("Evaluation artifact: evaluation-summary")
-
-
-def stage_model_artifacts(
-    *,
-    model_task_id: str | None,
-    model_path: Path | None,
-    staging_dir: Path,
-) -> Path:
-    validate_model_source(model_task_id=model_task_id, model_path=model_path)
-
-    if model_task_id is not None:
-        staged_model_path = download_task_artifact(
-            task_id=model_task_id,
-            artifact_name="trained-model-json",
-            destination_dir=staging_dir,
-        )
-        download_task_artifact(
-            task_id=model_task_id,
-            artifact_name="input-tokenizer-model",
-            destination_dir=staging_dir,
-            filename=stored_tokenizer_filename(staged_model_path),
-        )
-        return staged_model_path
-
-    return model_path
-
-
-def validate_model_source(
-    *,
-    model_task_id: str | None,
-    model_path: Path | None,
-) -> None:
-    if model_task_id is not None and model_path is not None:
-        raise click.ClickException("Pass either --model-task-id or --model-path, not both.")
-
-    if model_task_id is None and model_path is None:
-        raise click.ClickException(
-            "Evaluation now uses ClearML as the artifact store. Pass --model-task-id "
-            "from src.cli.train, or pass --model-path to evaluate a local model file."
-        )
-
-
-def evaluation_metrics(summary: object) -> dict[str, object]:
-    return {
-        "sequence_count": getattr(summary, "sequence_count", None),
-        "token_count": getattr(summary, "token_count", None),
-        "transition_count": getattr(summary, "transition_count", None),
-        "correct_next_token_count": getattr(summary, "correct_next_token_count", None),
-        "top_k_correct_next_token_count": getattr(
-            summary,
-            "top_k_correct_next_token_count",
-            None,
-        ),
-        "next_token_accuracy": getattr(summary, "next_token_accuracy", None),
-        "top_k_accuracy": getattr(summary, "top_k_accuracy", None),
-        "average_negative_log_likelihood": getattr(
-            summary,
-            "average_negative_log_likelihood",
-            None,
-        ),
-        "cross_entropy_bits": getattr(summary, "cross_entropy_bits", None),
-        "perplexity": getattr(summary, "perplexity", None),
-        "zero_probability_count": getattr(summary, "zero_probability_count", None),
-        "top_k": getattr(summary, "top_k", None),
-        "discount": getattr(summary, "discount", None),
-        "unigram_weight": getattr(summary, "unigram_weight", None),
-        "bigram_weight": getattr(summary, "bigram_weight", None),
-        "trigram_weight": getattr(summary, "trigram_weight", None),
-    }
-
-
-def evaluation_metrics_for_partition(
-    summary: object,
-    *,
-    partition: str,
-) -> dict[str, object]:
-    return partitioned_metric_names(
-        evaluation_metrics(summary),
-        partition=partition,
-    )
-
-
-def evaluation_payload(summary: object) -> dict[str, object]:
-    return {
-        "model_artifact_file": artifact_file(getattr(summary, "model_path", None)),
-        "tokenizer_artifact_file": artifact_file(getattr(summary, "tokenizer_model", None)),
-        "text_normalization": getattr(summary, "text_normalization", None),
-        **evaluation_metrics(summary),
-    }
-
-
-def artifact_file(path: object) -> str | None:
-    if path is None:
-        return None
-    return Path(path).name
-
-
-def stored_tokenizer_filename(model_path: Path) -> str | None:
-    try:
-        payload = json.loads(model_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(payload, Mapping):
-        return None
-
-    tokenizer_model = payload.get("tokenizer_model")
-    if tokenizer_model is None:
-        return None
-    return Path(str(tokenizer_model)).name
 
 
 if __name__ == "__main__":

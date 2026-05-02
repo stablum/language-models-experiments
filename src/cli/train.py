@@ -2,20 +2,11 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import click
 
 from src.cli.config import configured_command
-from src.cli.data_splits import (
-    build_cli_split_plan,
-    inherited_split_plan_from_task,
-    resolve_from_plan,
-    split_plan_parameter_sections,
-    upload_split_plan_artifact,
-)
-from src.cli.output import stage_title
 from src.cli.pipeline_common import (
     DEFAULT_PIPELINE_NAME,
     MODEL_STAGE,
@@ -25,28 +16,14 @@ from src.cli.pipeline_common import (
     pipeline_resume_option,
     resume_pipeline_controller_stage,
 )
-from src.cli.staging import temporary_staging_directory
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
 from src.corpora.splits import (
     DEFAULT_SPLIT_SEED,
     DEFAULT_TRAIN_RATIO,
-    TRAIN_PARTITION,
-    attach_split_plan_to_json_model,
-    load_partition_texts,
-    source_split_label,
-    split_ratio_label,
 )
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
-from src.tracking.clearml import (
-    clearml_options,
-    clearml_settings,
-    download_task_artifact,
-    start_clearml_run,
-)
-
-
-STAGED_TOKENIZER_MODEL_NAME = "input-tokenizer.model"
+from src.tracking.clearml import clearml_options
 
 
 @configured_command(
@@ -167,9 +144,7 @@ STAGED_TOKENIZER_MODEL_NAME = "input-tokenizer.model"
     help="Text normalization applied before model training.",
 )
 @clearml_options
-@click.pass_context
 def main(
-    ctx: click.Context,
     pipeline_name: str,
     pipeline_version: str,
     pipeline_local: bool,
@@ -212,9 +187,6 @@ def main(
         )
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
     resolved_source_split = source_split if source_split is not None else corpus_definition.split
-    resolved_train_ratio = train_ratio
-    resolved_split_seed = split_seed
-    resolved_text_column = text_column or corpus_definition.text_column
     if tokenizer_task_id is not None or tokenizer_model is not None:
         raise click.ClickException(
             "Model training now resolves tokenizer artifacts from the tokenizer pipeline. "
@@ -249,250 +221,6 @@ def main(
         stage_dependencies=TRAINING_PIPELINE_STAGE_DEPENDENCIES,
         stage_names=TRAINING_PIPELINE_STAGES,
     )
-    return
-
-    click.echo(stage_title(1, 1, "Model training"), color=True)
-    task_id: str | None = None
-    task_url: str | None = None
-    with (
-        temporary_staging_directory(prefix="lme-model-") as staging_dir,
-        start_clearml_run(
-            clearml_settings(
-                project_name=clearml_project,
-                task_name=clearml_task_name,
-                config_file=clearml_config_file,
-                connectivity_check=clearml_connectivity_check,
-                output_uri=clearml_output_uri,
-                tags=clearml_tags,
-            ),
-            default_task_name=f"train {model_definition.name} {corpus}",
-            task_type="training",
-        ) as clearml_run,
-    ):
-        staged_tokenizer_model = stage_tokenizer_model(
-            tokenizer_task_id=tokenizer_task_id,
-            tokenizer_model=tokenizer_model,
-            staging_dir=staging_dir,
-        )
-        output_path = staging_dir / f"{corpus}-sentencepiece-{model_definition.name}.json"
-        inherited_plan = inherited_split_plan_from_task(
-            task_id=tokenizer_task_id,
-            staging_dir=staging_dir,
-        )
-        resolved_dataset_id = resolve_from_plan(
-            ctx,
-            parameter_name="dataset_id",
-            value=resolved_dataset_id,
-            inherited_plan=inherited_plan,
-            inherited_attribute="dataset_id",
-        )
-        resolved_source_split = resolve_from_plan(
-            ctx,
-            parameter_name="source_split",
-            value=resolved_source_split,
-            inherited_plan=inherited_plan,
-            inherited_attribute="source_split",
-        )
-        resolved_train_ratio = resolve_from_plan(
-            ctx,
-            parameter_name="train_ratio",
-            value=resolved_train_ratio,
-            inherited_plan=inherited_plan,
-            inherited_attribute="train_ratio",
-        )
-        resolved_split_seed = resolve_from_plan(
-            ctx,
-            parameter_name="split_seed",
-            value=resolved_split_seed,
-            inherited_plan=inherited_plan,
-            inherited_attribute="split_seed",
-        )
-        split_plan = build_cli_split_plan(
-            corpus_definition,
-            corpus=corpus,
-            dataset_id=resolved_dataset_id,
-            source_split=resolved_source_split,
-            train_ratio=resolved_train_ratio,
-            split_seed=resolved_split_seed,
-        )
-        model_options = {
-            "corpus": corpus,
-            "tokenizer_model": staged_tokenizer_model,
-            "output": output_path,
-            "stored_tokenizer_model": Path(staged_tokenizer_model.name),
-            "smoothing": smoothing,
-            "unigram_weight": unigram_weight,
-            "bigram_weight": bigram_weight,
-            "trigram_weight": trigram_weight,
-            "discount": discount,
-            "text_normalization": text_normalization,
-        }
-        model_definition.validate_options(model_options)
-        task_id = clearml_run.task_id
-        task_url = clearml_run.task_url
-        clearml_run.connect_parameter_sections(
-            {
-                "Run": {
-                    "command": "src.cli.train",
-                    "artifact_store": "clearml",
-                },
-                "Data": {
-                    "corpus": corpus,
-                    "dataset_id": resolved_dataset_id,
-                    "source_split": source_split_label(resolved_source_split),
-                    "training_partition": TRAIN_PARTITION,
-                    "text_column": resolved_text_column,
-                    "streaming": streaming,
-                    "limit": limit,
-                    "text_normalization": text_normalization,
-                },
-                "Model": {
-                    "model": model_definition.name,
-                    "smoothing": smoothing,
-                    "unigram_weight": unigram_weight,
-                    "bigram_weight": bigram_weight,
-                    "trigram_weight": trigram_weight,
-                    "discount": discount,
-                },
-                "Tokenizer": {
-                    "tokenizer_task_id": tokenizer_task_id,
-                },
-                **split_plan_parameter_sections(split_plan),
-                "Artifacts": {
-                    "tokenizer_artifact": "sentencepiece-model",
-                    "tokenizer_artifact_file": staged_tokenizer_model.name,
-                    "output_artifact_file": output_path.name,
-                },
-            }
-        )
-
-        texts = load_partition_texts(
-            corpus_definition,
-            dataset_id=resolved_dataset_id,
-            plan=split_plan,
-            partition=TRAIN_PARTITION,
-            streaming=streaming,
-            text_column=resolved_text_column,
-            limit=limit,
-        )
-
-        summary = model_definition.train(texts, model_options)
-        attach_split_plan_to_json_model(summary.output_path, split_plan)
-
-        clearml_run.log_metrics(
-            "Model training",
-            training_summary_metrics(summary),
-        )
-        upload_split_plan_artifact(
-            clearml_run,
-            staging_dir=staging_dir,
-            plan=split_plan,
-            metadata={"model": model_definition.name, "corpus": corpus, "stage": "model-training"},
-        )
-        clearml_run.upload_artifact(
-            "input-tokenizer-model",
-            summary.tokenizer_model,
-            metadata={"model": model_definition.name, "corpus": corpus},
-        )
-        clearml_run.upload_artifact(
-            "trained-model-json",
-            summary.output_path,
-            metadata={"model": model_definition.name, "corpus": corpus},
-        )
-        clearml_run.register_model(
-            name=summary.output_path.stem,
-            model_path=summary.output_path,
-            framework="custom",
-            tags=("language-model", model_definition.name, corpus),
-            comment="Token n-gram language model JSON.",
-        )
-
-    click.echo(f"Model: {model_definition.name}")
-    click.echo(f"Corpus: {corpus}")
-    click.echo(f"Dataset: {resolved_dataset_id}")
-    click.echo(f"Source split: {source_split_label(resolved_source_split)}")
-    click.echo(f"Training partition: {TRAIN_PARTITION}")
-    click.echo(f"Split ratio train/validation: {split_ratio_label(split_plan)}")
-    click.echo(f"Split seed: {split_plan.split_seed}")
-    click.echo(f"Split ID: {split_plan.split_id}")
-    click.echo(f"Text column: {resolved_text_column}")
-    click.echo(f"Text normalization: {text_normalization}")
-    if limit is not None:
-        click.echo(f"Limit: first {limit:,} rows")
-    for label, value in model_definition.summary_items(summary):
-        click.echo(f"{label}: {value}")
-    click.echo(f"ClearML task ID: {task_id}")
-    if task_url is not None:
-        click.echo(f"ClearML task URL: {task_url}")
-    click.echo("Data split artifact: data-split-plan-json")
-    click.echo("Model artifact: trained-model-json")
-    click.echo("Tokenizer artifact: input-tokenizer-model")
-
-
-def stage_tokenizer_model(
-    *,
-    tokenizer_task_id: str | None,
-    tokenizer_model: Path | None,
-    staging_dir: Path,
-) -> Path:
-    validate_tokenizer_source(
-        tokenizer_task_id=tokenizer_task_id,
-        tokenizer_model=tokenizer_model,
-    )
-
-    if tokenizer_task_id is not None:
-        return download_task_artifact(
-            task_id=tokenizer_task_id,
-            artifact_name="sentencepiece-model",
-            destination_dir=staging_dir,
-            filename=STAGED_TOKENIZER_MODEL_NAME,
-        )
-
-    staging_dir.mkdir(parents=True, exist_ok=True)
-    destination = staging_dir / STAGED_TOKENIZER_MODEL_NAME
-    if tokenizer_model.resolve() != destination.resolve():
-        shutil.copy2(tokenizer_model, destination)
-    return destination
-
-
-def validate_tokenizer_source(
-    *,
-    tokenizer_task_id: str | None,
-    tokenizer_model: Path | None,
-) -> None:
-    if tokenizer_task_id is not None and tokenizer_model is not None:
-        raise click.ClickException(
-            "Pass either --tokenizer-task-id or --tokenizer-model, not both."
-        )
-
-    if tokenizer_task_id is None and tokenizer_model is None:
-        raise click.ClickException(
-            "Language model training now resolves tokenizer artifacts from the tokenizer pipeline. "
-            "Set --tokenizer-model-name on the training pipeline."
-        )
-
-
-def training_summary_metrics(summary: object) -> dict[str, object]:
-    return {
-        "vocab_size": getattr(summary, "vocab_size", None),
-        "sequence_count": getattr(summary, "sequence_count", None),
-        "token_count": getattr(summary, "token_count", None),
-        "transition_count": getattr(summary, "transition_count", None),
-        "unigram_count": getattr(summary, "unigram_count", None),
-        "bigram_transition_count": getattr(summary, "bigram_transition_count", None),
-        "trigram_transition_count": getattr(summary, "trigram_transition_count", None),
-        "continuation_unigram_count": getattr(summary, "continuation_unigram_count", None),
-        "continuation_bigram_type_count": getattr(
-            summary,
-            "continuation_bigram_type_count",
-            None,
-        ),
-        "smoothing": getattr(summary, "smoothing", None),
-        "discount": getattr(summary, "discount", None),
-        "unigram_weight": getattr(summary, "unigram_weight", None),
-        "bigram_weight": getattr(summary, "bigram_weight", None),
-        "trigram_weight": getattr(summary, "trigram_weight", None),
-    }
 
 
 if __name__ == "__main__":
