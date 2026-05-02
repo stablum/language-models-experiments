@@ -19,10 +19,10 @@ from src.tracking.clearml import (
 )
 
 
-DEFAULT_PIPELINE_NAME = "language-models-experiments"
-DEFAULT_TOKENIZER_PIPELINE_NAME = f"{DEFAULT_PIPELINE_NAME}-tokenizers"
+DEFAULT_PIPELINE_NAME = "model-training"
+DEFAULT_TOKENIZER_PIPELINE_NAME = "tokenizer-training"
 DEFAULT_CONTROLLER_QUEUE = "services"
-DEFAULT_PIPELINE_VERSION_FALLBACK = "0.4.13"
+DEFAULT_PIPELINE_VERSION_FALLBACK = "0.4.14"
 
 TOKENIZER_STAGE = "train_tokenizer"
 MODEL_STAGE = "train_model"

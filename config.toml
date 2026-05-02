@@ -23,8 +23,8 @@ clearml_tags = []
 
 [pipeline]
 # pipeline_version defaults to the project version in pyproject.toml.
-pipeline_name = "language-models-experiments"
-tokenizer_pipeline_name = "language-models-experiments-tokenizers"
+pipeline_name = "model-training"
+tokenizer_pipeline_name = "tokenizer-training"
 pipeline_local = true
 controller_queue = "services"
 add_run_number = true
@@ -40,7 +40,7 @@ add_run_number = true
 
 [tokenizer_pipeline]
 # pipeline_version defaults to the project version in pyproject.toml.
-pipeline_name = "language-models-experiments-tokenizers"
+pipeline_name = "tokenizer-training"
 pipeline_local = true
 controller_queue = "services"
 add_run_number = true

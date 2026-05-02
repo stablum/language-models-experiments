@@ -139,6 +139,8 @@ query
 
 Each pipeline identity is the ClearML project plus its `pipeline_name` plus `pipeline_version`. The default `pipeline_version` follows the project version in `pyproject.toml`. Keep `pipeline_name` stable when you want repeated runs of the same DAG definition instead of a separate pipeline identity.
 
+The checked-in defaults name the two DAGs `tokenizer-training` and `model-training`.
+
 Pipeline stage parameters use the same config sections as their stage CLIs: shared data options such as `corpus` and split settings come from `[defaults]`; tokenizer options come from `[train_sentencepiece]`; model-training options, the canonical `model`, and `tokenizer_model_name` come from `[train]`; evaluation options from `[evaluate]`; and query options from `[query]`. Pass a pipeline CLI option to override the config for one run, or set a key in `[pipeline]` / `[tokenizer_pipeline]` only when you intentionally want a pipeline-specific override.
 
 By default, the controller and step tasks execute locally through ClearML PipelineController. To enqueue the controller and step tasks on ClearML agents, pass queues explicitly:
