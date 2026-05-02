@@ -8,9 +8,9 @@ import click
 
 from src.cli.config import configured_command, load_defaults_from_sections
 from src.cli.pipeline_common import (
-    DEFAULT_TOKENIZER_PIPELINE_NAME,
-    TOKENIZER_PIPELINE_STAGE_DEPENDENCIES,
-    TOKENIZER_PIPELINE_STAGES,
+    DEFAULT_TOKENIZER_TRAINING_NAME,
+    TOKENIZER_TRAINING_STAGE_DEPENDENCIES,
+    TOKENIZER_TRAINING_STAGES,
     TOKENIZER_STAGE,
     assert_pipeline_finished_successfully,
     build_pipeline_controller,
@@ -43,24 +43,21 @@ from src.tracking.clearml import (
 )
 
 
-TOKENIZER_PIPELINE_CONFIG_SECTIONS = ("tokenizer_pipeline", "tokenizer_training")
-TOKENIZER_CONFIG_SECTION = "train_sentencepiece"
+TOKENIZER_TRAINING_CONFIG_SECTION = "tokenizer-training"
 
 
-def load_tokenizer_pipeline_command_defaults(_config_section: str) -> dict[str, object]:
-    defaults = load_defaults_from_sections(("defaults", "clearml", TOKENIZER_CONFIG_SECTION))
-    defaults.update(load_defaults_from_sections(TOKENIZER_PIPELINE_CONFIG_SECTIONS))
-    return defaults
+def load_tokenizer_training_command_defaults(_config_section: str) -> dict[str, object]:
+    return load_defaults_from_sections(("defaults", "clearml", TOKENIZER_TRAINING_CONFIG_SECTION))
 
 
 @configured_command(
-    "tokenizer_pipeline",
-    default_loader=load_tokenizer_pipeline_command_defaults,
+    "tokenizer-training",
+    default_loader=load_tokenizer_training_command_defaults,
     context_settings={"help_option_names": ["-h", "--help"]},
     help="Run reusable SentencePiece tokenizer training as a ClearML Pipeline DAG.",
 )
 @pipeline_resume_option
-@pipeline_options(default_name=DEFAULT_TOKENIZER_PIPELINE_NAME)
+@pipeline_options(default_name=DEFAULT_TOKENIZER_TRAINING_NAME)
 @click.option(
     "--corpus",
     type=click.Choice(corpus_names()),
@@ -216,8 +213,8 @@ def main(
             clearml_output_uri=clearml_output_uri,
             clearml_tags=clearml_tags,
             parameter_filters=parameter_filters,
-            stage_dependencies=TOKENIZER_PIPELINE_STAGE_DEPENDENCIES,
-            stage_names=TOKENIZER_PIPELINE_STAGES,
+            stage_dependencies=TOKENIZER_TRAINING_STAGE_DEPENDENCIES,
+            stage_names=TOKENIZER_TRAINING_STAGES,
         )
         return
 
@@ -260,7 +257,7 @@ def main(
             "text_normalization": text_normalization,
         },
     )
-    add_tokenizer_pipeline_step(
+    add_tokenizer_training_step(
         pipeline,
         clearml_project=settings.project_name,
         clearml_output_uri=settings.output_uri,
@@ -284,7 +281,7 @@ def main(
         text_normalization=text_normalization,
     )
 
-    click.echo(f"ClearML tokenizer pipeline: {settings.project_name}/{resolved_pipeline_name}")
+    click.echo(f"ClearML tokenizer-training pipeline: {settings.project_name}/{resolved_pipeline_name}")
     click.echo(f"Pipeline version: {pipeline_version}")
     click.echo(f"Tokenizer model name: {resolved_artifact_name}")
     click.echo(f"Pipeline controller task ID: {pipeline.task.id}")
@@ -302,18 +299,18 @@ def main(
             click.echo(f"Step execution queue: {execution_queue}")
         pipeline.start(queue=controller_queue, wait=wait)
 
-    click.echo("ClearML tokenizer pipeline submitted.")
+    click.echo("ClearML tokenizer-training pipeline submitted.")
     if wait:
         assert_pipeline_finished_successfully(pipeline)
         print_stage_task_ids(
             pipeline.task.id,
-            TOKENIZER_PIPELINE_STAGES,
-            stage_names=TOKENIZER_PIPELINE_STAGES,
+            TOKENIZER_TRAINING_STAGES,
+            stage_names=TOKENIZER_TRAINING_STAGES,
         )
-        click.echo("ClearML tokenizer pipeline run completed.")
+        click.echo("ClearML tokenizer-training pipeline run completed.")
 
 
-def add_tokenizer_pipeline_step(
+def add_tokenizer_training_step(
     pipeline: object,
     *,
     clearml_project: str,

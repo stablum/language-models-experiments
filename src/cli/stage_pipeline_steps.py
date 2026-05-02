@@ -2,9 +2,9 @@
 
 
 def train_tokenizer_stage_entry(**kwargs: object) -> str:
-    from src.cli.pipeline_steps import train_tokenizer_pipeline_step
+    from src.cli.pipeline_steps import train_tokenizer_step
 
-    return train_tokenizer_pipeline_step(**kwargs)
+    return train_tokenizer_step(**kwargs)
 
 
 def train_model_stage_entry(**kwargs: object) -> str:

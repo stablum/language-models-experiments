@@ -8,10 +8,10 @@ import click
 
 from src.cli.config import configured_command, load_defaults_from_sections
 from src.cli.pipeline_common import (
-    DEFAULT_PIPELINE_NAME,
+    DEFAULT_MODEL_TRAINING_NAME,
+    MODEL_TRAINING_STAGE_DEPENDENCIES,
+    MODEL_TRAINING_STAGES,
     QUERY_STAGE,
-    TRAINING_PIPELINE_STAGE_DEPENDENCIES,
-    TRAINING_PIPELINE_STAGES,
     pipeline_options,
     pipeline_resume_option,
     resume_pipeline_controller_stage,
@@ -39,7 +39,7 @@ def load_query_command_defaults(_config_section: str) -> dict[str, object]:
     help="Query a registered language model.",
 )
 @pipeline_resume_option
-@pipeline_options(default_name=DEFAULT_PIPELINE_NAME, default_local=False, default_wait=False)
+@pipeline_options(default_name=DEFAULT_MODEL_TRAINING_NAME, default_local=False, default_wait=False)
 @click.option(
     "--model",
     "model_name",
@@ -51,14 +51,14 @@ def load_query_command_defaults(_config_section: str) -> dict[str, object]:
 @click.option(
     "--tokenizer-model-name",
     default=None,
-    help="Registered tokenizer model name used by the training pipeline.",
+    help="Registered tokenizer model name used by model training.",
 )
 @click.option(
     "--corpus",
     type=click.Choice(corpus_names()),
     default=DEFAULT_CORPUS_NAME,
     show_default=True,
-    help="Registered corpus used by the training pipeline.",
+    help="Registered corpus used by model training.",
 )
 @click.option(
     "--model-task-id",
@@ -175,8 +175,8 @@ def main(
             "tokenizer_model_name": resolved_tokenizer_model_name,
             "corpus": corpus,
         },
-        stage_dependencies=TRAINING_PIPELINE_STAGE_DEPENDENCIES,
-        stage_names=TRAINING_PIPELINE_STAGES,
+        stage_dependencies=MODEL_TRAINING_STAGE_DEPENDENCIES,
+        stage_names=MODEL_TRAINING_STAGES,
     )
 
 

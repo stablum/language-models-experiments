@@ -42,7 +42,6 @@ pipeline_local = true
 controller_queue = "services"
 add_run_number = true
 
-[train_sentencepiece]
 # The tokenizer model name defaults to "<corpus>-sentencepiece-<vocab_size>"
 # unless artifact_name is set explicitly.
 vocab_size = 1000
@@ -51,8 +50,8 @@ character_coverage = 1.0
 hard_vocab_limit = true
 
 [train]
-model = "bigram"
-# The training pipeline resolves the latest tokenizer pipeline run matching
+model = "trigram"
+# Model training resolves the latest tokenizer-training run matching
 # this tokenizer model name and the configured corpus.
 tokenizer_model_name = "tinystories-sentencepiece-1000"
 smoothing = 0.1

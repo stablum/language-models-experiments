@@ -47,10 +47,10 @@ The checked-in config uses the repo-local ClearML server, points the ClearML SDK
 
 ```powershell
 $env:LME_CONFIG_FILE = "config.smoke.toml"
-uv run python -m src.cli.pipeline
+uv run python -m src.cli.model_training
 ```
 
-Use `model = "bigram"` in `[train]` to choose the trained model type; evaluation, query, and the training pipeline inherit that model by default. Use `tokenizer_model_name` in `[train]` to choose which reusable tokenizer artifact the training pipeline consumes. Keys may be written as `snake_case` or `kebab-case`; `model` maps to the CLI `--model` option. Keep `[model-training]` and `[tokenizer-training]` for orchestration settings such as queues, run numbering, and pipeline names.
+Use `model = "bigram"` in `[train]` to choose the trained model type; evaluation, query, and model training inherit that model by default. Use `tokenizer_model_name` in `[train]` to choose which reusable tokenizer artifact model training consumes. Keys may be written as `snake_case` or `kebab-case`; `model` maps to the CLI `--model` option. Keep `[model-training]` and `[tokenizer-training]` for orchestration settings such as queues, run numbering, and pipeline names.
 
 Python CLI output lines are prepended with a local timestamp and per-line delta in `[YYYY-MM-DD HH:MM:SS] [+0.237s]` format. ClearML also captures Python stdout/stderr for each task. Long-running commands print numbered stage titles such as `Stage 3/5 - Model training:`. Stage titles are bold cyan, timestamps are gray, delta times are yellow, error lines are red, and warning lines are yellow. Set `NO_COLOR=1` or `LME_COLOR=never` to disable ANSI colors. Native library stdout/stderr writes bypass timestamping by default to avoid pipe deadlocks in C/C++ extensions such as SentencePiece; set `LME_CAPTURE_NATIVE_OUTPUT=1` only when you explicitly want the old fd-level capture behavior.
 
@@ -96,40 +96,40 @@ uv run python -m src.cli.corpus_stats --streaming --limit 1000
 
 Stats use the deliberately lossy `lossy-ascii` text normalization by default. It lowercases text, strips accents, maps common Unicode punctuation to ASCII, drops characters that still are not ASCII, and collapses whitespace. Use `--text-normalization none` to inspect the raw corpus text instead.
 
-## Tokenizer And Training Pipelines
+## Tokenizer And Model Training
 
 Train or refresh the reusable SentencePiece tokenizer first:
 
 ```powershell
-uv run python -m src.cli.tokenizer_pipeline --streaming
+uv run python -m src.cli.tokenizer_training --streaming
 ```
 
-Then run language-model training, evaluation, and a final query. The training pipeline resolves the latest completed tokenizer pipeline run that matches the configured `corpus` and `tokenizer_model_name`, then downloads the tokenizer model artifact from that tokenizer stage task through ClearML.
+Then run language-model training, evaluation, and a final query. The model-training pipeline resolves the latest completed tokenizer-training run that matches the configured `corpus` and `tokenizer_model_name`, then downloads the tokenizer model artifact from that tokenizer stage task through ClearML.
 
 ```powershell
-uv run python -m src.cli.pipeline --model bigram --streaming
+uv run python -m src.cli.model_training --model bigram --streaming
 ```
 
 For a quick smoke test:
 
 ```powershell
-uv run python -m src.cli.tokenizer_pipeline --streaming --limit 50 --vocab-size 100 --artifact-name tinystories-sentencepiece-smoke --no-hard-vocab-limit --clearml-tag smoke
-uv run python -m src.cli.pipeline --model bigram --tokenizer-model-name tinystories-sentencepiece-smoke --streaming --limit 50 --clearml-tag smoke
+uv run python -m src.cli.tokenizer_training --streaming --limit 50 --vocab-size 100 --artifact-name tinystories-sentencepiece-smoke --no-hard-vocab-limit --clearml-tag smoke
+uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-smoke --streaming --limit 50 --clearml-tag smoke
 ```
 
 With the checked-in defaults, this can also be shortened to:
 
 ```powershell
-uv run python -m src.cli.pipeline
+uv run python -m src.cli.model_training
 ```
 
-The tokenizer pipeline creates one stage task named:
+The tokenizer-training pipeline creates one stage task named:
 
 ```text
 train_tokenizer
 ```
 
-The training pipeline prints the resolved tokenizer controller/stage task IDs, then creates stage tasks named:
+The model-training pipeline prints the resolved tokenizer controller/stage task IDs, then creates stage tasks named:
 
 ```text
 train_model
@@ -141,12 +141,12 @@ Each pipeline identity is the ClearML project plus its `pipeline_name` plus `pip
 
 The checked-in config uses `[tokenizer-training]` and `[model-training]`; those names are also the default ClearML DAG names.
 
-Pipeline stage parameters use the same config sections as their stage CLIs: shared data options such as `corpus` and split settings come from `[defaults]`; tokenizer options come from `[train_sentencepiece]`; model-training options, the canonical `model`, and `tokenizer_model_name` come from `[train]`; evaluation options from `[evaluate]`; and query options from `[query]`. Pass a pipeline CLI option to override the config for one run, or set a key in `[model-training]` / `[tokenizer-training]` only when you intentionally want a pipeline-specific override.
+Pipeline stage parameters use the same config sections as their stage CLIs: shared data options such as `corpus` and split settings come from `[defaults]`; tokenizer options come from `[tokenizer-training]`; model-training options, the canonical `model`, and `tokenizer_model_name` come from `[train]`; evaluation options from `[evaluate]`; and query options from `[query]`. Pass a pipeline CLI option to override the config for one run, or set a key in `[model-training]` / `[tokenizer-training]` only when you intentionally want a pipeline-specific override.
 
 By default, the controller and step tasks execute locally through ClearML PipelineController. To enqueue the controller and step tasks on ClearML agents, pass queues explicitly:
 
 ```powershell
-uv run python -m src.cli.pipeline --pipeline-queued --controller-queue services --execution-queue default
+uv run python -m src.cli.model_training --pipeline-queued --controller-queue services --execution-queue default
 ```
 
 The controller task monitors the main stage artifacts, and the stage tasks store the canonical artifacts:
@@ -161,7 +161,7 @@ evaluate artifact: evaluation-summary
 query artifact: query-result
 ```
 
-The `train_tokenizer` stage task is resolved from the tokenizer pipeline by `corpus` plus `tokenizer_model_name`. Among matching tokenizer pipeline controller runs, the newest completed run with a completed `train_tokenizer` stage and a `sentencepiece-model` artifact wins. The `train_model` stage task ID is the canonical model artifact producer for the evaluation and query stages in that training pipeline run.
+The `train_tokenizer` stage task is resolved from tokenizer training by `corpus` plus `tokenizer_model_name`. Among matching tokenizer-training controller runs, the newest completed run with a completed `train_tokenizer` stage and a `sentencepiece-model` artifact wins. The `train_model` stage task ID is the canonical model artifact producer for the evaluation and query stages in that model-training run.
 
 Use `--training-limit` and `--evaluation-limit` when those stages should use different row counts. These limits are applied after partitioning, so they do not create overlapping train/validation slices. Use `--source-split` only when you want to restrict the source rows before partitioning; leave it unset to merge all source splits. Use `--evaluation-partition` to choose which reusable project partition is evaluated. Use `--query-prompt`, `--query-max-tokens`, `--query-decoding`, `--query-temperature`, and `--query-seed` to control the mandatory final query.
 
@@ -170,10 +170,10 @@ Use `--training-limit` and `--evaluation-limit` when those stages should use dif
 Train a 1000-vocabulary SentencePiece tokenizer:
 
 ```powershell
-uv run python -m src.cli.tokenizer_pipeline --streaming --vocab-size 1000 --max-sentence-length 8192
+uv run python -m src.cli.tokenizer_training --streaming --vocab-size 1000 --max-sentence-length 8192
 ```
 
-`src.cli.train_sentencepiece` is kept as a compatibility alias for the tokenizer pipeline. The tokenizer pipeline stores generated tokenizer files in ClearML and prints both the controller task ID and the tokenizer stage task ID. Downstream model training resolves the tokenizer by `corpus` and `tokenizer_model_name`.
+The tokenizer-training pipeline stores generated tokenizer files in ClearML and prints both the controller task ID and the tokenizer stage task ID. Downstream model training resolves the tokenizer by `corpus` and `tokenizer_model_name`.
 
 ```text
 ClearML artifact: sentencepiece-model
@@ -188,7 +188,7 @@ Tokenizer training uses `--text-normalization lossy-ascii` by default. This keep
 Train a very simple autoregressive token bigram model from the SentencePiece tokenizer:
 
 ```powershell
-uv run python -m src.cli.pipeline --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
+uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
 ```
 
 The command stores the trained language model and tokenizer input in ClearML and prints the model-training task ID.
@@ -204,7 +204,7 @@ The model stores readable indented JSON with sparse transition counts for `P(nex
 Train an interpolated trigram model:
 
 ```powershell
-uv run python -m src.cli.pipeline --model trigram --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
+uv run python -m src.cli.model_training --model trigram --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
 ```
 
 The trigram model estimates `P(next_token | previous_previous_token, previous_token)` with linear interpolation over add-k smoothed unigram, bigram, and trigram probabilities. The default weights are `0.1 / 0.3 / 0.6`; adjust them with `--unigram-weight`, `--bigram-weight`, and `--trigram-weight`.
@@ -212,7 +212,7 @@ The trigram model estimates `P(next_token | previous_previous_token, previous_to
 Train an absolute-discount trigram model:
 
 ```powershell
-uv run python -m src.cli.pipeline --model trigram-absolute-discount --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
+uv run python -m src.cli.model_training --model trigram-absolute-discount --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
 ```
 
 The absolute-discount trigram model subtracts a fixed discount from observed trigram counts, then backs off to an ordinary add-k smoothed bigram distribution with the reserved probability mass. The default discount is `0.75`; adjust it with `--discount`.
@@ -220,37 +220,37 @@ The absolute-discount trigram model subtracts a fixed discount from observed tri
 Train an interpolated Kneser-Ney trigram model:
 
 ```powershell
-uv run python -m src.cli.pipeline --model trigram-kneser-ney --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
+uv run python -m src.cli.model_training --model trigram-kneser-ney --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
 ```
 
 This is the recursive discounted/interpolated model usually called interpolated Kneser-Ney smoothing. It discounts the trigram distribution, interpolates with a lower-order Kneser-Ney bigram distribution built from continuation counts, then recursively discounts and interpolates that lower-order distribution down to a uniform base. The default discount is `0.75`; adjust it with `--discount`.
 
-The training pipeline runs a query stage after model training. Configure that query with pipeline options:
+The model-training pipeline runs a query stage after model training. Configure that query with pipeline options:
 
 ```powershell
-uv run python -m src.cli.pipeline --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --query-max-tokens 80 --query-seed 1
+uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --query-max-tokens 80 --query-seed 1
 ```
 
 Condition the sample on a prompt:
 
 ```powershell
-uv run python -m src.cli.pipeline --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --query-prompt "Once upon" --query-max-tokens 80 --query-seed 1
+uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --query-prompt "Once upon" --query-max-tokens 80 --query-seed 1
 ```
 
 Ask for the most probable continuation after a prompt:
 
 ```powershell
-uv run python -m src.cli.pipeline --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --query-prompt "Once upon" --query-decoding most-probable --query-max-tokens 80
+uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --query-prompt "Once upon" --query-decoding most-probable --query-max-tokens 80
 ```
 
 The same query and evaluation commands work with `--model trigram`, `--model trigram-absolute-discount`, or `--model trigram-kneser-ney` after training that model.
 
 The query command normalizes prompts with the mode stored in the model file. It also prints the most likely next tokens for the prompt, with special tokens shown as labels such as `[EOS]`. The bigram model conditions on the last prompt token; the trigram models condition on the last two prompt tokens. `--decoding most-probable` chooses the highest-probability next token at each step.
 
-The training pipeline also runs evaluation on the configured partition:
+The model-training pipeline also runs evaluation on the configured partition:
 
 ```powershell
-uv run python -m src.cli.pipeline --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --evaluation-limit 1000
+uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --evaluation-limit 1000
 ```
 
 The evaluation stage reports next-token accuracy, top-k accuracy, average negative log-likelihood, cross-entropy, and perplexity on the `validation` partition by default. ClearML records the partition in the Data/Data split sections and prefixes evaluation metric series with the partition name, such as `validation/perplexity`. Pass `--evaluation-partition train` only when you intentionally want training-partition diagnostics.
@@ -315,17 +315,17 @@ Copy-Item clearml.local.conf.example clearml.conf
 
 The default `config.toml` sets `clearml_config_file = "clearml.conf"` and `clearml_output_uri = "http://localhost:8081"`, so the experiment CLIs can run without setting `CLEARML_CONFIG_FILE` or `CLEARML_OUTPUT_URI` in every PowerShell session. It also sets `clearml_connectivity_check = true`, which makes CLIs fail fast with a clear message when the configured ClearML server is down. Use `--clearml-config-file`, `CLEARML_CONFIG_FILE`, `--no-clearml-connectivity-check`, `CLEARML_CONNECTIVITY_CHECK`, or another `LME_CONFIG_FILE` when you want different SDK or connectivity-check behavior.
 
-For most experiments, refresh the tokenizer pipeline only when the corpus/tokenizer settings change, then run the training pipeline:
+For most experiments, refresh tokenizer training only when the corpus/tokenizer settings change, then run model training:
 
 ```powershell
-uv run python -m src.cli.tokenizer_pipeline --streaming
-uv run python -m src.cli.pipeline --model bigram --streaming
+uv run python -m src.cli.tokenizer_training --streaming
+uv run python -m src.cli.model_training --model bigram --streaming
 ```
 
-You can also stop and resume the same training PipelineController run at stage boundaries. Start the training DAG through model training:
+You can also stop and resume the same model-training PipelineController run at stage boundaries. Start the model-training DAG through model training:
 
 ```powershell
-uv run python -m src.cli.pipeline --run-until-stage train_model --model bigram --streaming
+uv run python -m src.cli.model_training --run-until-stage train_model --model bigram --streaming
 ```
 
 Then resume the newest eligible controller run for later stages:
@@ -336,14 +336,14 @@ uv run python -m src.cli.evaluate --model bigram --streaming --limit 1000
 uv run python -m src.cli.query --model bigram --prompt "Once upon"
 ```
 
-Stage resume commands re-enqueue the controller task on the controller queue, so run a ClearML agent for queued continuation. You can disambiguate with `--pipeline-controller-id`, or use the training pipeline CLI directly:
+Stage resume commands re-enqueue the controller task on the controller queue, so run a ClearML agent for queued continuation. You can disambiguate with `--pipeline-controller-id`, or use the model-training CLI directly:
 
 ```powershell
-uv run python -m src.cli.pipeline --run-until-stage train_model --model bigram --streaming
-uv run python -m src.cli.pipeline --pipeline-queued --no-wait --run-stage evaluate --model bigram --streaming
+uv run python -m src.cli.model_training --run-until-stage train_model --model bigram --streaming
+uv run python -m src.cli.model_training --pipeline-queued --no-wait --run-stage evaluate --model bigram --streaming
 ```
 
-The pipeline and stage CLIs connect options as grouped ClearML hyperparameter sections, report final metrics, upload useful artifacts, and register trained tokenizer/model files. Stage identity comes from the controller task plus child task names and `parent` links, not custom stage tags. Evaluation metrics in ClearML are partition-prefixed, and split plans are uploaded as `data-split-plan-json`. Use `--clearml-project`, `--pipeline-name`, `--tokenizer-pipeline-name`, `--pipeline-version`, `--clearml-config-file`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the pipeline runs.
+The pipeline and stage CLIs connect options as grouped ClearML hyperparameter sections, report final metrics, upload useful artifacts, and register trained tokenizer/model files. Stage identity comes from the controller task plus child task names and `parent` links, not custom stage tags. Evaluation metrics in ClearML are partition-prefixed, and split plans are uploaded as `data-split-plan-json`. Use `--clearml-project`, `--pipeline-name`, `--tokenizer-training-name`, `--pipeline-version`, `--clearml-config-file`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the pipeline runs.
 
 ### ClearML Smoke Test
 
@@ -354,16 +354,16 @@ uv sync
 docker compose -f docker-compose.clearml.yml up -d
 Copy-Item clearml.local.conf.example clearml.conf
 
-uv run python -m src.cli.tokenizer_pipeline --streaming --limit 50 --vocab-size 100 --artifact-name tinystories-sentencepiece-smoke --no-hard-vocab-limit --clearml-tag smoke
-uv run python -m src.cli.pipeline --model bigram --tokenizer-model-name tinystories-sentencepiece-smoke --streaming --limit 50 --clearml-tag smoke
+uv run python -m src.cli.tokenizer_training --streaming --limit 50 --vocab-size 100 --artifact-name tinystories-sentencepiece-smoke --no-hard-vocab-limit --clearml-tag smoke
+uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-smoke --streaming --limit 50 --clearml-tag smoke
 ```
 
 Expected result:
 
 ```text
-The ClearML tokenizer and training pipeline controller task IDs are printed in the terminal.
-The ClearML UI shows completed tokenizer and training pipeline controllers tagged smoke.
-The tokenizer pipeline has a train_tokenizer stage task; the training pipeline has train_model, evaluate, and query stage tasks.
+The ClearML tokenizer-training and model-training controller task IDs are printed in the terminal.
+The ClearML UI shows completed tokenizer-training and model-training controllers tagged smoke.
+The tokenizer-training pipeline has a train_tokenizer stage task; the model-training pipeline has train_model, evaluate, and query stage tasks.
 The stage tasks have grouped hyperparameter sections, tokenizer/model/evaluation/query scalar metrics, tokenizer artifacts, a data split plan artifact, a trained model JSON artifact, evaluation summary artifacts, and query result artifacts.
 The Models page contains registered model records for the tokenizer and n-gram model files.
 The uploaded files are also visible under .clearml/fileserver/.

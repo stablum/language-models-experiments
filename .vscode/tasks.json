@@ -2,14 +2,14 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Pipeline (uv run)",
+            "label": "Model Training (uv run)",
             "type": "shell",
             "command": "uv",
             "args": [
                 "run",
                 "python",
                 "-m",
-                "src.cli.pipeline"
+                "src.cli.model_training"
             ],
             "options": {
                 "cwd": "${workspaceFolder}",
@@ -21,7 +21,7 @@
                 "kind": "build",
                 "isDefault": true
             },
-            "detail": "Run the ClearML pipeline DAG through uv using config.toml defaults.",
+            "detail": "Run the ClearML model-training DAG through uv using config.toml defaults.",
             "problemMatcher": []
         }
     ]

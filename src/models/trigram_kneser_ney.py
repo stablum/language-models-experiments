@@ -317,7 +317,7 @@ def validate_options(options: ModelOptions) -> None:
     if not tokenizer_model.exists():
         raise ModelOptionError(
             f"Tokenizer model not found: {tokenizer_model}. "
-            "Train it first with src.cli.train_sentencepiece."
+            "Train it first with src.cli.tokenizer_training."
         )
 
 

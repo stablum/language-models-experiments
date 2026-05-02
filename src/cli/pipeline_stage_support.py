@@ -59,8 +59,8 @@ def validate_tokenizer_source(
 
     if tokenizer_task_id is None and tokenizer_model is None:
         raise click.ClickException(
-            "Language model training now resolves tokenizer artifacts from the tokenizer pipeline. "
-            "Set --tokenizer-model-name on the training pipeline."
+            "Language model training now resolves tokenizer artifacts from tokenizer-training runs. "
+            "Set --tokenizer-model-name on model training."
         )
 
 

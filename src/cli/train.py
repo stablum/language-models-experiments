@@ -8,10 +8,10 @@ import click
 
 from src.cli.config import configured_command
 from src.cli.pipeline_common import (
-    DEFAULT_PIPELINE_NAME,
+    DEFAULT_MODEL_TRAINING_NAME,
+    MODEL_TRAINING_STAGE_DEPENDENCIES,
+    MODEL_TRAINING_STAGES,
     MODEL_STAGE,
-    TRAINING_PIPELINE_STAGE_DEPENDENCIES,
-    TRAINING_PIPELINE_STAGES,
     pipeline_options,
     pipeline_resume_option,
     resume_pipeline_controller_stage,
@@ -32,7 +32,7 @@ from src.tracking.clearml import clearml_options
     help="Train a registered language model from a registered corpus.",
 )
 @pipeline_resume_option
-@pipeline_options(default_name=DEFAULT_PIPELINE_NAME, default_local=False, default_wait=False)
+@pipeline_options(default_name=DEFAULT_MODEL_TRAINING_NAME, default_local=False, default_wait=False)
 @click.option(
     "--model",
     "model_name",
@@ -44,7 +44,7 @@ from src.tracking.clearml import clearml_options
 @click.option(
     "--tokenizer-model-name",
     default=None,
-    help="Registered tokenizer model name used by the training pipeline.",
+    help="Registered tokenizer model name used by model training.",
 )
 @click.option(
     "--corpus",
@@ -189,7 +189,7 @@ def main(
     resolved_source_split = source_split if source_split is not None else corpus_definition.split
     if tokenizer_task_id is not None or tokenizer_model is not None:
         raise click.ClickException(
-            "Model training now resolves tokenizer artifacts from the tokenizer pipeline. "
+            "Model training now resolves tokenizer artifacts from tokenizer-training runs. "
             "Set --tokenizer-model-name instead of passing --tokenizer-task-id or "
             "--tokenizer-model."
         )
@@ -218,8 +218,8 @@ def main(
             "dataset_id": resolved_dataset_id,
             "source_split": resolved_source_split or "",
         },
-        stage_dependencies=TRAINING_PIPELINE_STAGE_DEPENDENCIES,
-        stage_names=TRAINING_PIPELINE_STAGES,
+        stage_dependencies=MODEL_TRAINING_STAGE_DEPENDENCIES,
+        stage_names=MODEL_TRAINING_STAGES,
     )
 
 

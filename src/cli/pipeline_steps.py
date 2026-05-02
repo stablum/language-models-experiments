@@ -44,7 +44,7 @@ EVALUATION_STAGE = "evaluate"
 QUERY_STAGE = "query"
 
 
-def train_tokenizer_pipeline_step(
+def train_tokenizer_step(
     *,
     corpus: str,
     dataset_id: str,
@@ -88,7 +88,7 @@ def train_tokenizer_pipeline_step(
         clearml_run.connect_parameter_sections(
             {
                 "Run": {
-                    "command": "src.cli.pipeline",
+                    "command": "src.cli.tokenizer_training",
                     "artifact_store": "clearml",
                 },
                 "Pipeline": {
@@ -249,7 +249,7 @@ def train_model_pipeline_step(
         clearml_run.connect_parameter_sections(
             {
                 "Run": {
-                    "command": "src.cli.pipeline",
+                    "command": "src.cli.model_training",
                     "artifact_store": "clearml",
                 },
                 "Pipeline": {
@@ -405,7 +405,7 @@ def evaluate_pipeline_step(
         clearml_run.connect_parameter_sections(
             {
                 "Run": {
-                    "command": "src.cli.pipeline",
+                    "command": "src.cli.model_training",
                     "artifact_store": "clearml",
                 },
                 "Pipeline": {
@@ -570,7 +570,7 @@ def query_pipeline_step(
         clearml_run.connect_parameter_sections(
             {
                 "Run": {
-                    "command": "src.cli.pipeline",
+                    "command": "src.cli.model_training",
                     "artifact_store": "clearml",
                 },
                 "Pipeline": {

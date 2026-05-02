@@ -8,10 +8,10 @@ import click
 
 from src.cli.config import configured_command, load_defaults_from_sections
 from src.cli.pipeline_common import (
-    DEFAULT_PIPELINE_NAME,
+    DEFAULT_MODEL_TRAINING_NAME,
     EVALUATION_STAGE,
-    TRAINING_PIPELINE_STAGE_DEPENDENCIES,
-    TRAINING_PIPELINE_STAGES,
+    MODEL_TRAINING_STAGE_DEPENDENCIES,
+    MODEL_TRAINING_STAGES,
     pipeline_options,
     pipeline_resume_option,
     resume_pipeline_controller_stage,
@@ -49,7 +49,7 @@ def load_evaluate_command_defaults(_config_section: str) -> dict[str, object]:
     help="Evaluate a registered language model on a registered corpus.",
 )
 @pipeline_resume_option
-@pipeline_options(default_name=DEFAULT_PIPELINE_NAME, default_local=False, default_wait=False)
+@pipeline_options(default_name=DEFAULT_MODEL_TRAINING_NAME, default_local=False, default_wait=False)
 @click.option(
     "--model",
     "model_name",
@@ -61,7 +61,7 @@ def load_evaluate_command_defaults(_config_section: str) -> dict[str, object]:
 @click.option(
     "--tokenizer-model-name",
     default=None,
-    help="Registered tokenizer model name used by the training pipeline.",
+    help="Registered tokenizer model name used by model training.",
 )
 @click.option(
     "--corpus",
@@ -207,8 +207,8 @@ def main(
             "source_split": resolved_source_split or "",
             "evaluation_partition": evaluation_partition,
         },
-        stage_dependencies=TRAINING_PIPELINE_STAGE_DEPENDENCIES,
-        stage_names=TRAINING_PIPELINE_STAGES,
+        stage_dependencies=MODEL_TRAINING_STAGE_DEPENDENCIES,
+        stage_names=MODEL_TRAINING_STAGES,
     )
 
 

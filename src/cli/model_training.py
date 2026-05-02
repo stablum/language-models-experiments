@@ -9,13 +9,13 @@ import click
 
 from src.cli.config import configured_command, load_defaults_from_sections
 from src.cli.pipeline_common import (
-    DEFAULT_PIPELINE_NAME,
-    DEFAULT_TOKENIZER_PIPELINE_NAME,
+    DEFAULT_MODEL_TRAINING_NAME,
+    DEFAULT_TOKENIZER_TRAINING_NAME,
     EVALUATION_STAGE,
     MODEL_STAGE,
     QUERY_STAGE,
-    TRAINING_PIPELINE_STAGE_DEPENDENCIES,
-    TRAINING_PIPELINE_STAGES,
+    MODEL_TRAINING_STAGE_DEPENDENCIES,
+    MODEL_TRAINING_STAGES,
     assert_pipeline_finished_successfully,
     build_pipeline_controller,
     configure_pipeline_control,
@@ -24,7 +24,7 @@ from src.cli.pipeline_common import (
     pipeline_options,
     pipeline_resume_option,
     print_stage_task_ids,
-    resolve_tokenizer_pipeline_task,
+    resolve_tokenizer_training_task,
     resume_pipeline_controller_stage,
     stage_gate_callback,
 )
@@ -54,7 +54,7 @@ from src.tracking.clearml import (
 )
 
 
-PIPELINE_CONFIG_SECTIONS = ("pipeline", "model_training")
+MODEL_TRAINING_CONFIG_SECTION = "model-training"
 TRAIN_CONFIG_SECTION = "train"
 EVALUATE_CONFIG_SECTION = "evaluate"
 QUERY_CONFIG_SECTION = "query"
@@ -148,12 +148,12 @@ def _parameter_is_explicit(ctx: click.Context | None, parameter_name: str) -> bo
     return getattr(source, "name", None) in EXPLICIT_PARAMETER_SOURCES
 
 
-def load_pipeline_command_defaults(_config_section: str) -> dict[str, object]:
+def load_model_training_command_defaults(_config_section: str) -> dict[str, object]:
     defaults = load_defaults_from_sections(("defaults", "clearml"))
     train_defaults = load_defaults_from_sections((TRAIN_CONFIG_SECTION,))
     evaluate_defaults = load_defaults_from_sections((EVALUATE_CONFIG_SECTION,))
     query_defaults = load_defaults_from_sections((QUERY_CONFIG_SECTION,))
-    pipeline_defaults = load_defaults_from_sections(PIPELINE_CONFIG_SECTIONS)
+    pipeline_defaults = load_defaults_from_sections((MODEL_TRAINING_CONFIG_SECTION,))
 
     defaults.update(
         _consistent_config_values(
@@ -275,15 +275,15 @@ def _mapped_config_values(
 
 
 @configured_command(
-    "pipeline",
-    default_loader=load_pipeline_command_defaults,
+    "model-training",
+    default_loader=load_model_training_command_defaults,
     context_settings={"help_option_names": ["-h", "--help"]},
     help="Run model training, evaluation, and query as a ClearML Pipeline DAG.",
 )
 @pipeline_resume_option
 @click.option(
     "--run-stage",
-    type=click.Choice(TRAINING_PIPELINE_STAGES),
+    type=click.Choice(MODEL_TRAINING_STAGES),
     default=None,
     help=(
         "Resume an existing controller and run only this stage. "
@@ -292,11 +292,11 @@ def _mapped_config_values(
 )
 @click.option(
     "--run-until-stage",
-    type=click.Choice(TRAINING_PIPELINE_STAGES),
+    type=click.Choice(MODEL_TRAINING_STAGES),
     default=None,
     help="Create a new controller run and stop after this stage has run.",
 )
-@pipeline_options(default_name=DEFAULT_PIPELINE_NAME)
+@pipeline_options(default_name=DEFAULT_MODEL_TRAINING_NAME)
 @click.option(
     "--model",
     "model_name",
@@ -308,13 +308,13 @@ def _mapped_config_values(
 @click.option(
     "--tokenizer-model-name",
     default=None,
-    help="Registered tokenizer model name to resolve from the tokenizer pipeline.",
+    help="Registered tokenizer model name to resolve from tokenizer-training runs.",
 )
 @click.option(
-    "--tokenizer-pipeline-name",
-    default=DEFAULT_TOKENIZER_PIPELINE_NAME,
+    "--tokenizer-training-name",
+    default=DEFAULT_TOKENIZER_TRAINING_NAME,
     show_default=True,
-    help="ClearML tokenizer pipeline name to search for reusable tokenizer artifacts.",
+    help="ClearML tokenizer-training pipeline name to search for reusable tokenizer artifacts.",
 )
 @click.option(
     "--corpus",
@@ -484,7 +484,7 @@ def main(
     pipeline_controller_id: str | None,
     model_name: str,
     tokenizer_model_name: str | None,
-    tokenizer_pipeline_name: str,
+    tokenizer_training_name: str,
     corpus: str,
     dataset_id: str | None,
     source_split: str | None,
@@ -517,7 +517,7 @@ def main(
     clearml_tags: tuple[str, ...],
 ) -> None:
     ctx = click.get_current_context(silent=True)
-    pipeline_defaults = load_defaults_from_sections(PIPELINE_CONFIG_SECTIONS)
+    pipeline_defaults = load_defaults_from_sections((MODEL_TRAINING_CONFIG_SECTION,))
     train_defaults = load_defaults_from_sections((TRAIN_CONFIG_SECTION,))
     evaluate_defaults = load_defaults_from_sections((EVALUATE_CONFIG_SECTION,))
     query_defaults = load_defaults_from_sections((QUERY_CONFIG_SECTION,))
@@ -749,7 +749,7 @@ def main(
     if not resolved_tokenizer_model_name:
         raise click.ClickException(
             "Training pipeline requires --tokenizer-model-name, or tokenizer_model_name in [train]. "
-            "Run the tokenizer pipeline first and use its tokenizer model name."
+            "Run tokenizer training first and use its tokenizer model name."
         )
 
     if run_stage is not None and run_until_stage is not None:
@@ -785,8 +785,8 @@ def main(
             clearml_output_uri=clearml_output_uri,
             clearml_tags=clearml_tags,
             parameter_filters=parameter_filters,
-            stage_dependencies=TRAINING_PIPELINE_STAGE_DEPENDENCIES,
-            stage_names=TRAINING_PIPELINE_STAGES,
+            stage_dependencies=MODEL_TRAINING_STAGE_DEPENDENCIES,
+            stage_names=MODEL_TRAINING_STAGES,
         )
         return
 
@@ -802,8 +802,8 @@ def main(
     if settings.connectivity_check:
         assert_clearml_endpoints_reachable(resolved_config_file, settings.output_uri)
 
-    tokenizer_resolution = resolve_tokenizer_pipeline_task(
-        tokenizer_pipeline_name=tokenizer_pipeline_name,
+    tokenizer_resolution = resolve_tokenizer_training_task(
+        tokenizer_training_name=tokenizer_training_name,
         clearml_project=settings.project_name,
         corpus=corpus,
         tokenizer_model_name=resolved_tokenizer_model_name,
@@ -829,8 +829,8 @@ def main(
             "model": model_definition.name,
             "corpus": corpus,
             "tokenizer_model_name": resolved_tokenizer_model_name,
-            "tokenizer_pipeline_name": tokenizer_pipeline_name,
-            "tokenizer_pipeline_controller_id": tokenizer_resolution.controller_id,
+            "tokenizer_training_name": tokenizer_training_name,
+            "tokenizer_training_controller_id": tokenizer_resolution.controller_id,
             "tokenizer_task_id": tokenizer_resolution.tokenizer_task_id,
             "dataset_id": resolved_dataset_id,
             "source_split": resolved_source_split or "",
@@ -899,8 +899,8 @@ def main(
         assert_pipeline_finished_successfully(pipeline)
         print_stage_task_ids(
             pipeline.task.id,
-            TRAINING_PIPELINE_STAGES,
-            stage_names=TRAINING_PIPELINE_STAGES,
+            MODEL_TRAINING_STAGES,
+            stage_names=MODEL_TRAINING_STAGES,
         )
         click.echo("ClearML pipeline run completed.")
 
