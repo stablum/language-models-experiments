@@ -48,8 +48,19 @@ class ConfigurableCommand(click.Command):
 
         config_defaults = self.default_loader(self.config_section)
         if config_defaults:
+            valid_parameter_names = {
+                parameter.name
+                for parameter in self.params
+                if parameter.name is not None
+            }
             default_map = dict(extra.get("default_map") or {})
-            default_map.update(config_defaults)
+            default_map.update(
+                {
+                    key: value
+                    for key, value in config_defaults.items()
+                    if key in valid_parameter_names
+                }
+            )
             extra["default_map"] = default_map
 
         ctx = self.context_class(self, info_name=info_name, parent=parent, **extra)

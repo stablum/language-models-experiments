@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 
 import click
 
-from src.cli.config import configured_command
+from src.cli.config import configured_command, load_command_defaults
 from src.cli.data_splits import (
     build_cli_split_plan,
     split_plan_parameter_sections,
@@ -199,6 +199,8 @@ def main(
 
     from src.cli.pipeline import main as pipeline_command
 
+    train_defaults = load_command_defaults("train")
+    pipeline_model_name = str(train_defaults.get("model_name", DEFAULT_MODEL_NAME))
     pipeline_command.callback(
         pipeline_name=pipeline_name,
         pipeline_version=pipeline_version,
@@ -210,7 +212,7 @@ def main(
         run_until_stage=TOKENIZER_STAGE,
         run_stage=None,
         pipeline_controller_id=None,
-        model_name=DEFAULT_MODEL_NAME,
+        model_name=pipeline_model_name,
         corpus=corpus,
         dataset_id=resolved_dataset_id,
         source_split=resolved_source_split,

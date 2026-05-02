@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 
 import click
 
-from src.cli.config import configured_command
+from src.cli.config import configured_command, load_defaults_from_sections
 from src.cli.data_splits import (
     build_cli_split_plan,
     explicit_parameter,
@@ -50,8 +50,19 @@ from src.tracking.clearml import (
     start_clearml_run,
 )
 
+
+def load_evaluate_command_defaults(_config_section: str) -> dict[str, object]:
+    defaults = load_defaults_from_sections(("defaults", "clearml"))
+    train_defaults = load_defaults_from_sections(("train",))
+    if "model_name" in train_defaults:
+        defaults["model_name"] = train_defaults["model_name"]
+    defaults.update(load_defaults_from_sections(("evaluate",)))
+    return defaults
+
+
 @configured_command(
     "evaluate",
+    default_loader=load_evaluate_command_defaults,
     context_settings={"help_option_names": ["-h", "--help"]},
     help="Evaluate a registered language model on a registered corpus.",
 )

@@ -45,7 +45,7 @@ character_coverage = 1.0
 hard_vocab_limit = true
 
 [train]
-model = "trigram"
+model = "bigram"
 smoothing = 0.1
 unigram_weight = 0.1
 bigram_weight = 0.3
@@ -53,11 +53,9 @@ trigram_weight = 0.6
 discount = 0.75
 
 [evaluate]
-model = "trigram"
 top_k = 5
 
 [query]
-model = "trigram"
 prompt = "once upon"
 max_tokens = 80
 top_k = 10

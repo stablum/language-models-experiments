@@ -50,7 +50,7 @@ $env:LME_CONFIG_FILE = "config.smoke.toml"
 uv run python -m src.cli.pipeline
 ```
 
-Use `model = "bigram"` in config sections; it maps to the CLI `--model` option. Keys may be written as `snake_case` or `kebab-case`. The full pipeline command reads stage defaults from `[train_sentencepiece]`, `[train]`, `[evaluate]`, and `[query]`, then applies any explicit CLI options or `[pipeline]` overrides on top. Keep `[pipeline]` for orchestration settings such as queues, run numbering, and optional cross-stage overrides.
+Use `model = "bigram"` in `[train]` to choose the trained model type; evaluation, query, and the full pipeline inherit that model by default. It maps to the CLI `--model` option. Keys may be written as `snake_case` or `kebab-case`. The full pipeline command reads stage defaults from `[train_sentencepiece]`, `[train]`, `[evaluate]`, and `[query]`, then applies any explicit CLI options or `[pipeline]` overrides on top. Keep `[pipeline]` for orchestration settings such as queues, run numbering, and optional cross-stage overrides.
 
 Python CLI output lines are prepended with a local timestamp and per-line delta in `[YYYY-MM-DD HH:MM:SS] [+0.237s]` format. ClearML also captures Python stdout/stderr for each task. Long-running commands print numbered stage titles such as `Stage 3/5 - Model training:`. Stage titles are bold cyan, timestamps are gray, delta times are yellow, error lines are red, and warning lines are yellow. Set `NO_COLOR=1` or `LME_COLOR=never` to disable ANSI colors. Native library stdout/stderr writes bypass timestamping by default to avoid pipe deadlocks in C/C++ extensions such as SentencePiece; set `LME_CAPTURE_NATIVE_OUTPUT=1` only when you explicitly want the old fd-level capture behavior.
 
@@ -127,7 +127,7 @@ query
 
 The pipeline identity is the ClearML project plus `pipeline_name` plus `pipeline_version`. The default `pipeline_version` follows the project version in `pyproject.toml`. Keep `pipeline_name` stable when you want repeated runs of the same DAG definition instead of a separate pipeline identity.
 
-Pipeline stage parameters use the same config sections as their stage CLIs: tokenizer options come from `[train_sentencepiece]`, model-training options from `[train]`, evaluation options from `[evaluate]`, and query options from `[query]`. Pass a pipeline CLI option to override the config for one run, or set a key in `[pipeline]` only when you intentionally want a pipeline-specific override.
+Pipeline stage parameters use the same config sections as their stage CLIs: shared data options such as `corpus` and split settings come from `[defaults]`; tokenizer options come from `[train_sentencepiece]`, model-training options and the canonical `model` come from `[train]`, evaluation options from `[evaluate]`, and query options from `[query]`. Pass a pipeline CLI option to override the config for one run, or set a key in `[pipeline]` only when you intentionally want a pipeline-specific override.
 
 By default, the controller and step tasks execute locally through ClearML PipelineController. To enqueue the controller and step tasks on ClearML agents, pass queues explicitly:
 
