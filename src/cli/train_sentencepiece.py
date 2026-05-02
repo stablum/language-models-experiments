@@ -39,7 +39,7 @@ from src.tokenizers.sentencepiece_training import train_sentencepiece
 
 def load_train_sentencepiece_command_defaults(_config_section: str) -> dict[str, object]:
     defaults = load_defaults_from_sections(("defaults", "clearml", "train_sentencepiece"))
-    defaults.update(load_defaults_from_sections(("tokenizer_pipeline",)))
+    defaults.update(load_defaults_from_sections(("tokenizer_pipeline", "tokenizer_training")))
     return defaults
 
 

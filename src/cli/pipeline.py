@@ -54,7 +54,7 @@ from src.tracking.clearml import (
 )
 
 
-PIPELINE_CONFIG_SECTION = "pipeline"
+PIPELINE_CONFIG_SECTIONS = ("pipeline", "model_training")
 TRAIN_CONFIG_SECTION = "train"
 EVALUATE_CONFIG_SECTION = "evaluate"
 QUERY_CONFIG_SECTION = "query"
@@ -115,7 +115,8 @@ def _resolve_consistent_stage_default(
         )
         raise click.ClickException(
             f"Conflicting pipeline defaults for {parameter_name!r}: {formatted_values}. "
-            "Set one shared value in [defaults] or [pipeline], or make the stage sections match."
+            "Set one shared value in [defaults] or [model-training], "
+            "or make the stage sections match."
         )
     return first_value
 
@@ -152,7 +153,7 @@ def load_pipeline_command_defaults(_config_section: str) -> dict[str, object]:
     train_defaults = load_defaults_from_sections((TRAIN_CONFIG_SECTION,))
     evaluate_defaults = load_defaults_from_sections((EVALUATE_CONFIG_SECTION,))
     query_defaults = load_defaults_from_sections((QUERY_CONFIG_SECTION,))
-    pipeline_defaults = load_defaults_from_sections((PIPELINE_CONFIG_SECTION,))
+    pipeline_defaults = load_defaults_from_sections(PIPELINE_CONFIG_SECTIONS)
 
     defaults.update(
         _consistent_config_values(
@@ -254,7 +255,8 @@ def _consistent_config_values(
             )
             raise click.ClickException(
                 f"Conflicting pipeline defaults for {parameter_name!r}: {formatted_values}. "
-                "Set one shared value in [defaults] or [pipeline], or make the stage sections match."
+                "Set one shared value in [defaults] or [model-training], "
+                "or make the stage sections match."
             )
         if parameter_name not in current_defaults or first_value != current_defaults[parameter_name]:
             resolved[parameter_name] = first_value
@@ -515,7 +517,7 @@ def main(
     clearml_tags: tuple[str, ...],
 ) -> None:
     ctx = click.get_current_context(silent=True)
-    pipeline_defaults = load_defaults_from_sections((PIPELINE_CONFIG_SECTION,))
+    pipeline_defaults = load_defaults_from_sections(PIPELINE_CONFIG_SECTIONS)
     train_defaults = load_defaults_from_sections((TRAIN_CONFIG_SECTION,))
     evaluate_defaults = load_defaults_from_sections((EVALUATE_CONFIG_SECTION,))
     query_defaults = load_defaults_from_sections((QUERY_CONFIG_SECTION,))

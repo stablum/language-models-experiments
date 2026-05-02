@@ -50,7 +50,7 @@ $env:LME_CONFIG_FILE = "config.smoke.toml"
 uv run python -m src.cli.pipeline
 ```
 
-Use `model = "bigram"` in `[train]` to choose the trained model type; evaluation, query, and the training pipeline inherit that model by default. Use `tokenizer_model_name` in `[train]` to choose which reusable tokenizer artifact the training pipeline consumes. Keys may be written as `snake_case` or `kebab-case`; `model` maps to the CLI `--model` option. Keep `[pipeline]` and `[tokenizer_pipeline]` for orchestration settings such as queues, run numbering, and pipeline names.
+Use `model = "bigram"` in `[train]` to choose the trained model type; evaluation, query, and the training pipeline inherit that model by default. Use `tokenizer_model_name` in `[train]` to choose which reusable tokenizer artifact the training pipeline consumes. Keys may be written as `snake_case` or `kebab-case`; `model` maps to the CLI `--model` option. Keep `[model-training]` and `[tokenizer-training]` for orchestration settings such as queues, run numbering, and pipeline names.
 
 Python CLI output lines are prepended with a local timestamp and per-line delta in `[YYYY-MM-DD HH:MM:SS] [+0.237s]` format. ClearML also captures Python stdout/stderr for each task. Long-running commands print numbered stage titles such as `Stage 3/5 - Model training:`. Stage titles are bold cyan, timestamps are gray, delta times are yellow, error lines are red, and warning lines are yellow. Set `NO_COLOR=1` or `LME_COLOR=never` to disable ANSI colors. Native library stdout/stderr writes bypass timestamping by default to avoid pipe deadlocks in C/C++ extensions such as SentencePiece; set `LME_CAPTURE_NATIVE_OUTPUT=1` only when you explicitly want the old fd-level capture behavior.
 
@@ -139,9 +139,9 @@ query
 
 Each pipeline identity is the ClearML project plus its `pipeline_name` plus `pipeline_version`. The default `pipeline_version` follows the project version in `pyproject.toml`. Keep `pipeline_name` stable when you want repeated runs of the same DAG definition instead of a separate pipeline identity.
 
-The checked-in defaults name the two DAGs `tokenizer-training` and `model-training`.
+The checked-in config uses `[tokenizer-training]` and `[model-training]`; those names are also the default ClearML DAG names.
 
-Pipeline stage parameters use the same config sections as their stage CLIs: shared data options such as `corpus` and split settings come from `[defaults]`; tokenizer options come from `[train_sentencepiece]`; model-training options, the canonical `model`, and `tokenizer_model_name` come from `[train]`; evaluation options from `[evaluate]`; and query options from `[query]`. Pass a pipeline CLI option to override the config for one run, or set a key in `[pipeline]` / `[tokenizer_pipeline]` only when you intentionally want a pipeline-specific override.
+Pipeline stage parameters use the same config sections as their stage CLIs: shared data options such as `corpus` and split settings come from `[defaults]`; tokenizer options come from `[train_sentencepiece]`; model-training options, the canonical `model`, and `tokenizer_model_name` come from `[train]`; evaluation options from `[evaluate]`; and query options from `[query]`. Pass a pipeline CLI option to override the config for one run, or set a key in `[model-training]` / `[tokenizer-training]` only when you intentionally want a pipeline-specific override.
 
 By default, the controller and step tasks execute locally through ClearML PipelineController. To enqueue the controller and step tasks on ClearML agents, pass queues explicitly:
 

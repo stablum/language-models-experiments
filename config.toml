@@ -21,10 +21,8 @@ clearml_connectivity_check = true
 clearml_output_uri = "http://localhost:8081"
 clearml_tags = []
 
-[pipeline]
+[model-training]
 # pipeline_version defaults to the project version in pyproject.toml.
-pipeline_name = "model-training"
-tokenizer_pipeline_name = "tokenizer-training"
 pipeline_local = true
 controller_queue = "services"
 add_run_number = true
@@ -38,9 +36,8 @@ add_run_number = true
 # Leave source_split unset to merge all available source splits, or set it to a
 # source split name such as "train" to restrict the input rows before partitioning.
 
-[tokenizer_pipeline]
+[tokenizer-training]
 # pipeline_version defaults to the project version in pyproject.toml.
-pipeline_name = "tokenizer-training"
 pipeline_local = true
 controller_queue = "services"
 add_run_number = true

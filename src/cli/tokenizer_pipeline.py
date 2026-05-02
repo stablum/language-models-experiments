@@ -43,13 +43,13 @@ from src.tracking.clearml import (
 )
 
 
-TOKENIZER_PIPELINE_CONFIG_SECTION = "tokenizer_pipeline"
+TOKENIZER_PIPELINE_CONFIG_SECTIONS = ("tokenizer_pipeline", "tokenizer_training")
 TOKENIZER_CONFIG_SECTION = "train_sentencepiece"
 
 
 def load_tokenizer_pipeline_command_defaults(_config_section: str) -> dict[str, object]:
     defaults = load_defaults_from_sections(("defaults", "clearml", TOKENIZER_CONFIG_SECTION))
-    defaults.update(load_defaults_from_sections((TOKENIZER_PIPELINE_CONFIG_SECTION,)))
+    defaults.update(load_defaults_from_sections(TOKENIZER_PIPELINE_CONFIG_SECTIONS))
     return defaults
 
 
