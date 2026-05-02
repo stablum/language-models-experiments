@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import click
 
@@ -24,6 +23,7 @@ from src.cli.pipeline_common import (
     pipeline_resume_option,
     resume_pipeline_controller_stage,
 )
+from src.cli.staging import temporary_staging_directory
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
 from src.corpora.splits import (
@@ -239,7 +239,7 @@ def main(
     task_id: str | None = None
     task_url: str | None = None
     with (
-        TemporaryDirectory(prefix="lme-model-") as staging_root,
+        temporary_staging_directory(prefix="lme-model-") as staging_dir,
         start_clearml_run(
             clearml_settings(
                 project_name=clearml_project,
@@ -253,7 +253,6 @@ def main(
             task_type="training",
         ) as clearml_run,
     ):
-        staging_dir = Path(staging_root)
         staged_tokenizer_model = stage_tokenizer_model(
             tokenizer_task_id=tokenizer_task_id,
             tokenizer_model=tokenizer_model,

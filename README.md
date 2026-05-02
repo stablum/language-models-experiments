@@ -366,7 +366,7 @@ docker compose -f docker-compose.clearml.yml down
 
 ## Generated Files
 
-Generated models, tokenizer files, evaluation summaries, query results, and other experiment outputs belong in ClearML. The CLIs may create temporary local staging files while they run, but those files are cleaned up after upload. Corpus caches and `.clearml/` Docker/ClearML server state remain local and are ignored by git.
+Generated models, tokenizer files, evaluation summaries, query results, and other experiment outputs belong in ClearML. The CLIs create temporary local staging files under ignored `artifacts/staging/` while they run, then clean those files up after upload. Corpus caches and `.clearml/` Docker/ClearML server state remain local and are ignored by git.
 
 ## License
 

@@ -1,7 +1,6 @@
 """Importable ClearML pipeline stage functions."""
 
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import click
 
@@ -22,6 +21,7 @@ from src.cli.query import (
     query_payload,
     stage_model_artifacts as stage_query_model_artifacts,
 )
+from src.cli.staging import temporary_staging_directory
 from src.cli.train import stage_tokenizer_model, training_summary_metrics
 from src.corpora.registry import get_corpus
 from src.corpora.splits import (
@@ -79,8 +79,7 @@ def train_tokenizer_pipeline_step(
         split_seed=split_seed,
     )
 
-    with TemporaryDirectory(prefix="lme-pipeline-tokenizer-") as staging_root:
-        staging_dir = Path(staging_root)
+    with temporary_staging_directory(prefix="lme-pipeline-tokenizer-") as staging_dir:
         output_prefix = staging_dir / artifact_name
         clearml_run = _current_step_run(
             clearml_output_uri=clearml_output_uri,
@@ -201,8 +200,7 @@ def train_model_pipeline_step(
     corpus_definition = get_corpus(corpus)
     model_definition = get_model(model_name)
 
-    with TemporaryDirectory(prefix="lme-pipeline-model-") as staging_root:
-        staging_dir = Path(staging_root)
+    with temporary_staging_directory(prefix="lme-pipeline-model-") as staging_dir:
         staged_tokenizer_model = stage_tokenizer_model(
             tokenizer_task_id=tokenizer_task_id,
             tokenizer_model=None,
@@ -358,8 +356,7 @@ def evaluate_pipeline_step(
     if limit is not None:
         click.echo(f"Evaluation row limit: first {limit:,} selected rows")
 
-    with TemporaryDirectory(prefix="lme-pipeline-evaluate-") as staging_root:
-        staging_dir = Path(staging_root)
+    with temporary_staging_directory(prefix="lme-pipeline-evaluate-") as staging_dir:
         click.echo(f"Staging model artifacts from ClearML task {model_task_id}...")
         staged_model_path = stage_evaluation_model_artifacts(
             model_task_id=model_task_id,
@@ -538,11 +535,11 @@ def query_pipeline_step(
     if model_definition.query is None:
         raise click.ClickException(f"Model does not support querying yet: {model_name}")
 
-    with TemporaryDirectory(prefix="lme-pipeline-query-") as staging_root:
+    with temporary_staging_directory(prefix="lme-pipeline-query-") as staging_dir:
         staged_model_path = stage_query_model_artifacts(
             model_task_id=model_task_id,
             model_path=None,
-            staging_dir=Path(staging_root),
+            staging_dir=staging_dir,
         )
         query_options = {
             "corpus": corpus,

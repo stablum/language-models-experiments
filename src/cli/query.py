@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import click
 
@@ -18,6 +17,7 @@ from src.cli.pipeline_common import (
     pipeline_resume_option,
     resume_pipeline_controller_stage,
 )
+from src.cli.staging import temporary_staging_directory
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
 from src.tracking.clearml import (
@@ -177,7 +177,7 @@ def main(
     task_id: str | None = None
     task_url: str | None = None
     with (
-        TemporaryDirectory(prefix="lme-query-") as staging_root,
+        temporary_staging_directory(prefix="lme-query-") as staging_dir,
         start_clearml_run(
             clearml_settings(
                 project_name=clearml_project,
@@ -194,7 +194,7 @@ def main(
         staged_model_path = stage_model_artifacts(
             model_task_id=model_task_id,
             model_path=model_path,
-            staging_dir=Path(staging_root),
+            staging_dir=staging_dir,
         )
         query_options = {
             "corpus": corpus,

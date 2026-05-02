@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import click
 
@@ -25,6 +24,7 @@ from src.cli.pipeline_common import (
     pipeline_resume_option,
     resume_pipeline_controller_stage,
 )
+from src.cli.staging import temporary_staging_directory
 from src.corpora.splits import (
     DEFAULT_SPLIT_SEED,
     DEFAULT_TRAIN_RATIO,
@@ -225,7 +225,7 @@ def main(
     task_id: str | None = None
     task_url: str | None = None
     with (
-        TemporaryDirectory(prefix="lme-evaluate-") as staging_root,
+        temporary_staging_directory(prefix="lme-evaluate-") as staging_dir,
         start_clearml_run(
             clearml_settings(
                 project_name=clearml_project,
@@ -242,7 +242,7 @@ def main(
         staged_model_path = stage_model_artifacts(
             model_task_id=model_task_id,
             model_path=model_path,
-            staging_dir=Path(staging_root),
+            staging_dir=staging_dir,
         )
         inherited_plan = read_model_split_plan(staged_model_path)
         if inherited_plan is not None and not any(
@@ -350,7 +350,7 @@ def main(
         )
         upload_split_plan_artifact(
             clearml_run,
-            staging_dir=Path(staging_root),
+            staging_dir=staging_dir,
             plan=split_plan,
             metadata={"model": model_definition.name, "corpus": corpus, "stage": "evaluation"},
         )

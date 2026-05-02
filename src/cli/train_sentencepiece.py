@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import click
 
@@ -21,6 +20,7 @@ from src.cli.pipeline_common import (
     pipeline_resume_option,
     resume_pipeline_controller_stage,
 )
+from src.cli.staging import temporary_staging_directory
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
 from src.corpora.splits import (
@@ -266,7 +266,7 @@ def main(
 
     click.echo(stage_title(1, 1, "Tokenizer training"), color=True)
     with (
-        TemporaryDirectory(prefix="lme-tokenizer-") as staging_root,
+        temporary_staging_directory(prefix="lme-tokenizer-") as staging_dir,
         start_clearml_run(
             clearml_settings(
                 project_name=clearml_project,
@@ -280,7 +280,7 @@ def main(
             task_type="training",
         ) as clearml_run,
     ):
-        resolved_output_prefix = Path(staging_root, resolved_artifact_name)
+        resolved_output_prefix = staging_dir / resolved_artifact_name
         task_id = clearml_run.task_id
         task_url = clearml_run.task_url
         clearml_run.connect_parameter_sections(
@@ -343,7 +343,7 @@ def main(
         )
         upload_split_plan_artifact(
             clearml_run,
-            staging_dir=Path(staging_root),
+            staging_dir=staging_dir,
             plan=split_plan,
             metadata={"corpus": corpus, "stage": "tokenizer-training"},
         )

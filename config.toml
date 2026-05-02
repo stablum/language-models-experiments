@@ -7,7 +7,7 @@
 # The short key `model` is accepted as an alias for Click's internal `model_name`.
 
 [defaults]
-corpus = "babylm-2026-strict-small"
+corpus = "tinystories"
 streaming = false
 text_normalization = "lossy-ascii"
 train_ratio = 0.8
