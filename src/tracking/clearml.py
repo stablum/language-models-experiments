@@ -7,10 +7,13 @@ import os
 import re
 import shutil
 import socket
+import time
 from collections.abc import Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 from urllib.parse import urlparse
 
 import click
@@ -19,6 +22,14 @@ import click
 DEFAULT_CLEARML_PROJECT = "language-models-experiments"
 CLEARML_CONNECT_TIMEOUT_SECONDS = 2.0
 CLEARML_CONFIG_ENDPOINTS = ("api_server", "files_server")
+CLEARML_ARTIFACT_LOCK_TIMEOUT_SECONDS = 1800.0
+CLEARML_ARTIFACT_LOCK_POLL_SECONDS = 0.1
+CLEARML_ARTIFACT_LOCK_DIR = (
+    Path(__file__).resolve().parents[2]
+    / "artifacts"
+    / "staging"
+    / ".clearml-artifact-locks"
+)
 
 
 @dataclass(frozen=True)
@@ -429,28 +440,100 @@ def download_clearml_artifact(
     destination_dir: Path,
     filename: str | None = None,
 ) -> Path:
-    local_copy = artifact.get_local_copy()
-    if local_copy is None:
-        raise click.ClickException(
-            f"Could not download ClearML artifact {artifact_name!r} from task {task_id}."
-        )
+    with clearml_artifact_download_lock(task_id=task_id, artifact_name=artifact_name):
+        local_copy = artifact.get_local_copy()
+        if local_copy is None:
+            raise click.ClickException(
+                f"Could not download ClearML artifact {artifact_name!r} from task {task_id}."
+            )
 
-    source = Path(local_copy)
-    if not source.exists():
-        raise click.ClickException(
-            f"Downloaded ClearML artifact path does not exist: {source}"
-        )
-    if source.is_dir():
-        raise click.ClickException(
-            f"ClearML artifact {artifact_name!r} from task {task_id} is a directory; "
-            "this CLI expects a single file artifact."
-        )
+        source = Path(local_copy)
+        if not source.exists():
+            raise click.ClickException(
+                f"Downloaded ClearML artifact path does not exist: {source}"
+            )
+        if source.is_dir():
+            raise click.ClickException(
+                f"ClearML artifact {artifact_name!r} from task {task_id} is a directory; "
+                "this CLI expects a single file artifact."
+            )
 
-    destination_dir.mkdir(parents=True, exist_ok=True)
-    destination = destination_dir / (filename or source.name)
-    if source.resolve() != destination.resolve():
-        shutil.copy2(source, destination)
-    return destination
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        destination = destination_dir / (filename or source.name)
+        if source.resolve() != destination.resolve():
+            try:
+                shutil.copy2(source, destination)
+            except FileNotFoundError as error:
+                raise click.ClickException(
+                    f"Downloaded ClearML artifact disappeared before it could be staged: {source}"
+                ) from error
+        return destination
+
+
+@contextmanager
+def clearml_artifact_download_lock(
+    *,
+    task_id: str,
+    artifact_name: str,
+) -> Iterator[None]:
+    """Serialize ClearML cache downloads across parallel local pipeline steps."""
+    lock_path = clearml_artifact_download_lock_path(
+        task_id=task_id,
+        artifact_name=artifact_name,
+    )
+    deadline = time.monotonic() + CLEARML_ARTIFACT_LOCK_TIMEOUT_SECONDS
+    lock_fd: int | None = None
+
+    while lock_fd is None:
+        try:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_RDWR)
+        except FileExistsError:
+            if clearml_artifact_lock_is_stale(lock_path):
+                try:
+                    lock_path.unlink()
+                    continue
+                except FileNotFoundError:
+                    continue
+
+            if time.monotonic() >= deadline:
+                raise click.ClickException(
+                    "Timed out waiting for ClearML artifact download lock: "
+                    f"{artifact_name!r} from task {task_id}."
+                )
+            time.sleep(CLEARML_ARTIFACT_LOCK_POLL_SECONDS)
+
+    try:
+        os.write(
+            lock_fd,
+            f"pid={os.getpid()} task_id={task_id} artifact={artifact_name}\n".encode(
+                "utf-8"
+            ),
+        )
+        yield
+    finally:
+        os.close(lock_fd)
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def clearml_artifact_download_lock_path(
+    *,
+    task_id: str,
+    artifact_name: str,
+) -> Path:
+    lock_key = sha256(f"{task_id}:{artifact_name}".encode("utf-8")).hexdigest()
+    return CLEARML_ARTIFACT_LOCK_DIR / f"{lock_key}.lock"
+
+
+def clearml_artifact_lock_is_stale(lock_path: Path) -> bool:
+    try:
+        lock_age = time.time() - lock_path.stat().st_mtime
+    except FileNotFoundError:
+        return False
+    return lock_age > CLEARML_ARTIFACT_LOCK_TIMEOUT_SECONDS
 
 
 def sanitize_value(value: Any) -> Any:
