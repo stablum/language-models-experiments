@@ -245,6 +245,10 @@ def emit_timestamped_line(text: str, stream: TextIO | None = None) -> None:
     writer.write(f"{text}\n")
 
 
+def emit_stage_title(index: int, total: int, title: str) -> None:
+    emit_timestamped_line(stage_title(index, total, title))
+
+
 def format_progress_line(
     label: str,
     *,

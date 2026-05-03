@@ -10,7 +10,7 @@ from src.cli.data_splits import (
     split_plan_parameter_sections,
     upload_split_plan_artifact,
 )
-from src.cli.output import iter_with_progress
+from src.cli.output import emit_stage_title, iter_with_progress
 from src.cli.pipeline_stage_support import (
     evaluation_metrics_for_partition,
     evaluation_payload,
@@ -42,6 +42,12 @@ TOKENIZER_STAGE = "train_tokenizer"
 MODEL_STAGE = "train_model"
 EVALUATION_STAGE = "evaluate"
 QUERY_STAGE = "query"
+PIPELINE_STAGE_TITLES = {
+    TOKENIZER_STAGE: (1, 1, "Tokenizer training"),
+    MODEL_STAGE: (1, 3, "Model training"),
+    EVALUATION_STAGE: (2, 3, "Evaluation"),
+    QUERY_STAGE: (3, 3, "Query"),
+}
 
 
 def train_tokenizer_step(
@@ -68,6 +74,7 @@ def train_tokenizer_step(
     """Train and publish the tokenizer step artifacts."""
     stage = "train_tokenizer"
     _configure_step_clearml(clearml_config_file)
+    _emit_pipeline_stage_title(stage)
     corpus_definition = get_corpus(corpus)
     split_plan = build_cli_split_plan(
         corpus_definition,
@@ -196,6 +203,7 @@ def train_model_pipeline_step(
     """Train the language model from the tokenizer step artifact."""
     stage = "train_model"
     _configure_step_clearml(clearml_config_file)
+    _emit_pipeline_stage_title(stage)
     corpus_definition = get_corpus(corpus)
     model_definition = get_model(model_name)
 
@@ -346,6 +354,7 @@ def evaluate_pipeline_step(
     """Evaluate the trained model step artifact."""
     stage = "evaluate"
     _configure_step_clearml(clearml_config_file)
+    _emit_pipeline_stage_title(stage)
     corpus_definition = get_corpus(corpus)
     model_definition = get_model(model_name)
     if model_definition.evaluate is None:
@@ -536,6 +545,7 @@ def query_pipeline_step(
     """Query the trained model step artifact."""
     stage = "query"
     _configure_step_clearml(clearml_config_file)
+    _emit_pipeline_stage_title(stage)
     model_definition = get_model(model_name)
     if model_definition.query is None:
         raise click.ClickException(f"Model does not support querying yet: {model_name}")
@@ -623,6 +633,11 @@ def _configure_step_clearml(clearml_config_file: str | None) -> None:
         configure_clearml_config_file(Path(clearml_config_file))
 
 
+def _emit_pipeline_stage_title(stage: str) -> None:
+    index, total, title = PIPELINE_STAGE_TITLES[stage]
+    emit_stage_title(index, total, title)
+
+
 def _current_step_run(
     *,
     clearml_output_uri: str | None,
@@ -671,6 +686,7 @@ def _normalize_tags(clearml_tags: str | list[str] | tuple[str, ...] | None) -> t
 
 PIPELINE_STEP_HELPERS = (
     _configure_step_clearml,
+    _emit_pipeline_stage_title,
     _current_step_run,
     _require_task_id,
     _normalize_tags,

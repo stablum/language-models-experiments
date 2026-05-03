@@ -22,7 +22,7 @@ from src.tracking.clearml import (
 DEFAULT_MODEL_TRAINING_NAME = "model-training"
 DEFAULT_TOKENIZER_TRAINING_NAME = "tokenizer-training"
 DEFAULT_CONTROLLER_QUEUE = "services"
-DEFAULT_PIPELINE_VERSION_FALLBACK = "0.4.19"
+DEFAULT_PIPELINE_VERSION_FALLBACK = "0.4.21"
 
 TOKENIZER_STAGE = "train_tokenizer"
 MODEL_STAGE = "train_model"
