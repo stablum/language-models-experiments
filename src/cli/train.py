@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from src.cli.config import configured_command
+from src.ml_core.cli.config import configured_command
 from src.cli.pipeline_common import (
     DEFAULT_MODEL_TRAINING_NAME,
     MODEL_TRAINING_STAGE_DEPENDENCIES,
@@ -18,12 +18,12 @@ from src.cli.pipeline_common import (
 )
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
-from src.corpora.splits import (
+from src.ml_core.data.splits import (
     DEFAULT_SPLIT_SEED,
     DEFAULT_TRAIN_RATIO,
 )
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
-from src.tracking.clearml import clearml_options
+from src.ml_core.tracking.clearml import clearml_options
 
 
 @configured_command(

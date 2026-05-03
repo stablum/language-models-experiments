@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from src.cli.config import configured_command, load_defaults_from_sections
+from src.ml_core.cli.config import configured_command, load_defaults_from_sections
 from src.cli.pipeline_common import (
     DEFAULT_TOKENIZER_TRAINING_NAME,
     TOKENIZER_TRAINING_STAGE_DEPENDENCIES,
@@ -30,12 +30,12 @@ from src.cli.pipeline_steps import (
 from src.cli.stage_pipeline_steps import train_tokenizer_stage_entry
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
-from src.corpora.splits import (
+from src.ml_core.data.splits import (
     DEFAULT_SPLIT_SEED,
     DEFAULT_TRAIN_RATIO,
     VALIDATION_PARTITION,
 )
-from src.tracking.clearml import (
+from src.ml_core.tracking.clearml import (
     assert_clearml_endpoints_reachable,
     clearml_options,
     clearml_settings,

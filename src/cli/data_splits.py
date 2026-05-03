@@ -8,7 +8,7 @@ from typing import Any
 import click
 
 from src.corpora.registry import CorpusDefinition
-from src.corpora.splits import (
+from src.ml_core.data.splits import (
     DataSplitPlan,
     SPLIT_PLAN_ARTIFACT,
     build_data_split_plan,
@@ -16,7 +16,7 @@ from src.corpora.splits import (
     split_plan_clearml_parameters,
     write_split_plan,
 )
-from src.tracking.clearml import maybe_download_task_artifact
+from src.ml_core.tracking.clearml import maybe_download_task_artifact
 
 
 EXPLICIT_PARAMETER_SOURCES = (

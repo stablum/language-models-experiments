@@ -29,11 +29,34 @@ Copy-Item clearml.local.conf.example clearml.conf
 src/
   cli/          Command-line entry points
   corpora/      Dataset loading, registry, and corpus text helpers
+  ml_core/      Reusable ML experiment infrastructure
   models/       Small language model training utilities
   tokenizers/   Tokenizer training utilities
 .clearml/       Local ClearML Server state, ignored by git
 config.toml     Repo-local CLI defaults
 ```
+
+## Reusable ML Core
+
+Language-model-specific code now lives in `src/cli/`, `src/corpora/`,
+`src/models/`, and `src/tokenizers/`. Shared experiment infrastructure lives in
+`src/ml_core/` so it can be reused by non-language-model ML projects without
+bringing along tokenizer, prompt, corpus, or next-token assumptions.
+
+Reusable pieces include:
+
+```text
+src/ml_core/cli/        TOML-backed Click defaults, timestamped output, staging dirs
+src/ml_core/data/       deterministic train/validation partition plans
+src/ml_core/models/     generic model registry contracts
+src/ml_core/pipeline/   ClearML PipelineController helpers
+src/ml_core/tracking/   ClearML run, artifact, metric, and model helpers
+```
+
+The old language-model module paths remain as thin compatibility layers where
+they existed before, but new shared infrastructure should be added under
+`src/ml_core/`. Keep domain-specific adapters, artifact names, metrics, and CLI
+vocabulary in the language-model layer.
 
 ## CLI Defaults
 

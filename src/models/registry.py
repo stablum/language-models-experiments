@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from src.models.bigram import MODEL_DEFINITION as BIGRAM_MODEL
-from src.models.definition import ModelDefinition
+from src.ml_core.models.definition import ModelDefinition
 from src.models.trigram import MODEL_DEFINITION as TRIGRAM_MODEL
 from src.models.trigram_absolute_discount import (
     MODEL_DEFINITION as ABSOLUTE_DISCOUNT_TRIGRAM_MODEL,

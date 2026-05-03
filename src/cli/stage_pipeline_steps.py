@@ -2,7 +2,7 @@
 
 
 def train_tokenizer_stage_entry(**kwargs: object) -> str:
-    from src.cli.output import timestamped_cli_output
+    from src.ml_core.cli.output import timestamped_cli_output
     from src.cli.pipeline_steps import train_tokenizer_step
 
     with timestamped_cli_output():
@@ -10,7 +10,7 @@ def train_tokenizer_stage_entry(**kwargs: object) -> str:
 
 
 def train_model_stage_entry(**kwargs: object) -> str:
-    from src.cli.output import timestamped_cli_output
+    from src.ml_core.cli.output import timestamped_cli_output
     from src.cli.pipeline_steps import train_model_pipeline_step
 
     with timestamped_cli_output():
@@ -18,7 +18,7 @@ def train_model_stage_entry(**kwargs: object) -> str:
 
 
 def evaluate_stage_entry(**kwargs: object) -> str:
-    from src.cli.output import timestamped_cli_output
+    from src.ml_core.cli.output import timestamped_cli_output
     from src.cli.pipeline_steps import evaluate_pipeline_step
 
     with timestamped_cli_output():
@@ -26,7 +26,7 @@ def evaluate_stage_entry(**kwargs: object) -> str:
 
 
 def query_stage_entry(**kwargs: object) -> str:
-    from src.cli.output import timestamped_cli_output
+    from src.ml_core.cli.output import timestamped_cli_output
     from src.cli.pipeline_steps import query_pipeline_step
 
     with timestamped_cli_output():

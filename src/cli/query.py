@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from src.cli.config import configured_command, load_defaults_from_sections
+from src.ml_core.cli.config import configured_command, load_defaults_from_sections
 from src.cli.pipeline_common import (
     DEFAULT_MODEL_TRAINING_NAME,
     MODEL_TRAINING_STAGE_DEPENDENCIES,
@@ -18,7 +18,7 @@ from src.cli.pipeline_common import (
 )
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
-from src.tracking.clearml import clearml_options
+from src.ml_core.tracking.clearml import clearml_options
 
 
 def load_query_command_defaults(_config_section: str) -> dict[str, object]:

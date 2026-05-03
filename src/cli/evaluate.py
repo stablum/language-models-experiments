@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from src.cli.config import configured_command, load_defaults_from_sections
+from src.ml_core.cli.config import configured_command, load_defaults_from_sections
 from src.cli.pipeline_common import (
     DEFAULT_MODEL_TRAINING_NAME,
     EVALUATION_STAGE,
@@ -16,7 +16,7 @@ from src.cli.pipeline_common import (
     pipeline_resume_option,
     resume_pipeline_controller_stage,
 )
-from src.corpora.splits import (
+from src.ml_core.data.splits import (
     DEFAULT_SPLIT_SEED,
     DEFAULT_TRAIN_RATIO,
     PROJECT_PARTITIONS,
@@ -28,7 +28,7 @@ from src.corpora.registry import (
     get_corpus,
 )
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
-from src.tracking.clearml import clearml_options
+from src.ml_core.tracking.clearml import clearml_options
 
 
 def load_evaluate_command_defaults(_config_section: str) -> dict[str, object]:

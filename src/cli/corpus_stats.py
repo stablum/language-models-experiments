@@ -6,23 +6,27 @@ from pathlib import Path
 
 import click
 
-from src.cli.config import configured_command
 from src.cli.data_splits import build_cli_split_plan
-from src.cli.output import stage_title
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import (
     DEFAULT_CORPUS_NAME,
     corpus_names,
     get_corpus,
 )
-from src.corpora.splits import (
+from src.ml_core.cli.config import configured_command
+from src.ml_core.cli.output import stage_title
+from src.ml_core.data.splits import (
     DEFAULT_SPLIT_SEED,
     DEFAULT_TRAIN_RATIO,
     iter_merged_source_rows,
     source_split_label,
 )
 from src.corpora.stats import distribution_metrics, print_corpus_report, scan_text_column
-from src.tracking.clearml import clearml_options, clearml_settings, start_clearml_run
+from src.ml_core.tracking.clearml import (
+    clearml_options,
+    clearml_settings,
+    start_clearml_run,
+)
 
 
 @configured_command(

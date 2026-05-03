@@ -10,7 +10,7 @@ from src.cli.data_splits import (
     split_plan_parameter_sections,
     upload_split_plan_artifact,
 )
-from src.cli.output import emit_stage_title, iter_with_progress
+from src.ml_core.cli.output import emit_stage_title, iter_with_progress
 from src.cli.pipeline_stage_support import (
     evaluation_metrics_for_partition,
     evaluation_payload,
@@ -20,22 +20,22 @@ from src.cli.pipeline_stage_support import (
     stage_tokenizer_model,
     training_summary_metrics,
 )
-from src.cli.staging import temporary_staging_directory
+from src.ml_core.cli.staging import temporary_staging_directory
 from src.corpora.registry import get_corpus
-from src.corpora.splits import (
+from src.corpora.splits import load_partition_texts
+from src.ml_core.data.splits import (
     TRAIN_PARTITION,
     attach_split_plan_to_json_model,
     count_partition_rows,
     iter_partition_rows,
-    load_partition_texts,
     read_model_split_plan,
     source_split_label,
 )
 from src.corpora.text import iter_text_column
-from src.models.definition import ModelOptionError
+from src.ml_core.models.definition import ModelOptionError
 from src.models.registry import get_model
 from src.tokenizers.sentencepiece_training import train_sentencepiece
-from src.tracking.clearml import ClearMLRun, configure_clearml_config_file
+from src.ml_core.tracking.clearml import ClearMLRun, configure_clearml_config_file
 
 
 TOKENIZER_STAGE = "train_tokenizer"

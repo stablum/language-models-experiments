@@ -12,7 +12,7 @@ import sentencepiece as spm
 
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TextNormalization
 from src.models import ngram
-from src.models.definition import ModelDefinition, ModelOptionError, ModelOptions
+from src.ml_core.models.definition import ModelDefinition, ModelOptionError, ModelOptions
 from src.models.formatting import (
     artifact_filename,
     format_interpolation_weights,
