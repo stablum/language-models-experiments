@@ -7,7 +7,7 @@ from pathlib import Path
 import click
 
 from src.ml_core.cli.config import configured_command, load_defaults_from_sections
-from src.cli.pipeline_common import (
+from src.pipelines.language_model.definition import (
     DEFAULT_MODEL_TRAINING_NAME,
     EVALUATION_STAGE,
     MODEL_TRAINING_STAGE_DEPENDENCIES,

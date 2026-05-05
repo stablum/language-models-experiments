@@ -9,7 +9,7 @@ from typing import Any
 import click
 
 from src.ml_core.cli.config import configured_command, load_defaults_from_sections
-from src.cli.pipeline_common import (
+from src.pipelines.language_model.definition import (
     DEFAULT_MODEL_TRAINING_NAME,
     DEFAULT_TOKENIZER_TRAINING_NAME,
     EVALUATION_STAGE,
@@ -21,19 +21,13 @@ from src.cli.pipeline_common import (
     build_pipeline_controller,
     configure_pipeline_control,
     connect_controller_experiment_parameters,
-    output_uri_value,
     pipeline_options,
     pipeline_resume_option,
     print_stage_task_ids,
     resolve_tokenizer_training_task,
     resume_pipeline_controller_stage,
-    stage_gate_callback,
 )
-from src.cli.pipeline_steps import (
-    pipeline_artifact_monitors,
-    pipeline_metric_monitors,
-)
-from src.cli.optuna_search import (
+from src.pipelines.language_model.optuna import (
     DEFAULT_OPTUNA_DIRECTION,
     DEFAULT_OPTUNA_METRIC,
     SearchSpec,
@@ -42,11 +36,7 @@ from src.cli.optuna_search import (
     parse_optuna_search_specs,
     sample_trial_parameters,
 )
-from src.cli.stage_pipeline_steps import (
-    evaluate_stage_entry,
-    query_stage_entry,
-    train_model_stage_entry,
-)
+from src.pipelines.language_model.tasks import add_model_training_steps as add_pipeline_steps
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
 from src.ml_core.data.splits import (
@@ -1327,137 +1317,6 @@ def _run_model_training_pipeline(
         )
         click.echo("ClearML pipeline run completed.")
     return str(pipeline.task.id)
-
-
-def add_pipeline_steps(
-    pipeline: object,
-    *,
-    clearml_project: str,
-    clearml_output_uri: str | None,
-    clearml_tags: tuple[str, ...],
-    clearml_config_file: Path | None,
-    execution_queue: str | None,
-    tokenizer_task_id: str,
-    model_name: str,
-    corpus: str,
-    dataset_id: str,
-    source_split: str | None,
-    text_column: str,
-    streaming: bool,
-    train_ratio: float,
-    split_seed: int,
-    evaluation_partition: str,
-    training_limit: int | None,
-    evaluation_limit: int | None,
-    smoothing: float,
-    unigram_weight: float,
-    bigram_weight: float,
-    trigram_weight: float,
-    discount: float,
-    top_k: int,
-    query_prompt: str,
-    query_max_tokens: int,
-    query_top_k: int,
-    query_decoding: str,
-    query_temperature: float,
-    query_seed: int | None,
-    text_normalization: str,
-) -> None:
-    artifact_monitors = pipeline_artifact_monitors()
-    metric_monitors = pipeline_metric_monitors(evaluation_partition)
-    common_step_kwargs = {
-        "clearml_output_uri": clearml_output_uri,
-        "clearml_tags": "\n".join(clearml_tags),
-        "clearml_config_file": str(clearml_config_file) if clearml_config_file else None,
-    }
-    step_options = {
-        "project_name": clearml_project,
-        "execution_queue": execution_queue,
-        "output_uri": output_uri_value(clearml_output_uri),
-        "auto_connect_frameworks": False,
-        "auto_connect_arg_parser": False,
-        "pre_execute_callback": stage_gate_callback,
-        "tags": list(clearml_tags) if clearml_tags else None,
-    }
-
-    pipeline.add_function_step(
-        name=MODEL_STAGE,
-        function=train_model_stage_entry,
-        function_kwargs={
-            "tokenizer_task_id": tokenizer_task_id,
-            "model_name": model_name,
-            "corpus": corpus,
-            "dataset_id": dataset_id,
-            "source_split": source_split,
-            "text_column": text_column,
-            "streaming": streaming,
-            "limit": training_limit,
-            "train_ratio": train_ratio,
-            "split_seed": split_seed,
-            "smoothing": smoothing,
-            "unigram_weight": unigram_weight,
-            "bigram_weight": bigram_weight,
-            "trigram_weight": trigram_weight,
-            "discount": discount,
-            "text_normalization": text_normalization,
-            **common_step_kwargs,
-        },
-        task_name=MODEL_STAGE,
-        task_type="training",
-        monitor_artifacts=artifact_monitors[MODEL_STAGE],
-        monitor_metrics=metric_monitors[MODEL_STAGE],
-        stage=MODEL_STAGE,
-        **step_options,
-    )
-    pipeline.add_function_step(
-        name=EVALUATION_STAGE,
-        function=evaluate_stage_entry,
-        function_kwargs={
-            "model_task_id": f"${{{MODEL_STAGE}.id}}",
-            "model_name": model_name,
-            "corpus": corpus,
-            "dataset_id": dataset_id,
-            "source_split": source_split,
-            "text_column": text_column,
-            "streaming": streaming,
-            "limit": evaluation_limit,
-            "train_ratio": train_ratio,
-            "split_seed": split_seed,
-            "evaluation_partition": evaluation_partition,
-            "top_k": top_k,
-            **common_step_kwargs,
-        },
-        parents=[MODEL_STAGE],
-        task_name=EVALUATION_STAGE,
-        task_type="testing",
-        monitor_artifacts=artifact_monitors[EVALUATION_STAGE],
-        monitor_metrics=metric_monitors[EVALUATION_STAGE],
-        stage=EVALUATION_STAGE,
-        **step_options,
-    )
-    pipeline.add_function_step(
-        name=QUERY_STAGE,
-        function=query_stage_entry,
-        function_kwargs={
-            "model_task_id": f"${{{MODEL_STAGE}.id}}",
-            "model_name": model_name,
-            "corpus": corpus,
-            "prompt": query_prompt,
-            "max_tokens": query_max_tokens,
-            "top_k": query_top_k,
-            "decoding": query_decoding,
-            "temperature": query_temperature,
-            "seed": query_seed,
-            **common_step_kwargs,
-        },
-        parents=[MODEL_STAGE],
-        task_name=QUERY_STAGE,
-        task_type="inference",
-        monitor_artifacts=artifact_monitors[QUERY_STAGE],
-        monitor_metrics=metric_monitors[QUERY_STAGE],
-        stage=QUERY_STAGE,
-        **step_options,
-    )
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from src.cli.data_splits import build_cli_split_plan
+from src.ml_core.data.split_artifacts import build_cli_split_plan
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import (
     DEFAULT_CORPUS_NAME,

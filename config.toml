@@ -7,7 +7,7 @@
 # The short key `model` is accepted as an alias for Click's internal `model_name`.
 
 [defaults]
-corpus = "tinystories"
+corpus = "babylm-2026-strict-small"
 streaming = false
 text_normalization = "lossy-ascii"
 train_ratio = 0.8
@@ -45,13 +45,16 @@ add_run_number = true
 # Supported names include model, smoothing, discount, unigram_weight,
 # bigram_weight, trigram_weight, top_k, query_max_tokens, query_top_k,
 # query_decoding, query_temperature, and query_seed.
-# optuna_trials = 10
-# optuna_metric = "perplexity"
-# optuna_direction = "minimize"
-# optuna_search = [
-#   "smoothing=float:1e-4:1.0:log",
+optuna_trials = 50
+optuna_metric = "next_token_accuracy"
+optuna_direction = "minimize"
+optuna_search = [
+   "smoothing=float:1e-4:1.0:log",
+   "unigram_weight=float:0:1.0",
+   "bigram_weight=float:0:1.0",
+   "trigram_weight=float:0:1.0",
 #   "discount=float:0.1:0.95",
-# ]
+]
 
 [tokenizer-training]
 # pipeline_version defaults to the project version in pyproject.toml.
@@ -70,7 +73,7 @@ hard_vocab_limit = true
 model = "trigram"
 # Model training resolves the latest tokenizer-training run matching
 # this tokenizer model name and the configured corpus.
-tokenizer_model_name = "tinystories-sentencepiece-1000"
+tokenizer_model_name = "babylm-2026-strict-small-sentencepiece-1000"
 smoothing = 0.1
 unigram_weight = 0.1
 bigram_weight = 0.3

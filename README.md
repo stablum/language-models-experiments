@@ -27,10 +27,11 @@ Copy-Item clearml.local.conf.example clearml.conf
 
 ```text
 src/
-  cli/          Command-line entry points
+  cli/          Command-line entry points and old compatibility shims
   corpora/      Dataset loading, registry, and corpus text helpers
   ml_core/      Reusable ML experiment infrastructure
   models/       Small language model training utilities
+  pipelines/    Pipeline DAG, task, and stage definitions
   tokenizers/   Tokenizer training utilities
 .clearml/       Local ClearML Server state, ignored by git
 config.toml     Repo-local CLI defaults
@@ -38,10 +39,12 @@ config.toml     Repo-local CLI defaults
 
 ## Reusable ML Core
 
-Language-model-specific code now lives in `src/cli/`, `src/corpora/`,
-`src/models/`, and `src/tokenizers/`. Shared experiment infrastructure lives in
-`src/ml_core/` so it can be reused by non-language-model ML projects without
-bringing along tokenizer, prompt, corpus, or next-token assumptions.
+Language-model-specific code now lives in `src/corpora/`, `src/models/`,
+`src/pipelines/`, and `src/tokenizers/`. `src/cli/` is reserved for Click
+entrypoints plus thin compatibility shims for older import paths. Shared
+experiment infrastructure lives in `src/ml_core/` so it can be reused by
+non-language-model ML projects without bringing along tokenizer, prompt,
+corpus, or next-token assumptions.
 
 Reusable pieces include:
 
@@ -51,6 +54,17 @@ src/ml_core/data/       deterministic train/validation partition plans
 src/ml_core/models/     generic model registry contracts
 src/ml_core/pipeline/   ClearML PipelineController helpers
 src/ml_core/tracking/   ClearML run, artifact, metric, and model helpers
+```
+
+Language-model pipeline code is organized here:
+
+```text
+src/pipelines/language_model/definition.py      stage names, dependencies, controller lookup
+src/pipelines/language_model/tasks.py           ClearML PipelineController task wiring
+src/pipelines/language_model/stages.py          importable train/evaluate/query stage functions
+src/pipelines/language_model/stage_entries.py   ClearML function-step entry wrappers
+src/pipelines/language_model/artifacts.py       stage artifact and metric payload helpers
+src/pipelines/language_model/optuna.py          Optuna trial metric helpers
 ```
 
 The old language-model module paths remain as thin compatibility layers where
