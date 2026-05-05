@@ -19,7 +19,7 @@ from src.pipelines.language_model.definition import (
     pipeline_stage_tasks,
 )
 from src.models.registry import model_names
-from src.ml_core.tracking.clearml import clearml_task
+from src.ml_core.tracking import clearml_task
 
 
 OPTUNA_EVALUATION_ARTIFACT = "evaluation-summary"

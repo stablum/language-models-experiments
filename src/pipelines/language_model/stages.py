@@ -41,7 +41,7 @@ from src.pipelines.language_model.definition import (
 )
 from src.models.registry import get_model
 from src.tokenizers.sentencepiece_training import train_sentencepiece
-from src.ml_core.tracking.clearml import ClearMLRun, configure_clearml_config_file
+from src.ml_core.tracking import ClearMLRun, configure_clearml_config_file
 
 
 PIPELINE_STAGE_TITLES = {

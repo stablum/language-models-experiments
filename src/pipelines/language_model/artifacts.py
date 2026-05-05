@@ -10,7 +10,7 @@ from pathlib import Path
 import click
 
 from src.ml_core.data.splits import partitioned_metric_names
-from src.ml_core.tracking.clearml import download_task_artifact
+from src.ml_core.tracking import download_task_artifact
 
 
 STAGED_TOKENIZER_MODEL_NAME = "input-tokenizer.model"

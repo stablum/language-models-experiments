@@ -1,1 +1,1 @@
-"""Language-model ClearML pipeline definitions and stage tasks."""
+"""Language-model ClearML pipeline definitions."""

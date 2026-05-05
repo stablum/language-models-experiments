@@ -1,12 +1,13 @@
-"""Language-model pipeline constants and controller lookup helpers."""
+"""Shared language-model pipeline constants and controller lookup helpers."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import click
 
-from src.ml_core.pipeline.clearml import (
+from src.ml_core.pipeline import (
     ACTIVE_STATUSES,
     COMPLETED_STATUSES,
     DEFAULT_CONTROLLER_QUEUE,
@@ -48,7 +49,7 @@ from src.ml_core.pipeline.clearml import (
     validate_stage_selection,
     wait_for_controller_completion,
 )
-from src.ml_core.tracking.clearml import clearml_task
+from src.ml_core.tracking import clearml_task
 
 
 DEFAULT_MODEL_TRAINING_NAME = "model-training"
@@ -78,6 +79,13 @@ MODEL_TRAINING_STAGE_DEPENDENCIES = {
 TOKENIZER_MODEL_ARTIFACT = "sentencepiece-model"
 
 stage_gate_callback = make_stage_gate_callback(ALL_PIPELINE_STAGES)
+
+
+@dataclass(frozen=True)
+class PipelineDefinition:
+    default_name: str
+    stages: tuple[str, ...]
+    stage_dependencies: Mapping[str, tuple[str, ...]]
 
 
 @dataclass(frozen=True)
@@ -199,6 +207,7 @@ __all__ = (
     "PIPELINE_MODE_RUN_STAGE",
     "PIPELINE_MODE_RUN_UNTIL",
     "PipelineControl",
+    "PipelineDefinition",
     "QUERY_STAGE",
     "StageEligibility",
     "StageTask",

@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import socket
+import sys
 import time
 from collections.abc import Mapping
 from contextlib import contextmanager
@@ -557,3 +558,9 @@ def as_finite_float(value: Any) -> float | None:
         numeric_value = float(value)
         return numeric_value if math.isfinite(numeric_value) else None
     return None
+
+
+# Compatibility for older imports of src.ml_core.tracking.clearml.
+__path__ = []
+clearml = sys.modules[__name__]
+sys.modules.setdefault(f"{__name__}.clearml", clearml)

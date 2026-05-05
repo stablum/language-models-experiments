@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import sys
 import time
 import tomllib
 from collections.abc import Callable, Mapping, Sequence
@@ -12,7 +13,7 @@ from typing import Any
 
 import click
 
-from src.ml_core.tracking.clearml import (
+from src.ml_core.tracking import (
     assert_clearml_endpoints_reachable,
     clearml_settings,
     configure_clearml_config_file,
@@ -21,7 +22,7 @@ from src.ml_core.tracking.clearml import (
 
 DEFAULT_PIPELINE_NAME = "pipeline"
 DEFAULT_CONTROLLER_QUEUE = "services"
-DEFAULT_PIPELINE_VERSION_FALLBACK = "0.5.1"
+DEFAULT_PIPELINE_VERSION_FALLBACK = "0.5.3"
 
 PIPELINE_CONTROL_SECTION = "Pipeline Control"
 PIPELINE_CONTROL_MODE = f"{PIPELINE_CONTROL_SECTION}/run_mode"
@@ -714,3 +715,9 @@ def _enqueue_pipeline_controller(controller_id: str, queue_name: str) -> None:
 def _status_value(status: object) -> str:
     value = getattr(status, "value", status)
     return str(value or "").lower()
+
+
+# Compatibility for older imports of src.ml_core.pipeline.clearml.
+__path__ = []
+clearml = sys.modules[__name__]
+sys.modules.setdefault(f"{__name__}.clearml", clearml)

@@ -10,13 +10,6 @@ import click
 
 from src.ml_core.cli.config import configured_command, load_defaults_from_sections
 from src.pipelines.language_model.definition import (
-    DEFAULT_MODEL_TRAINING_NAME,
-    DEFAULT_TOKENIZER_TRAINING_NAME,
-    EVALUATION_STAGE,
-    MODEL_STAGE,
-    QUERY_STAGE,
-    MODEL_TRAINING_STAGE_DEPENDENCIES,
-    MODEL_TRAINING_STAGES,
     assert_pipeline_finished_successfully,
     build_pipeline_controller,
     configure_pipeline_control,
@@ -24,8 +17,16 @@ from src.pipelines.language_model.definition import (
     pipeline_options,
     pipeline_resume_option,
     print_stage_task_ids,
-    resolve_tokenizer_training_task,
     resume_pipeline_controller_stage,
+)
+from src.pipelines.language_model.model_training import (
+    DEFAULT_TOKENIZER_TRAINING_NAME,
+    EVALUATION_STAGE,
+    MODEL_STAGE,
+    MODEL_TRAINING_PIPELINE,
+    QUERY_STAGE,
+    add_pipeline_steps,
+    resolve_tokenizer_training_task,
 )
 from src.pipelines.language_model.optuna import (
     DEFAULT_OPTUNA_DIRECTION,
@@ -36,7 +37,6 @@ from src.pipelines.language_model.optuna import (
     parse_optuna_search_specs,
     sample_trial_parameters,
 )
-from src.pipelines.language_model.tasks import add_model_training_steps as add_pipeline_steps
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
 from src.ml_core.data.splits import (
@@ -46,7 +46,7 @@ from src.ml_core.data.splits import (
     VALIDATION_PARTITION,
 )
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
-from src.ml_core.tracking.clearml import (
+from src.ml_core.tracking import (
     assert_clearml_endpoints_reachable,
     clearml_options,
     clearml_settings,
@@ -286,7 +286,7 @@ def _mapped_config_values(
 @pipeline_resume_option
 @click.option(
     "--run-stage",
-    type=click.Choice(MODEL_TRAINING_STAGES),
+    type=click.Choice(MODEL_TRAINING_PIPELINE.stages),
     default=None,
     help=(
         "Resume an existing controller and run only this stage. "
@@ -295,11 +295,11 @@ def _mapped_config_values(
 )
 @click.option(
     "--run-until-stage",
-    type=click.Choice(MODEL_TRAINING_STAGES),
+    type=click.Choice(MODEL_TRAINING_PIPELINE.stages),
     default=None,
     help="Create a new controller run and stop after this stage has run.",
 )
-@pipeline_options(default_name=DEFAULT_MODEL_TRAINING_NAME)
+@pipeline_options(default_name=MODEL_TRAINING_PIPELINE.default_name)
 @click.option(
     "--model",
     "model_name",
@@ -864,8 +864,8 @@ def main(
             clearml_output_uri=clearml_output_uri,
             clearml_tags=clearml_tags,
             parameter_filters=parameter_filters,
-            stage_dependencies=MODEL_TRAINING_STAGE_DEPENDENCIES,
-            stage_names=MODEL_TRAINING_STAGES,
+            stage_dependencies=MODEL_TRAINING_PIPELINE.stage_dependencies,
+            stage_names=MODEL_TRAINING_PIPELINE.stages,
         )
         return
 
@@ -1312,8 +1312,8 @@ def _run_model_training_pipeline(
         assert_pipeline_finished_successfully(pipeline)
         print_stage_task_ids(
             pipeline.task.id,
-            MODEL_TRAINING_STAGES,
-            stage_names=MODEL_TRAINING_STAGES,
+            MODEL_TRAINING_PIPELINE.stages,
+            stage_names=MODEL_TRAINING_PIPELINE.stages,
         )
         click.echo("ClearML pipeline run completed.")
     return str(pipeline.task.id)

@@ -22,7 +22,7 @@ from src.ml_core.data.splits import (
     source_split_label,
 )
 from src.corpora.stats import distribution_metrics, print_corpus_report, scan_text_column
-from src.ml_core.tracking.clearml import (
+from src.ml_core.tracking import (
     clearml_options,
     clearml_settings,
     start_clearml_run,

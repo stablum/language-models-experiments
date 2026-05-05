@@ -8,14 +8,11 @@ import click
 
 from src.ml_core.cli.config import configured_command
 from src.pipelines.language_model.definition import (
-    DEFAULT_MODEL_TRAINING_NAME,
-    MODEL_TRAINING_STAGE_DEPENDENCIES,
-    MODEL_TRAINING_STAGES,
-    MODEL_STAGE,
     pipeline_options,
     pipeline_resume_option,
     resume_pipeline_controller_stage,
 )
+from src.pipelines.language_model.model_training import MODEL_STAGE, MODEL_TRAINING_PIPELINE
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
 from src.ml_core.data.splits import (
@@ -23,7 +20,7 @@ from src.ml_core.data.splits import (
     DEFAULT_TRAIN_RATIO,
 )
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
-from src.ml_core.tracking.clearml import clearml_options
+from src.ml_core.tracking import clearml_options
 
 
 @configured_command(
@@ -32,7 +29,11 @@ from src.ml_core.tracking.clearml import clearml_options
     help="Train a registered language model from a registered corpus.",
 )
 @pipeline_resume_option
-@pipeline_options(default_name=DEFAULT_MODEL_TRAINING_NAME, default_local=False, default_wait=False)
+@pipeline_options(
+    default_name=MODEL_TRAINING_PIPELINE.default_name,
+    default_local=False,
+    default_wait=False,
+)
 @click.option(
     "--model",
     "model_name",
@@ -218,8 +219,8 @@ def main(
             "dataset_id": resolved_dataset_id,
             "source_split": resolved_source_split or "",
         },
-        stage_dependencies=MODEL_TRAINING_STAGE_DEPENDENCIES,
-        stage_names=MODEL_TRAINING_STAGES,
+        stage_dependencies=MODEL_TRAINING_PIPELINE.stage_dependencies,
+        stage_names=MODEL_TRAINING_PIPELINE.stages,
     )
 
 

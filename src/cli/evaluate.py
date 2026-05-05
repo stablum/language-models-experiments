@@ -8,13 +8,13 @@ import click
 
 from src.ml_core.cli.config import configured_command, load_defaults_from_sections
 from src.pipelines.language_model.definition import (
-    DEFAULT_MODEL_TRAINING_NAME,
-    EVALUATION_STAGE,
-    MODEL_TRAINING_STAGE_DEPENDENCIES,
-    MODEL_TRAINING_STAGES,
     pipeline_options,
     pipeline_resume_option,
     resume_pipeline_controller_stage,
+)
+from src.pipelines.language_model.model_training import (
+    EVALUATION_STAGE,
+    MODEL_TRAINING_PIPELINE,
 )
 from src.ml_core.data.splits import (
     DEFAULT_SPLIT_SEED,
@@ -28,7 +28,7 @@ from src.corpora.registry import (
     get_corpus,
 )
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
-from src.ml_core.tracking.clearml import clearml_options
+from src.ml_core.tracking import clearml_options
 
 
 def load_evaluate_command_defaults(_config_section: str) -> dict[str, object]:
@@ -49,7 +49,11 @@ def load_evaluate_command_defaults(_config_section: str) -> dict[str, object]:
     help="Evaluate a registered language model on a registered corpus.",
 )
 @pipeline_resume_option
-@pipeline_options(default_name=DEFAULT_MODEL_TRAINING_NAME, default_local=False, default_wait=False)
+@pipeline_options(
+    default_name=MODEL_TRAINING_PIPELINE.default_name,
+    default_local=False,
+    default_wait=False,
+)
 @click.option(
     "--model",
     "model_name",
@@ -207,8 +211,8 @@ def main(
             "source_split": resolved_source_split or "",
             "evaluation_partition": evaluation_partition,
         },
-        stage_dependencies=MODEL_TRAINING_STAGE_DEPENDENCIES,
-        stage_names=MODEL_TRAINING_STAGES,
+        stage_dependencies=MODEL_TRAINING_PIPELINE.stage_dependencies,
+        stage_names=MODEL_TRAINING_PIPELINE.stages,
     )
 
 

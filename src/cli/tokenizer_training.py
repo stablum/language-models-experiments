@@ -8,10 +8,6 @@ import click
 
 from src.ml_core.cli.config import configured_command, load_defaults_from_sections
 from src.pipelines.language_model.definition import (
-    DEFAULT_TOKENIZER_TRAINING_NAME,
-    TOKENIZER_TRAINING_STAGE_DEPENDENCIES,
-    TOKENIZER_TRAINING_STAGES,
-    TOKENIZER_STAGE,
     assert_pipeline_finished_successfully,
     build_pipeline_controller,
     configure_pipeline_control,
@@ -21,14 +17,18 @@ from src.pipelines.language_model.definition import (
     print_stage_task_ids,
     resume_pipeline_controller_stage,
 )
-from src.pipelines.language_model.tasks import add_tokenizer_training_step
+from src.pipelines.language_model.tokenizer_training import (
+    TOKENIZER_STAGE,
+    TOKENIZER_TRAINING_PIPELINE,
+    add_tokenizer_training_step,
+)
 from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
 from src.ml_core.data.splits import (
     DEFAULT_SPLIT_SEED,
     DEFAULT_TRAIN_RATIO,
 )
-from src.ml_core.tracking.clearml import (
+from src.ml_core.tracking import (
     assert_clearml_endpoints_reachable,
     clearml_options,
     clearml_settings,
@@ -50,7 +50,7 @@ def load_tokenizer_training_command_defaults(_config_section: str) -> dict[str, 
     help="Run reusable SentencePiece tokenizer training as a ClearML Pipeline DAG.",
 )
 @pipeline_resume_option
-@pipeline_options(default_name=DEFAULT_TOKENIZER_TRAINING_NAME)
+@pipeline_options(default_name=TOKENIZER_TRAINING_PIPELINE.default_name)
 @click.option(
     "--corpus",
     type=click.Choice(corpus_names()),
@@ -206,8 +206,8 @@ def main(
             clearml_output_uri=clearml_output_uri,
             clearml_tags=clearml_tags,
             parameter_filters=parameter_filters,
-            stage_dependencies=TOKENIZER_TRAINING_STAGE_DEPENDENCIES,
-            stage_names=TOKENIZER_TRAINING_STAGES,
+            stage_dependencies=TOKENIZER_TRAINING_PIPELINE.stage_dependencies,
+            stage_names=TOKENIZER_TRAINING_PIPELINE.stages,
         )
         return
 
@@ -297,8 +297,8 @@ def main(
         assert_pipeline_finished_successfully(pipeline)
         print_stage_task_ids(
             pipeline.task.id,
-            TOKENIZER_TRAINING_STAGES,
-            stage_names=TOKENIZER_TRAINING_STAGES,
+            TOKENIZER_TRAINING_PIPELINE.stages,
+            stage_names=TOKENIZER_TRAINING_PIPELINE.stages,
         )
         click.echo("ClearML tokenizer-training pipeline run completed.")
 

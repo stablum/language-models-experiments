@@ -8,17 +8,14 @@ import click
 
 from src.ml_core.cli.config import configured_command, load_defaults_from_sections
 from src.pipelines.language_model.definition import (
-    DEFAULT_MODEL_TRAINING_NAME,
-    MODEL_TRAINING_STAGE_DEPENDENCIES,
-    MODEL_TRAINING_STAGES,
-    QUERY_STAGE,
     pipeline_options,
     pipeline_resume_option,
     resume_pipeline_controller_stage,
 )
+from src.pipelines.language_model.model_training import MODEL_TRAINING_PIPELINE, QUERY_STAGE
 from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names
 from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
-from src.ml_core.tracking.clearml import clearml_options
+from src.ml_core.tracking import clearml_options
 
 
 def load_query_command_defaults(_config_section: str) -> dict[str, object]:
@@ -39,7 +36,11 @@ def load_query_command_defaults(_config_section: str) -> dict[str, object]:
     help="Query a registered language model.",
 )
 @pipeline_resume_option
-@pipeline_options(default_name=DEFAULT_MODEL_TRAINING_NAME, default_local=False, default_wait=False)
+@pipeline_options(
+    default_name=MODEL_TRAINING_PIPELINE.default_name,
+    default_local=False,
+    default_wait=False,
+)
 @click.option(
     "--model",
     "model_name",
@@ -175,8 +176,8 @@ def main(
             "tokenizer_model_name": resolved_tokenizer_model_name,
             "corpus": corpus,
         },
-        stage_dependencies=MODEL_TRAINING_STAGE_DEPENDENCIES,
-        stage_names=MODEL_TRAINING_STAGES,
+        stage_dependencies=MODEL_TRAINING_PIPELINE.stage_dependencies,
+        stage_names=MODEL_TRAINING_PIPELINE.stages,
     )
 
 

@@ -16,7 +16,7 @@ from src.ml_core.data.splits import (
     split_plan_clearml_parameters,
     write_split_plan,
 )
-from src.ml_core.tracking.clearml import maybe_download_task_artifact
+from src.ml_core.tracking import maybe_download_task_artifact
 
 
 EXPLICIT_PARAMETER_SOURCES = (

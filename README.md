@@ -52,15 +52,16 @@ Reusable pieces include:
 src/ml_core/cli/        TOML-backed Click defaults, timestamped output, staging dirs
 src/ml_core/data/       deterministic train/validation partition plans
 src/ml_core/models/     generic model registry contracts
-src/ml_core/pipeline/   ClearML PipelineController helpers
-src/ml_core/tracking/   ClearML run, artifact, metric, and model helpers
+src/ml_core/pipeline.py ClearML PipelineController helpers
+src/ml_core/tracking.py ClearML run, artifact, metric, and model helpers
 ```
 
 Language-model pipeline code is organized here:
 
 ```text
-src/pipelines/language_model/definition.py      stage names, dependencies, controller lookup
-src/pipelines/language_model/tasks.py           ClearML PipelineController task wiring
+src/pipelines/language_model/tokenizer_training.py  tokenizer-training DAG definition and task wiring
+src/pipelines/language_model/model_training.py      model-training DAG definition and task wiring
+src/pipelines/language_model/definition.py          shared stage names and controller lookup
 src/pipelines/language_model/stages.py          importable train/evaluate/query stage functions
 src/pipelines/language_model/stage_entries.py   ClearML function-step entry wrappers
 src/pipelines/language_model/artifacts.py       stage artifact and metric payload helpers
