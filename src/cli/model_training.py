@@ -28,6 +28,10 @@ from src.pipelines.language_model.model_training import (
     add_pipeline_steps,
     resolve_tokenizer_training_task,
 )
+from src.pipelines.language_model.model_options import (
+    MODEL_HYPERPARAMETER_NAMES,
+    model_hyperparameters_from,
+)
 from src.pipelines.language_model.optuna import (
     DEFAULT_OPTUNA_DIRECTION,
     DEFAULT_OPTUNA_METRIC,
@@ -684,41 +688,17 @@ def main(
         pipeline_defaults=pipeline_defaults,
         stage_defaults=evaluate_defaults,
     )
-    smoothing = _resolve_stage_default(
-        ctx,
-        parameter_name="smoothing",
-        current_value=smoothing,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=train_defaults,
-    )
-    unigram_weight = _resolve_stage_default(
-        ctx,
-        parameter_name="unigram_weight",
-        current_value=unigram_weight,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=train_defaults,
-    )
-    bigram_weight = _resolve_stage_default(
-        ctx,
-        parameter_name="bigram_weight",
-        current_value=bigram_weight,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=train_defaults,
-    )
-    trigram_weight = _resolve_stage_default(
-        ctx,
-        parameter_name="trigram_weight",
-        current_value=trigram_weight,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=train_defaults,
-    )
-    discount = _resolve_stage_default(
-        ctx,
-        parameter_name="discount",
-        current_value=discount,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=train_defaults,
-    )
+    model_hyperparameters = model_hyperparameters_from(locals())
+    model_hyperparameters = {
+        name: _resolve_stage_default(
+            ctx,
+            parameter_name=name,
+            current_value=model_hyperparameters[name],
+            pipeline_defaults=pipeline_defaults,
+            stage_defaults=train_defaults,
+        )
+        for name in MODEL_HYPERPARAMETER_NAMES
+    }
     top_k = _resolve_stage_default(
         ctx,
         parameter_name="top_k",
@@ -902,11 +882,7 @@ def main(
             evaluation_partition=evaluation_partition,
             training_limit=resolved_training_limit,
             evaluation_limit=resolved_evaluation_limit,
-            smoothing=smoothing,
-            unigram_weight=unigram_weight,
-            bigram_weight=bigram_weight,
-            trigram_weight=trigram_weight,
-            discount=discount,
+            model_hyperparameters=model_hyperparameters,
             top_k=top_k,
             query_prompt=query_prompt,
             query_max_tokens=query_max_tokens,
@@ -945,11 +921,7 @@ def main(
         evaluation_partition=evaluation_partition,
         training_limit=resolved_training_limit,
         evaluation_limit=resolved_evaluation_limit,
-        smoothing=smoothing,
-        unigram_weight=unigram_weight,
-        bigram_weight=bigram_weight,
-        trigram_weight=trigram_weight,
-        discount=discount,
+        model_hyperparameters=model_hyperparameters,
         top_k=top_k,
         query_prompt=query_prompt,
         query_max_tokens=query_max_tokens,
@@ -996,11 +968,7 @@ def _run_optuna_model_training(
     evaluation_partition: str,
     training_limit: int | None,
     evaluation_limit: int | None,
-    smoothing: float,
-    unigram_weight: float,
-    bigram_weight: float,
-    trigram_weight: float,
-    discount: float,
+    model_hyperparameters: Mapping[str, object],
     top_k: int,
     query_prompt: str,
     query_max_tokens: int,
@@ -1039,11 +1007,7 @@ def _run_optuna_model_training(
         sampled_parameters = sample_trial_parameters(trial, optuna_search_specs)
         trial_values = {
             "model_name": model_name,
-            "smoothing": smoothing,
-            "unigram_weight": unigram_weight,
-            "bigram_weight": bigram_weight,
-            "trigram_weight": trigram_weight,
-            "discount": discount,
+            **model_hyperparameters,
             "top_k": top_k,
             "query_max_tokens": query_max_tokens,
             "query_top_k": query_top_k,
@@ -1091,11 +1055,7 @@ def _run_optuna_model_training(
             evaluation_partition=evaluation_partition,
             training_limit=training_limit,
             evaluation_limit=evaluation_limit,
-            smoothing=float(trial_values["smoothing"]),
-            unigram_weight=float(trial_values["unigram_weight"]),
-            bigram_weight=float(trial_values["bigram_weight"]),
-            trigram_weight=float(trial_values["trigram_weight"]),
-            discount=float(trial_values["discount"]),
+            model_hyperparameters=model_hyperparameters_from(trial_values),
             top_k=int(trial_values["top_k"]),
             query_prompt=query_prompt,
             query_max_tokens=int(trial_values["query_max_tokens"]),
@@ -1180,11 +1140,7 @@ def _run_model_training_pipeline(
     evaluation_partition: str,
     training_limit: int | None,
     evaluation_limit: int | None,
-    smoothing: float,
-    unigram_weight: float,
-    bigram_weight: float,
-    trigram_weight: float,
-    discount: float,
+    model_hyperparameters: Mapping[str, object],
     top_k: int,
     query_prompt: str,
     query_max_tokens: int,
@@ -1273,11 +1229,7 @@ def _run_model_training_pipeline(
         evaluation_partition=evaluation_partition,
         training_limit=training_limit,
         evaluation_limit=evaluation_limit,
-        smoothing=smoothing,
-        unigram_weight=unigram_weight,
-        bigram_weight=bigram_weight,
-        trigram_weight=trigram_weight,
-        discount=discount,
+        model_hyperparameters=model_hyperparameters,
         top_k=top_k,
         query_prompt=query_prompt,
         query_max_tokens=query_max_tokens,

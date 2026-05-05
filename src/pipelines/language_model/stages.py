@@ -1,5 +1,6 @@
 """Importable ClearML pipeline stage functions for language-model experiments."""
 
+from collections.abc import Mapping
 from pathlib import Path
 
 import click
@@ -40,6 +41,7 @@ from src.pipelines.language_model.definition import (
     QUERY_STAGE,
     TOKENIZER_STAGE,
 )
+from src.pipelines.language_model.model_options import merge_model_hyperparameters
 from src.models.registry import get_model
 from src.tokenizers.sentencepiece_training import train_sentencepiece
 from src.ml_core.tracking import ClearMLRun, configure_clearml_config_file
@@ -193,15 +195,12 @@ def train_model_pipeline_step(
     limit: int | None,
     train_ratio: float,
     split_seed: int,
-    smoothing: float,
-    unigram_weight: float,
-    bigram_weight: float,
-    trigram_weight: float,
-    discount: float,
     text_normalization: str,
+    model_hyperparameters: Mapping[str, object] | None = None,
     clearml_output_uri: str | None = None,
     clearml_tags: str | list[str] | tuple[str, ...] | None = None,
     clearml_config_file: str | None = None,
+    **legacy_model_hyperparameters: object,
 ) -> str:
     """Train the language model from the tokenizer step artifact."""
     stage = "train_model"
@@ -235,16 +234,16 @@ def train_model_pipeline_step(
             split_seed=split_seed,
         )
         output_path = staging_dir / f"{corpus}-sentencepiece-{model_definition.name}.json"
+        resolved_model_hyperparameters = merge_model_hyperparameters(
+            model_hyperparameters,
+            legacy_model_hyperparameters,
+        )
         model_options = {
             "corpus": corpus,
             "tokenizer_model": staged_tokenizer_model,
             "output": output_path,
             "stored_tokenizer_model": Path(staged_tokenizer_model.name),
-            "smoothing": smoothing,
-            "unigram_weight": unigram_weight,
-            "bigram_weight": bigram_weight,
-            "trigram_weight": trigram_weight,
-            "discount": discount,
+            **resolved_model_hyperparameters,
             "text_normalization": text_normalization,
         }
         try:
@@ -279,11 +278,7 @@ def train_model_pipeline_step(
                 },
                 "Model": {
                     "model": model_definition.name,
-                    "smoothing": smoothing,
-                    "unigram_weight": unigram_weight,
-                    "bigram_weight": bigram_weight,
-                    "trigram_weight": trigram_weight,
-                    "discount": discount,
+                    **resolved_model_hyperparameters,
                 },
                 "Tokenizer": {
                     "tokenizer_task_id": tokenizer_task_id,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 from src.pipelines.language_model.definition import (
@@ -22,6 +23,11 @@ from src.pipelines.language_model.stage_entries import (
     query_stage_entry,
     train_model_stage_entry,
 )
+from src.pipelines.language_model.model_options import (
+    MODEL_HYPERPARAMETER_DESCRIPTIONS,
+    MODEL_HYPERPARAMETER_NAMES,
+    model_hyperparameters_from,
+)
 from src.pipelines.language_model.stages import (
     pipeline_artifact_monitors,
     pipeline_metric_monitors,
@@ -36,11 +42,7 @@ MODEL_TRAINING_PIPELINE = PipelineDefinition(
 
 MODEL_TRAINING_PIPELINE_PARAMETERS = {
     "model_name": "Registered model implementation to train, evaluate, and query.",
-    "smoothing": "Add-k smoothing value for models that use it.",
-    "unigram_weight": "Interpolation weight for unigram probabilities in models that use it.",
-    "bigram_weight": "Interpolation weight for bigram probabilities in models that use it.",
-    "trigram_weight": "Interpolation weight for trigram probabilities in models that use it.",
-    "discount": "Absolute discount value for models that use it.",
+    **MODEL_HYPERPARAMETER_DESCRIPTIONS,
     "text_normalization": "Text normalization applied before model training.",
 }
 
@@ -65,11 +67,7 @@ def add_pipeline_steps(
     evaluation_partition: str,
     training_limit: int | None,
     evaluation_limit: int | None,
-    smoothing: float,
-    unigram_weight: float,
-    bigram_weight: float,
-    trigram_weight: float,
-    discount: float,
+    model_hyperparameters: Mapping[str, object],
     top_k: int,
     query_prompt: str,
     query_max_tokens: int,
@@ -79,13 +77,10 @@ def add_pipeline_steps(
     query_seed: int | None,
     text_normalization: str,
 ) -> None:
+    model_hyperparameters = model_hyperparameters_from(model_hyperparameters)
     pipeline_parameters = {
         "model_name": model_name,
-        "smoothing": smoothing,
-        "unigram_weight": unigram_weight,
-        "bigram_weight": bigram_weight,
-        "trigram_weight": trigram_weight,
-        "discount": discount,
+        **model_hyperparameters,
         "text_normalization": text_normalization,
     }
     _add_pipeline_parameters(pipeline, pipeline_parameters)
@@ -121,11 +116,7 @@ def add_pipeline_steps(
             "limit": training_limit,
             "train_ratio": train_ratio,
             "split_seed": split_seed,
-            "smoothing": _pipeline_parameter_ref("smoothing"),
-            "unigram_weight": _pipeline_parameter_ref("unigram_weight"),
-            "bigram_weight": _pipeline_parameter_ref("bigram_weight"),
-            "trigram_weight": _pipeline_parameter_ref("trigram_weight"),
-            "discount": _pipeline_parameter_ref("discount"),
+            **_pipeline_parameter_refs(MODEL_HYPERPARAMETER_NAMES),
             "text_normalization": _pipeline_parameter_ref("text_normalization"),
             **common_step_kwargs,
         },
@@ -210,6 +201,10 @@ def _add_pipeline_parameters(
 
 def _pipeline_parameter_ref(name: str) -> str:
     return f"${{pipeline.{name}}}"
+
+
+def _pipeline_parameter_refs(names: tuple[str, ...]) -> dict[str, str]:
+    return {name: _pipeline_parameter_ref(name) for name in names}
 
 
 __all__ = (
