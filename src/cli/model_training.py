@@ -357,7 +357,10 @@ def _mapped_config_values(
     type=click.Choice(PROJECT_PARTITIONS),
     default=VALIDATION_PARTITION,
     show_default=True,
-    help="Reusable project partition to evaluate.",
+    help=(
+        "Primary project partition for unpartitioned summary metrics and Optuna "
+        "objectives. The evaluation stage evaluates all project partitions."
+    ),
 )
 @click.option("--text-column", default=None, help="Override the registered text column.")
 @click.option(

@@ -24,6 +24,7 @@ from src.ml_core.cli.staging import temporary_staging_directory
 from src.corpora.registry import get_corpus
 from src.corpora.splits import load_partition_texts
 from src.ml_core.data.splits import (
+    PROJECT_PARTITIONS,
     TRAIN_PARTITION,
     attach_split_plan_to_json_model,
     count_partition_rows,
@@ -362,9 +363,11 @@ def evaluate_pipeline_step(
     if model_definition.evaluate is None:
         raise click.ClickException(f"Model does not support evaluation yet: {model_name}")
 
+    evaluation_partitions = tuple(PROJECT_PARTITIONS)
     click.echo(
         f"Evaluation stage started: model={model_definition.name}, corpus={corpus}, "
-        f"partition={evaluation_partition}, top_k={top_k}"
+        f"partitions={', '.join(evaluation_partitions)}, "
+        f"primary_partition={evaluation_partition}, top_k={top_k}"
     )
     if limit is not None:
         click.echo(f"Evaluation row limit: first {limit:,} selected rows")
@@ -428,6 +431,7 @@ def evaluate_pipeline_step(
                     "dataset_id": dataset_id,
                     "source_split": source_split_label(source_split),
                     "evaluation_partition": evaluation_partition,
+                    "evaluation_partitions": list(evaluation_partitions),
                     "text_column": text_column,
                     "streaming": streaming,
                     "limit": limit,
@@ -446,54 +450,67 @@ def evaluate_pipeline_step(
             }
         )
 
-        click.echo(f"Loading dataset rows for {evaluation_partition} evaluation...")
-        dataset = corpus_definition.load(
-            dataset_id=dataset_id,
-            split=split_plan.source_split,
-            streaming=streaming,
-        )
-        click.echo("Counting selected evaluation rows...")
-        total_rows = count_partition_rows(
-            dataset,
-            partition=evaluation_partition,
-            plan=split_plan,
-            limit=limit,
-        )
-        if total_rows is None:
-            click.echo("Evaluation row total is unknown; progress will report processed rows.")
+        summaries: dict[str, object] = {}
+        for partition in evaluation_partitions:
+            click.echo(f"Loading dataset rows for {partition} evaluation...")
+            dataset = corpus_definition.load(
+                dataset_id=dataset_id,
+                split=split_plan.source_split,
+                streaming=streaming,
+            )
+            click.echo("Counting selected evaluation rows...")
+            total_rows = count_partition_rows(
+                dataset,
+                partition=partition,
+                plan=split_plan,
+                limit=limit,
+            )
+            if total_rows is None:
+                click.echo(
+                    "Evaluation row total is unknown; progress will report processed rows."
+                )
+            else:
+                click.echo(f"Evaluation rows selected: {total_rows:,}")
+            rows = iter_partition_rows(
+                dataset,
+                partition=partition,
+                plan=split_plan,
+            )
+            texts = iter_text_column(
+                rows,
+                text_column=text_column,
+                limit=limit,
+            )
+
+            click.echo(f"Running {partition} model evaluation...")
+            summary = model_definition.evaluate(
+                iter_with_progress(
+                    texts,
+                    label=f"Evaluating {partition} rows",
+                    total=total_rows,
+                    unit="rows",
+                ),
+                evaluation_options,
+            )
+            summaries[partition] = summary
+            click.echo(
+                f"{partition} evaluation complete: {summary.sequence_count:,} sequences, "
+                f"{summary.token_count:,} tokens, {summary.transition_count:,} transitions"
+            )
+
+            clearml_run.log_metrics(
+                "Evaluation",
+                evaluation_metrics_for_partition(summary, partition=partition),
+            )
+
+        primary_summary = summaries.get(evaluation_partition)
+        if primary_summary is None:
+            primary_partition = evaluation_partitions[0]
+            primary_summary = summaries[primary_partition]
         else:
-            click.echo(f"Evaluation rows selected: {total_rows:,}")
-        rows = iter_partition_rows(
-            dataset,
-            partition=evaluation_partition,
-            plan=split_plan,
-        )
-        texts = iter_text_column(
-            rows,
-            text_column=text_column,
-            limit=limit,
-        )
+            primary_partition = evaluation_partition
 
-        click.echo("Running model evaluation...")
-        summary = model_definition.evaluate(
-            iter_with_progress(
-                texts,
-                label=f"Evaluating {evaluation_partition} rows",
-                total=total_rows,
-                unit="rows",
-            ),
-            evaluation_options,
-        )
-        click.echo(
-            f"Evaluation complete: {summary.sequence_count:,} sequences, "
-            f"{summary.token_count:,} tokens, {summary.transition_count:,} transitions"
-        )
-
-        click.echo("Uploading evaluation metrics and artifacts...")
-        clearml_run.log_metrics(
-            "Evaluation",
-            evaluation_metrics_for_partition(summary, partition=evaluation_partition),
-        )
+        click.echo("Uploading evaluation artifacts...")
         upload_split_plan_artifact(
             clearml_run,
             staging_dir=staging_dir,
@@ -503,26 +520,40 @@ def evaluate_pipeline_step(
         clearml_run.upload_artifact(
             "evaluation-summary",
             {
-                **evaluation_payload(summary),
-                "evaluation_partition": evaluation_partition,
+                **evaluation_payload(primary_summary),
+                **{
+                    metric_name: value
+                    for partition, summary in summaries.items()
+                    for metric_name, value in evaluation_metrics_for_partition(
+                        summary,
+                        partition=partition,
+                    ).items()
+                },
+                "evaluation_partition": primary_partition,
+                "evaluation_partitions": list(evaluation_partitions),
                 "evaluation_limit": limit,
                 "data_split": split_plan.to_payload(),
+                "partitions": {
+                    partition: evaluation_payload(summary)
+                    for partition, summary in summaries.items()
+                },
             },
             metadata={
                 "model": model_definition.name,
                 "corpus": corpus,
-                "evaluation_partition": evaluation_partition,
+                "evaluation_partition": primary_partition,
+                "evaluation_partitions": ",".join(evaluation_partitions),
                 "split_id": split_plan.split_id,
             },
         )
         clearml_run.upload_artifact(
             "evaluated-model",
-            summary.model_path,
+            primary_summary.model_path,
             metadata={"model": model_definition.name, "corpus": corpus},
         )
         clearml_run.upload_artifact(
             "tokenizer-model",
-            summary.tokenizer_model,
+            primary_summary.tokenizer_model,
             metadata={"model": model_definition.name, "corpus": corpus},
         )
         click.echo("Evaluation artifacts uploaded.")
@@ -715,7 +746,15 @@ def pipeline_artifact_monitors() -> dict[str, list[str | tuple[str, str]]]:
     }
 
 
-def pipeline_metric_monitors(evaluation_partition: str) -> dict[str, list[tuple[str, str]]]:
+def pipeline_metric_monitors(
+    evaluation_partition: str | None = None,
+) -> dict[str, list[tuple[str, str]]]:
+    if evaluation_partition in PROJECT_PARTITIONS:
+        evaluation_partitions = tuple(
+            dict.fromkeys((evaluation_partition, *PROJECT_PARTITIONS))
+        )
+    else:
+        evaluation_partitions = tuple(PROJECT_PARTITIONS)
     return {
         TOKENIZER_STAGE: [
             ("Tokenizer training", "vocab_size"),
@@ -727,9 +766,13 @@ def pipeline_metric_monitors(evaluation_partition: str) -> dict[str, list[tuple[
             ("Model training", "transition_count"),
         ],
         EVALUATION_STAGE: [
-            ("Evaluation", f"{evaluation_partition}/next_token_accuracy"),
-            ("Evaluation", f"{evaluation_partition}/top_k_accuracy"),
-            ("Evaluation", f"{evaluation_partition}/perplexity"),
+            ("Evaluation", f"{partition}/{metric}")
+            for partition in evaluation_partitions
+            for metric in (
+                "next_token_accuracy",
+                "top_k_accuracy",
+                "perplexity",
+            )
         ],
         QUERY_STAGE: [
             ("Query", "generated_token_count"),

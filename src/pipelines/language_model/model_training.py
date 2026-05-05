@@ -91,7 +91,7 @@ def add_pipeline_steps(
     _add_pipeline_parameters(pipeline, pipeline_parameters)
 
     artifact_monitors = pipeline_artifact_monitors()
-    metric_monitors = pipeline_metric_monitors(evaluation_partition)
+    metric_monitors = pipeline_metric_monitors()
     common_step_kwargs = {
         "clearml_output_uri": clearml_output_uri,
         "clearml_tags": "\n".join(clearml_tags),

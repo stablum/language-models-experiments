@@ -117,7 +117,10 @@ def load_evaluate_command_defaults(_config_section: str) -> dict[str, object]:
     type=click.Choice(PROJECT_PARTITIONS),
     default=VALIDATION_PARTITION,
     show_default=True,
-    help="Reusable project partition to evaluate.",
+    help=(
+        "Primary project partition for unpartitioned summary metrics and Optuna "
+        "objectives. The evaluation stage evaluates all project partitions."
+    ),
 )
 @click.option(
     "--model-task-id",

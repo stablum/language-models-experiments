@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.ml_core.data.splits import VALIDATION_PARTITION
 from src.pipelines.language_model.definition import (
     DEFAULT_TOKENIZER_TRAINING_NAME,
     TOKENIZER_STAGE,
@@ -53,7 +52,7 @@ def add_pipeline_steps(
     text_normalization: str,
 ) -> None:
     artifact_monitors = pipeline_artifact_monitors()
-    metric_monitors = pipeline_metric_monitors(VALIDATION_PARTITION)
+    metric_monitors = pipeline_metric_monitors()
     common_step_kwargs = {
         "clearml_output_uri": clearml_output_uri,
         "clearml_tags": "\n".join(clearml_tags),
