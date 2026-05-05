@@ -34,6 +34,16 @@ MODEL_TRAINING_PIPELINE = PipelineDefinition(
     stage_dependencies=MODEL_TRAINING_STAGE_DEPENDENCIES,
 )
 
+MODEL_TRAINING_PIPELINE_PARAMETERS = {
+    "model_name": "Registered model implementation to train, evaluate, and query.",
+    "smoothing": "Add-k smoothing value for models that use it.",
+    "unigram_weight": "Interpolation weight for unigram probabilities in models that use it.",
+    "bigram_weight": "Interpolation weight for bigram probabilities in models that use it.",
+    "trigram_weight": "Interpolation weight for trigram probabilities in models that use it.",
+    "discount": "Absolute discount value for models that use it.",
+    "text_normalization": "Text normalization applied before model training.",
+}
+
 
 def add_pipeline_steps(
     pipeline: object,
@@ -69,6 +79,17 @@ def add_pipeline_steps(
     query_seed: int | None,
     text_normalization: str,
 ) -> None:
+    pipeline_parameters = {
+        "model_name": model_name,
+        "smoothing": smoothing,
+        "unigram_weight": unigram_weight,
+        "bigram_weight": bigram_weight,
+        "trigram_weight": trigram_weight,
+        "discount": discount,
+        "text_normalization": text_normalization,
+    }
+    _add_pipeline_parameters(pipeline, pipeline_parameters)
+
     artifact_monitors = pipeline_artifact_monitors()
     metric_monitors = pipeline_metric_monitors(evaluation_partition)
     common_step_kwargs = {
@@ -91,7 +112,7 @@ def add_pipeline_steps(
         function=train_model_stage_entry,
         function_kwargs={
             "tokenizer_task_id": tokenizer_task_id,
-            "model_name": model_name,
+            "model_name": _pipeline_parameter_ref("model_name"),
             "corpus": corpus,
             "dataset_id": dataset_id,
             "source_split": source_split,
@@ -100,12 +121,12 @@ def add_pipeline_steps(
             "limit": training_limit,
             "train_ratio": train_ratio,
             "split_seed": split_seed,
-            "smoothing": smoothing,
-            "unigram_weight": unigram_weight,
-            "bigram_weight": bigram_weight,
-            "trigram_weight": trigram_weight,
-            "discount": discount,
-            "text_normalization": text_normalization,
+            "smoothing": _pipeline_parameter_ref("smoothing"),
+            "unigram_weight": _pipeline_parameter_ref("unigram_weight"),
+            "bigram_weight": _pipeline_parameter_ref("bigram_weight"),
+            "trigram_weight": _pipeline_parameter_ref("trigram_weight"),
+            "discount": _pipeline_parameter_ref("discount"),
+            "text_normalization": _pipeline_parameter_ref("text_normalization"),
             **common_step_kwargs,
         },
         task_name=MODEL_STAGE,
@@ -120,7 +141,7 @@ def add_pipeline_steps(
         function=evaluate_stage_entry,
         function_kwargs={
             "model_task_id": f"${{{MODEL_STAGE}.id}}",
-            "model_name": model_name,
+            "model_name": _pipeline_parameter_ref("model_name"),
             "corpus": corpus,
             "dataset_id": dataset_id,
             "source_split": source_split,
@@ -146,7 +167,7 @@ def add_pipeline_steps(
         function=query_stage_entry,
         function_kwargs={
             "model_task_id": f"${{{MODEL_STAGE}.id}}",
-            "model_name": model_name,
+            "model_name": _pipeline_parameter_ref("model_name"),
             "corpus": corpus,
             "prompt": query_prompt,
             "max_tokens": query_max_tokens,
@@ -167,6 +188,28 @@ def add_pipeline_steps(
 
 
 add_model_training_steps = add_pipeline_steps
+
+
+def _add_pipeline_parameters(
+    pipeline: object,
+    parameters: dict[str, object],
+) -> None:
+    add_parameter = getattr(pipeline, "add_parameter", None)
+    if not callable(add_parameter):
+        return
+
+    for name, value in parameters.items():
+        param_type = type(value).__name__ if value is not None else None
+        add_parameter(
+            name=name,
+            default=value,
+            description=MODEL_TRAINING_PIPELINE_PARAMETERS[name],
+            param_type=param_type,
+        )
+
+
+def _pipeline_parameter_ref(name: str) -> str:
+    return f"${{pipeline.{name}}}"
 
 
 __all__ = (
