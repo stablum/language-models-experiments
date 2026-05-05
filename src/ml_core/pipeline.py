@@ -22,7 +22,7 @@ from src.ml_core.tracking import (
 
 DEFAULT_PIPELINE_NAME = "pipeline"
 DEFAULT_CONTROLLER_QUEUE = "services"
-DEFAULT_PIPELINE_VERSION_FALLBACK = "0.5.4"
+DEFAULT_PIPELINE_VERSION_FALLBACK = "0.0.0+unknown"
 
 PIPELINE_CONTROL_SECTION = "Pipeline Control"
 PIPELINE_CONTROL_MODE = f"{PIPELINE_CONTROL_SECTION}/run_mode"
@@ -72,7 +72,10 @@ class StageEligibility:
 
 
 def project_version() -> str:
-    pyproject_path = Path(__file__).resolve().parents[3] / "pyproject.toml"
+    pyproject_path = project_metadata_path()
+    if pyproject_path is None:
+        return DEFAULT_PIPELINE_VERSION_FALLBACK
+
     try:
         with pyproject_path.open("rb") as pyproject_file:
             data = tomllib.load(pyproject_file)
@@ -84,6 +87,14 @@ def project_version() -> str:
         return DEFAULT_PIPELINE_VERSION_FALLBACK
     version = project.get("version")
     return str(version) if version else DEFAULT_PIPELINE_VERSION_FALLBACK
+
+
+def project_metadata_path() -> Path | None:
+    for parent in Path(__file__).resolve().parents:
+        pyproject_path = parent / "pyproject.toml"
+        if pyproject_path.exists():
+            return pyproject_path
+    return None
 
 
 DEFAULT_PIPELINE_VERSION = project_version()
