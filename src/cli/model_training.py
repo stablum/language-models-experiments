@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -32,6 +33,15 @@ from src.cli.pipeline_steps import (
     pipeline_artifact_monitors,
     pipeline_metric_monitors,
 )
+from src.cli.optuna_search import (
+    DEFAULT_OPTUNA_DIRECTION,
+    DEFAULT_OPTUNA_METRIC,
+    SearchSpec,
+    describe_search_space,
+    load_objective_metric,
+    parse_optuna_search_specs,
+    sample_trial_parameters,
+)
 from src.cli.stage_pipeline_steps import (
     evaluate_stage_entry,
     query_stage_entry,
@@ -55,6 +65,7 @@ from src.ml_core.tracking.clearml import (
 
 
 MODEL_TRAINING_CONFIG_SECTION = "model-training"
+OPTUNA_CONFIG_SECTION = "optuna"
 TRAIN_CONFIG_SECTION = "train"
 EVALUATE_CONFIG_SECTION = "evaluate"
 QUERY_CONFIG_SECTION = "query"
@@ -153,6 +164,7 @@ def load_model_training_command_defaults(_config_section: str) -> dict[str, obje
     train_defaults = load_defaults_from_sections((TRAIN_CONFIG_SECTION,))
     evaluate_defaults = load_defaults_from_sections((EVALUATE_CONFIG_SECTION,))
     query_defaults = load_defaults_from_sections((QUERY_CONFIG_SECTION,))
+    optuna_defaults = load_defaults_from_sections((OPTUNA_CONFIG_SECTION,))
     pipeline_defaults = load_defaults_from_sections((MODEL_TRAINING_CONFIG_SECTION,))
 
     defaults.update(
@@ -223,6 +235,7 @@ def load_model_training_command_defaults(_config_section: str) -> dict[str, obje
             },
         )
     )
+    defaults.update(optuna_defaults)
     defaults.update(pipeline_defaults)
     return defaults
 
@@ -470,6 +483,58 @@ def _mapped_config_values(
     show_default=True,
     help="Text normalization applied before model training.",
 )
+@click.option(
+    "--optuna-trials",
+    type=click.IntRange(min=0),
+    default=0,
+    show_default=True,
+    help="Run this many Optuna trials. Zero disables hyperparameter optimization.",
+)
+@click.option(
+    "--optuna-search",
+    "optuna_search",
+    multiple=True,
+    help=(
+        "Hyperparameter search spec. Repeatable. Examples: "
+        "smoothing=float:1e-4:1.0:log, discount=float:0.1:0.95, "
+        "top_k=int:1:10, model=categorical:bigram,trigram."
+    ),
+)
+@click.option(
+    "--optuna-metric",
+    default=DEFAULT_OPTUNA_METRIC,
+    show_default=True,
+    help="Evaluation summary metric used as the Optuna objective.",
+)
+@click.option(
+    "--optuna-direction",
+    type=click.Choice(("minimize", "maximize")),
+    default=DEFAULT_OPTUNA_DIRECTION,
+    show_default=True,
+    help="Whether Optuna should minimize or maximize the objective metric.",
+)
+@click.option(
+    "--optuna-study-name",
+    default=None,
+    help="Optional Optuna study name. Required by some persistent storage backends.",
+)
+@click.option(
+    "--optuna-storage",
+    default=None,
+    help="Optional Optuna storage URL, for example sqlite:///optuna.db.",
+)
+@click.option(
+    "--optuna-load-if-exists/--optuna-no-load-if-exists",
+    default=True,
+    show_default=True,
+    help="Reuse an existing named Optuna study when storage is configured.",
+)
+@click.option(
+    "--optuna-timeout-seconds",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Optional maximum wall-clock time for the Optuna study.",
+)
 @clearml_options
 def main(
     pipeline_name: str,
@@ -509,6 +574,14 @@ def main(
     query_temperature: float,
     query_seed: int | None,
     text_normalization: str,
+    optuna_trials: int,
+    optuna_search: tuple[str, ...],
+    optuna_metric: str,
+    optuna_direction: str,
+    optuna_study_name: str | None,
+    optuna_storage: str | None,
+    optuna_load_if_exists: bool,
+    optuna_timeout_seconds: int | None,
     clearml_project: str,
     clearml_task_name: str | None,
     clearml_config_file: Path | None,
@@ -731,6 +804,8 @@ def main(
         stage_defaults=evaluate_defaults,
         global_limit=limit,
     )
+    optuna_search_specs = parse_optuna_search_specs(optuna_search)
+    optuna_enabled = optuna_trials > 0 or bool(optuna_search_specs)
 
     corpus_definition = get_corpus(corpus)
     model_definition = get_model(model_name)
@@ -756,6 +831,20 @@ def main(
         raise click.ClickException("--run-stage and --run-until-stage are mutually exclusive.")
     if pipeline_controller_id is not None and run_stage is None:
         raise click.ClickException("--pipeline-controller-id must be used with --run-stage.")
+    if optuna_enabled:
+        if optuna_trials <= 0:
+            raise click.ClickException("--optuna-trials must be greater than zero when --optuna-search is set.")
+        if not optuna_search_specs:
+            raise click.ClickException("--optuna-trials requires at least one --optuna-search spec.")
+        if run_stage is not None or run_until_stage is not None or pipeline_controller_id is not None:
+            raise click.ClickException(
+                "Optuna runs the full model-training pipeline for every trial; "
+                "do not combine it with --run-stage, --run-until-stage, or --pipeline-controller-id."
+            )
+        if not wait:
+            raise click.ClickException(
+                "Optuna requires --wait so each trial can read its evaluation objective metric."
+            )
 
     parameter_filters = {
         "model": model_definition.name,
@@ -790,6 +879,340 @@ def main(
         )
         return
 
+    if optuna_enabled:
+        _run_optuna_model_training(
+            optuna_trials=optuna_trials,
+            optuna_search_specs=optuna_search_specs,
+            optuna_metric=optuna_metric,
+            optuna_direction=optuna_direction,
+            optuna_study_name=optuna_study_name,
+            optuna_storage=optuna_storage,
+            optuna_load_if_exists=optuna_load_if_exists,
+            optuna_timeout_seconds=optuna_timeout_seconds,
+            resolved_pipeline_name=resolved_pipeline_name,
+            pipeline_version=pipeline_version,
+            pipeline_local=pipeline_local,
+            controller_queue=controller_queue,
+            execution_queue=execution_queue,
+            wait=wait,
+            add_run_number=add_run_number,
+            tokenizer_training_name=tokenizer_training_name,
+            model_name=model_definition.name,
+            corpus=corpus,
+            resolved_tokenizer_model_name=resolved_tokenizer_model_name,
+            resolved_dataset_id=resolved_dataset_id,
+            resolved_source_split=resolved_source_split,
+            resolved_text_column=resolved_text_column,
+            streaming=streaming,
+            train_ratio=train_ratio,
+            split_seed=split_seed,
+            evaluation_partition=evaluation_partition,
+            training_limit=resolved_training_limit,
+            evaluation_limit=resolved_evaluation_limit,
+            smoothing=smoothing,
+            unigram_weight=unigram_weight,
+            bigram_weight=bigram_weight,
+            trigram_weight=trigram_weight,
+            discount=discount,
+            top_k=top_k,
+            query_prompt=query_prompt,
+            query_max_tokens=query_max_tokens,
+            query_top_k=query_top_k,
+            query_decoding=query_decoding,
+            query_temperature=query_temperature,
+            query_seed=query_seed,
+            text_normalization=text_normalization,
+            clearml_project=clearml_project,
+            clearml_config_file=clearml_config_file,
+            clearml_connectivity_check=clearml_connectivity_check,
+            clearml_output_uri=clearml_output_uri,
+            clearml_tags=clearml_tags,
+        )
+        return
+
+    _run_model_training_pipeline(
+        resolved_pipeline_name=resolved_pipeline_name,
+        pipeline_version=pipeline_version,
+        pipeline_local=pipeline_local,
+        controller_queue=controller_queue,
+        execution_queue=execution_queue,
+        wait=wait,
+        add_run_number=add_run_number,
+        run_until_stage=run_until_stage,
+        tokenizer_training_name=tokenizer_training_name,
+        model_name=model_definition.name,
+        corpus=corpus,
+        resolved_tokenizer_model_name=resolved_tokenizer_model_name,
+        resolved_dataset_id=resolved_dataset_id,
+        resolved_source_split=resolved_source_split,
+        resolved_text_column=resolved_text_column,
+        streaming=streaming,
+        train_ratio=train_ratio,
+        split_seed=split_seed,
+        evaluation_partition=evaluation_partition,
+        training_limit=resolved_training_limit,
+        evaluation_limit=resolved_evaluation_limit,
+        smoothing=smoothing,
+        unigram_weight=unigram_weight,
+        bigram_weight=bigram_weight,
+        trigram_weight=trigram_weight,
+        discount=discount,
+        top_k=top_k,
+        query_prompt=query_prompt,
+        query_max_tokens=query_max_tokens,
+        query_top_k=query_top_k,
+        query_decoding=query_decoding,
+        query_temperature=query_temperature,
+        query_seed=query_seed,
+        text_normalization=text_normalization,
+        clearml_project=clearml_project,
+        clearml_config_file=clearml_config_file,
+        clearml_connectivity_check=clearml_connectivity_check,
+        clearml_output_uri=clearml_output_uri,
+        clearml_tags=clearml_tags,
+    )
+
+
+def _run_optuna_model_training(
+    *,
+    optuna_trials: int,
+    optuna_search_specs: Sequence[SearchSpec],
+    optuna_metric: str,
+    optuna_direction: str,
+    optuna_study_name: str | None,
+    optuna_storage: str | None,
+    optuna_load_if_exists: bool,
+    optuna_timeout_seconds: int | None,
+    resolved_pipeline_name: str,
+    pipeline_version: str,
+    pipeline_local: bool,
+    controller_queue: str,
+    execution_queue: str | None,
+    wait: bool,
+    add_run_number: bool,
+    tokenizer_training_name: str,
+    model_name: str,
+    corpus: str,
+    resolved_tokenizer_model_name: str,
+    resolved_dataset_id: str,
+    resolved_source_split: str | None,
+    resolved_text_column: str,
+    streaming: bool,
+    train_ratio: float,
+    split_seed: int,
+    evaluation_partition: str,
+    training_limit: int | None,
+    evaluation_limit: int | None,
+    smoothing: float,
+    unigram_weight: float,
+    bigram_weight: float,
+    trigram_weight: float,
+    discount: float,
+    top_k: int,
+    query_prompt: str,
+    query_max_tokens: int,
+    query_top_k: int,
+    query_decoding: str,
+    query_temperature: float,
+    query_seed: int | None,
+    text_normalization: str,
+    clearml_project: str,
+    clearml_config_file: Path | None,
+    clearml_connectivity_check: bool,
+    clearml_output_uri: str | None,
+    clearml_tags: tuple[str, ...],
+) -> None:
+    try:
+        import optuna
+    except ImportError as error:
+        raise click.ClickException(
+            "Optuna optimization requires the optuna Python package. "
+            "Run `uv sync` before using --optuna-trials."
+        ) from error
+
+    study = optuna.create_study(
+        study_name=optuna_study_name,
+        storage=optuna_storage,
+        direction=optuna_direction,
+        load_if_exists=optuna_load_if_exists,
+    )
+    click.echo(f"Optuna study: {study.study_name}")
+    click.echo(f"Optuna direction: {optuna_direction}")
+    click.echo(f"Optuna objective metric: {optuna_metric}")
+    click.echo(f"Optuna search space: {describe_search_space(optuna_search_specs)}")
+    click.echo(f"Optuna trials: {optuna_trials}")
+
+    def objective(trial: Any) -> float:
+        sampled_parameters = sample_trial_parameters(trial, optuna_search_specs)
+        trial_values = {
+            "model_name": model_name,
+            "smoothing": smoothing,
+            "unigram_weight": unigram_weight,
+            "bigram_weight": bigram_weight,
+            "trigram_weight": trigram_weight,
+            "discount": discount,
+            "top_k": top_k,
+            "query_max_tokens": query_max_tokens,
+            "query_top_k": query_top_k,
+            "query_decoding": query_decoding,
+            "query_temperature": query_temperature,
+            "query_seed": query_seed,
+        }
+        trial_values.update(sampled_parameters)
+        trial_tags = tuple(
+            dict.fromkeys(
+                (
+                    *clearml_tags,
+                    "optuna",
+                    f"optuna-study-{study.study_name}",
+                    f"optuna-trial-{trial.number}",
+                )
+            )
+        )
+        click.echo(
+            f"Optuna trial {trial.number}: "
+            + ", ".join(
+                f"{name}={value!r}"
+                for name, value in sorted(sampled_parameters.items())
+            )
+        )
+        controller_id = _run_model_training_pipeline(
+            resolved_pipeline_name=resolved_pipeline_name,
+            pipeline_version=pipeline_version,
+            pipeline_local=pipeline_local,
+            controller_queue=controller_queue,
+            execution_queue=execution_queue,
+            wait=wait,
+            add_run_number=add_run_number,
+            run_until_stage=None,
+            tokenizer_training_name=tokenizer_training_name,
+            model_name=str(trial_values["model_name"]),
+            corpus=corpus,
+            resolved_tokenizer_model_name=resolved_tokenizer_model_name,
+            resolved_dataset_id=resolved_dataset_id,
+            resolved_source_split=resolved_source_split,
+            resolved_text_column=resolved_text_column,
+            streaming=streaming,
+            train_ratio=train_ratio,
+            split_seed=split_seed,
+            evaluation_partition=evaluation_partition,
+            training_limit=training_limit,
+            evaluation_limit=evaluation_limit,
+            smoothing=float(trial_values["smoothing"]),
+            unigram_weight=float(trial_values["unigram_weight"]),
+            bigram_weight=float(trial_values["bigram_weight"]),
+            trigram_weight=float(trial_values["trigram_weight"]),
+            discount=float(trial_values["discount"]),
+            top_k=int(trial_values["top_k"]),
+            query_prompt=query_prompt,
+            query_max_tokens=int(trial_values["query_max_tokens"]),
+            query_top_k=int(trial_values["query_top_k"]),
+            query_decoding=str(trial_values["query_decoding"]),
+            query_temperature=float(trial_values["query_temperature"]),
+            query_seed=(
+                int(trial_values["query_seed"])
+                if trial_values["query_seed"] is not None
+                else None
+            ),
+            text_normalization=text_normalization,
+            clearml_project=clearml_project,
+            clearml_config_file=clearml_config_file,
+            clearml_connectivity_check=clearml_connectivity_check,
+            clearml_output_uri=clearml_output_uri,
+            clearml_tags=trial_tags,
+            extra_controller_parameters={
+                "optuna_study_name": study.study_name,
+                "optuna_trial_number": trial.number,
+                "optuna_metric": optuna_metric,
+                "optuna_direction": optuna_direction,
+                **{
+                    f"optuna_{name}": value
+                    for name, value in sampled_parameters.items()
+                },
+            },
+        )
+        objective_value = load_objective_metric(
+            controller_id=controller_id,
+            metric_name=optuna_metric,
+            evaluation_partition=evaluation_partition,
+        )
+        trial.set_user_attr("pipeline_controller_id", controller_id)
+        trial.set_user_attr("objective_metric", optuna_metric)
+        click.echo(f"Optuna trial {trial.number} objective: {objective_value}")
+        return objective_value
+
+    study.optimize(
+        objective,
+        n_trials=optuna_trials,
+        timeout=optuna_timeout_seconds,
+    )
+    try:
+        best_trial = study.best_trial
+    except ValueError:
+        click.echo("Optuna study completed without a finished trial.")
+        return
+
+    click.echo(f"Optuna best trial: {best_trial.number}")
+    click.echo(f"Optuna best value: {best_trial.value}")
+    if best_trial.params:
+        click.echo(
+            "Optuna best parameters: "
+            + ", ".join(
+                f"{name}={value!r}"
+                for name, value in sorted(best_trial.params.items())
+            )
+        )
+
+
+def _run_model_training_pipeline(
+    *,
+    resolved_pipeline_name: str,
+    pipeline_version: str,
+    pipeline_local: bool,
+    controller_queue: str,
+    execution_queue: str | None,
+    wait: bool,
+    add_run_number: bool,
+    run_until_stage: str | None,
+    tokenizer_training_name: str,
+    model_name: str,
+    corpus: str,
+    resolved_tokenizer_model_name: str,
+    resolved_dataset_id: str,
+    resolved_source_split: str | None,
+    resolved_text_column: str,
+    streaming: bool,
+    train_ratio: float,
+    split_seed: int,
+    evaluation_partition: str,
+    training_limit: int | None,
+    evaluation_limit: int | None,
+    smoothing: float,
+    unigram_weight: float,
+    bigram_weight: float,
+    trigram_weight: float,
+    discount: float,
+    top_k: int,
+    query_prompt: str,
+    query_max_tokens: int,
+    query_top_k: int,
+    query_decoding: str,
+    query_temperature: float,
+    query_seed: int | None,
+    text_normalization: str,
+    clearml_project: str,
+    clearml_config_file: Path | None,
+    clearml_connectivity_check: bool,
+    clearml_output_uri: str | None,
+    clearml_tags: tuple[str, ...],
+    extra_controller_parameters: Mapping[str, object] | None = None,
+) -> str:
+    model_definition = get_model(model_name)
+    if model_definition.evaluate is None or model_definition.evaluation_items is None:
+        raise click.ClickException(f"Model does not support evaluation yet: {model_name}")
+    if model_definition.query is None or model_definition.query_lines is None:
+        raise click.ClickException(f"Model does not support querying yet: {model_name}")
+
     settings = clearml_settings(
         project_name=clearml_project,
         task_name=resolved_pipeline_name,
@@ -823,21 +1246,21 @@ def main(
         run_until_stage=run_until_stage,
         updated_by="pipeline-cli",
     )
-    connect_controller_experiment_parameters(
-        pipeline.task,
-        {
-            "model": model_definition.name,
-            "corpus": corpus,
-            "tokenizer_model_name": resolved_tokenizer_model_name,
-            "tokenizer_training_name": tokenizer_training_name,
-            "tokenizer_training_controller_id": tokenizer_resolution.controller_id,
-            "tokenizer_task_id": tokenizer_resolution.tokenizer_task_id,
-            "dataset_id": resolved_dataset_id,
-            "source_split": resolved_source_split or "",
-            "text_column": resolved_text_column,
-            "evaluation_partition": evaluation_partition,
-        },
-    )
+    controller_parameters: dict[str, object] = {
+        "model": model_definition.name,
+        "corpus": corpus,
+        "tokenizer_model_name": resolved_tokenizer_model_name,
+        "tokenizer_training_name": tokenizer_training_name,
+        "tokenizer_training_controller_id": tokenizer_resolution.controller_id,
+        "tokenizer_task_id": tokenizer_resolution.tokenizer_task_id,
+        "dataset_id": resolved_dataset_id,
+        "source_split": resolved_source_split or "",
+        "text_column": resolved_text_column,
+        "evaluation_partition": evaluation_partition,
+    }
+    if extra_controller_parameters:
+        controller_parameters.update(extra_controller_parameters)
+    connect_controller_experiment_parameters(pipeline.task, controller_parameters)
     add_pipeline_steps(
         pipeline,
         clearml_project=settings.project_name,
@@ -855,8 +1278,8 @@ def main(
         train_ratio=train_ratio,
         split_seed=split_seed,
         evaluation_partition=evaluation_partition,
-        training_limit=resolved_training_limit,
-        evaluation_limit=resolved_evaluation_limit,
+        training_limit=training_limit,
+        evaluation_limit=evaluation_limit,
         smoothing=smoothing,
         unigram_weight=unigram_weight,
         bigram_weight=bigram_weight,
@@ -903,6 +1326,7 @@ def main(
             stage_names=MODEL_TRAINING_STAGES,
         )
         click.echo("ClearML pipeline run completed.")
+    return str(pipeline.task.id)
 
 
 def add_pipeline_steps(

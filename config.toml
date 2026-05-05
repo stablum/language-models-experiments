@@ -36,6 +36,23 @@ add_run_number = true
 # Leave source_split unset to merge all available source splits, or set it to a
 # source split name such as "train" to restrict the input rows before partitioning.
 
+[optuna]
+# Optuna is disabled unless optuna_trials is greater than zero.
+# Search specs use:
+#   name = float:low:high[:log]
+#   name = int:low:high[:step][:log]
+#   name = categorical:value1,value2
+# Supported names include model, smoothing, discount, unigram_weight,
+# bigram_weight, trigram_weight, top_k, query_max_tokens, query_top_k,
+# query_decoding, query_temperature, and query_seed.
+# optuna_trials = 10
+# optuna_metric = "perplexity"
+# optuna_direction = "minimize"
+# optuna_search = [
+#   "smoothing=float:1e-4:1.0:log",
+#   "discount=float:0.1:0.95",
+# ]
+
 [tokenizer-training]
 # pipeline_version defaults to the project version in pyproject.toml.
 pipeline_local = true

@@ -278,6 +278,37 @@ uv run python -m src.cli.model_training --model bigram --tokenizer-model-name ti
 
 The evaluation stage reports next-token accuracy, top-k accuracy, average negative log-likelihood, cross-entropy, and perplexity on the `validation` partition by default. ClearML records the partition in the Data/Data split sections and prefixes evaluation metric series with the partition name, such as `validation/perplexity`. Pass `--evaluation-partition train` only when you intentionally want training-partition diagnostics.
 
+### Optuna Hyperparameter Optimization
+
+`src.cli.model_training` can run an Optuna study where each trial launches the full model-training pipeline. A successful trial always completes `train_model`, `evaluate`, and `query`; Optuna then reads the selected metric from the evaluation summary artifact. The default objective is `perplexity` with `minimize`.
+
+```powershell
+uv run python -m src.cli.model_training --streaming --limit 1000 --optuna-trials 10 --optuna-search smoothing=float:1e-4:1.0:log --optuna-search discount=float:0.1:0.95
+```
+
+Search specs are repeatable and use one of these forms:
+
+```text
+name=float:low:high[:log]
+name=int:low:high[:step][:log]
+name=categorical:value1,value2
+```
+
+Supported names are `model`, `smoothing`, `discount`, `unigram_weight`, `bigram_weight`, `trigram_weight`, `top_k`, `query_max_tokens`, `query_top_k`, `query_decoding`, `query_temperature`, and `query_seed`. Use `--optuna-metric next_token_accuracy --optuna-direction maximize` to optimize an accuracy metric instead of perplexity. Persistent studies can be configured with `--optuna-study-name` and `--optuna-storage`, for example `sqlite:///artifacts/optuna.db`.
+
+The same settings can live in `config.toml`, either in `[optuna]` or as command-specific keys in `[model-training]`:
+
+```toml
+[optuna]
+optuna_trials = 10
+optuna_metric = "perplexity"
+optuna_direction = "minimize"
+optuna_search = [
+  "smoothing=float:1e-4:1.0:log",
+  "discount=float:0.1:0.95",
+]
+```
+
 ## Corpora
 
 The CLI is corpus-generic. These corpora are currently registered:
