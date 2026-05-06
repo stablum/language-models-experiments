@@ -22,8 +22,8 @@ from src.pipelines.language_model.tokenizer_training import (
     TOKENIZER_TRAINING_PIPELINE,
     add_tokenizer_training_step,
 )
-from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
-from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
+from src.corpora import normalization
+from src.corpora import registry as corpora_registry
 from src.ml_core.data.splits import (
     DEFAULT_SPLIT_SEED,
     DEFAULT_TRAIN_RATIO,
@@ -53,8 +53,8 @@ def load_tokenizer_training_command_defaults(_config_section: str) -> dict[str, 
 @pipeline_options(default_name=TOKENIZER_TRAINING_PIPELINE.default_name)
 @click.option(
     "--corpus",
-    type=click.Choice(corpus_names()),
-    default=DEFAULT_CORPUS_NAME,
+    type=click.Choice(corpora_registry.corpus_names()),
+    default=corpora_registry.default_corpus_name(),
     show_default=True,
     help="Registered corpus to train on.",
 )
@@ -135,8 +135,8 @@ def load_tokenizer_training_command_defaults(_config_section: str) -> dict[str, 
 )
 @click.option(
     "--text-normalization",
-    type=click.Choice(TEXT_NORMALIZATION_MODES),
-    default=DEFAULT_TEXT_NORMALIZATION,
+    type=click.Choice(normalization.TEXT_NORMALIZATION_MODES),
+    default=normalization.DEFAULT_TEXT_NORMALIZATION,
     show_default=True,
     help="Text normalization applied before tokenizer training.",
 )
@@ -175,7 +175,7 @@ def main(
     if pipeline_local and not wait:
         raise click.ClickException("--no-wait is only supported with --pipeline-queued.")
 
-    corpus_definition = get_corpus(corpus)
+    corpus_definition = corpora_registry.get_corpus(corpus)
     resolved_pipeline_name = clearml_task_name or pipeline_name
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
     resolved_source_split = source_split if source_split is not None else corpus_definition.split

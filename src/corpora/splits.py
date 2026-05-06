@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from src.corpora.text import iter_text_column
+from src.corpora import text as corpus_text
 from src.ml_core.data.splits import (
     DEFAULT_SPLIT_SEED,
     DEFAULT_TRAIN_RATIO,
@@ -57,7 +57,7 @@ def load_partition_texts(
         partition=partition,
         plan=plan,
     )
-    return iter_text_column(
+    return corpus_text.iter_text_column(
         rows,
         text_column=text_column,
         limit=limit,

@@ -6,28 +6,12 @@ import json
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import sentencepiece as spm
 
-from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TextNormalization
-from src.models import ngram
+from src.corpora import normalization
+from src.models import formatting, ngram, trigram_common
 from src.ml_core.models.definition import ModelDefinition, ModelOptionError, ModelOptions
-from src.models.formatting import (
-    artifact_filename,
-    format_ngram_evaluation_metrics,
-    format_ngram_query,
-)
-from src.models.trigram_common import (
-    BaseTrigramModel,
-    Context,
-    TrigramEvaluationRow,
-    TrigramQueryResult,
-    collect_trigram_counts,
-    parse_bigram_transitions,
-    parse_trigram_transitions,
-    trigram_counts_payload,
-)
 
 
 MODEL_NAME = "trigram-absolute-discount"
@@ -47,13 +31,41 @@ class AbsoluteDiscountTrigramTrainingSummary:
     text_normalization: str
 
 
+@dataclass
+class _AbsoluteDiscountTrigramTrainingSummaryDraft:
+    output_path: Path
+    tokenizer_model: Path
+    vocab_size: int = 0
+    sequence_count: int = 0
+    token_count: int = 0
+    unigram_count: int = 0
+    bigram_transition_count: int = 0
+    trigram_transition_count: int = 0
+    discount: float = 0.0
+    text_normalization: str = "none"
+
+    def freeze(self) -> AbsoluteDiscountTrigramTrainingSummary:
+        return AbsoluteDiscountTrigramTrainingSummary(
+            output_path=self.output_path,
+            tokenizer_model=self.tokenizer_model,
+            vocab_size=self.vocab_size,
+            sequence_count=self.sequence_count,
+            token_count=self.token_count,
+            unigram_count=self.unigram_count,
+            bigram_transition_count=self.bigram_transition_count,
+            trigram_transition_count=self.trigram_transition_count,
+            discount=self.discount,
+            text_normalization=self.text_normalization,
+        )
+
+
 @dataclass(frozen=True)
 class AbsoluteDiscountTrigramEvaluationSummary(ngram.NgramEvaluationSummary):
     discount: float
 
 
 @dataclass(frozen=True)
-class AbsoluteDiscountTrigramModel(BaseTrigramModel):
+class AbsoluteDiscountTrigramModel(trigram_common.BaseTrigramModel):
     model_path: Path
     tokenizer_model: Path
     processor: spm.SentencePieceProcessor
@@ -65,23 +77,24 @@ class AbsoluteDiscountTrigramModel(BaseTrigramModel):
     unk_id: int
     pieces: tuple[str, ...]
     bigram_transitions: dict[int, tuple[tuple[int, int], ...]]
-    trigram_transitions: dict[Context, tuple[tuple[int, int], ...]]
+    trigram_transitions: dict[trigram_common.Context, tuple[tuple[int, int], ...]]
     text_normalization: str = "none"
 
-    def evaluation_summary(self, **kwargs: Any) -> AbsoluteDiscountTrigramEvaluationSummary:
-        return AbsoluteDiscountTrigramEvaluationSummary(
-            model_path=self.model_path,
-            tokenizer_model=self.tokenizer_model,
+    def evaluation_summary(
+        self,
+        summary: ngram.NgramEvaluationSummaryDraft,
+    ) -> AbsoluteDiscountTrigramEvaluationSummary:
+        return summary.freeze(
+            AbsoluteDiscountTrigramEvaluationSummary,
             discount=self.discount,
-            **kwargs,
         )
 
     def transition_probability(
         self,
         next_id: int,
-        context: Context,
+        context: trigram_common.Context,
         *,
-        row: TrigramEvaluationRow | None = None,
+        row: trigram_common.TrigramEvaluationRow | None = None,
         bigram_counts: dict[int, int] | None = None,
         trigram_counts: dict[int, int] | None = None,
         bigram_total: int | None = None,
@@ -172,8 +185,8 @@ def load_absolute_discount_trigram_model(model_path: Path) -> AbsoluteDiscountTr
         eos_id=int(data["eos_id"]),
         unk_id=int(data["unk_id"]),
         pieces=ngram.load_pieces(data, processor, vocab_size),
-        bigram_transitions=parse_bigram_transitions(data),
-        trigram_transitions=parse_trigram_transitions(data),
+        bigram_transitions=trigram_common.parse_bigram_transitions(data),
+        trigram_transitions=trigram_common.parse_trigram_transitions(data),
         text_normalization=str(data.get("text_normalization", "none")),
     )
 
@@ -186,47 +199,48 @@ def train_absolute_discount_trigram_model(
     stored_tokenizer_model: Path | None = None,
     smoothing: float = 0.1,
     discount: float = 0.75,
-    text_normalization: TextNormalization = DEFAULT_TEXT_NORMALIZATION,
+    text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> AbsoluteDiscountTrigramTrainingSummary:
     processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
-    counts = collect_trigram_counts(
+    summary = _AbsoluteDiscountTrigramTrainingSummaryDraft(
+        output_path=output_path,
+        tokenizer_model=tokenizer_model,
+        vocab_size=processor.get_piece_size(),
+        discount=discount,
+        text_normalization=text_normalization,
+    )
+    counts = trigram_common.collect_trigram_counts(
         texts,
         processor,
         text_normalization=text_normalization,
     )
+    summary.sequence_count = counts.sequence_count
+    summary.token_count = counts.token_count
+    summary.unigram_count = counts.unigram_count
+    summary.bigram_transition_count = counts.bigram_transition_count
+    summary.trigram_transition_count = counts.trigram_transition_count
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     model = {
         "schema_version": 1,
         "model_type": "absolute_discount_trigram",
         "tokenizer_model": str(stored_tokenizer_model or tokenizer_model),
-        "vocab_size": processor.get_piece_size(),
+        "vocab_size": summary.vocab_size,
         "smoothing": smoothing,
         "text_normalization": text_normalization,
-        "discount": discount,
+        "discount": summary.discount,
         "bos_id": processor.bos_id(),
         "eos_id": processor.eos_id(),
         "unk_id": processor.unk_id(),
-        "pieces": [processor.id_to_piece(index) for index in range(processor.get_piece_size())],
-        **trigram_counts_payload(counts),
+        "pieces": [processor.id_to_piece(index) for index in range(summary.vocab_size)],
+        **trigram_common.trigram_counts_payload(counts),
     }
     output_path.write_text(
         json.dumps(model, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
 
-    return AbsoluteDiscountTrigramTrainingSummary(
-        output_path=output_path,
-        tokenizer_model=tokenizer_model,
-        vocab_size=processor.get_piece_size(),
-        sequence_count=counts.sequence_count,
-        token_count=counts.token_count,
-        unigram_count=counts.unigram_count,
-        bigram_transition_count=counts.bigram_transition_count,
-        trigram_transition_count=counts.trigram_transition_count,
-        discount=discount,
-        text_normalization=text_normalization,
-    )
+    return summary.freeze()
 
 
 def default_tokenizer_model(corpus: str) -> Path:
@@ -296,7 +310,7 @@ def train_from_options(
     )
 
 
-def query_from_options(options: ModelOptions) -> TrigramQueryResult:
+def query_from_options(options: ModelOptions) -> trigram_common.TrigramQueryResult:
     model = load_absolute_discount_trigram_model(resolve_model(options))
     return model.query(
         prompt=options["prompt"],
@@ -320,10 +334,10 @@ def format_summary(
     summary: AbsoluteDiscountTrigramTrainingSummary,
 ) -> list[tuple[str, str]]:
     return [
-        ("Tokenizer artifact file", artifact_filename(summary.tokenizer_model)),
+        ("Tokenizer artifact file", formatting.artifact_filename(summary.tokenizer_model)),
         (
             "Absolute-discount trigram model artifact file",
-            artifact_filename(summary.output_path),
+            formatting.artifact_filename(summary.output_path),
         ),
         ("Text normalization", summary.text_normalization),
         ("Vocabulary size", f"{summary.vocab_size:,}"),
@@ -340,16 +354,16 @@ def format_evaluation(
     summary: AbsoluteDiscountTrigramEvaluationSummary,
 ) -> list[tuple[str, str]]:
     return [
-        ("Model artifact file", artifact_filename(summary.model_path)),
-        ("Tokenizer artifact file", artifact_filename(summary.tokenizer_model)),
+        ("Model artifact file", formatting.artifact_filename(summary.model_path)),
+        ("Tokenizer artifact file", formatting.artifact_filename(summary.tokenizer_model)),
         ("Text normalization", summary.text_normalization),
         ("Discount", f"{summary.discount:.3f}"),
-        *format_ngram_evaluation_metrics(summary),
+        *formatting.format_ngram_evaluation_metrics(summary),
     ]
 
 
-def format_query(result: TrigramQueryResult) -> list[str]:
-    return format_ngram_query(result)
+def format_query(result: trigram_common.TrigramQueryResult) -> list[str]:
+    return formatting.format_ngram_query(result)
 
 
 MODEL_DEFINITION = ModelDefinition(

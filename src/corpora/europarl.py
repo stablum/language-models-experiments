@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from datasets import load_dataset
+import datasets
 
 
 DATASET_ID = "Helsinki-NLP/europarl"
@@ -19,19 +19,19 @@ SPLIT_NOTE = (
 TEXT_COLUMN = "translation.en"
 
 
-def load_europarl_dataset(
+def load_dataset(
     *,
     dataset_id: str = DATASET_ID,
     split: str | None = DEFAULT_SPLIT,
     streaming: bool = False,
 ) -> Any:
     if split is None:
-        return load_dataset(
+        return datasets.load_dataset(
             dataset_id,
             DEFAULT_CONFIG,
             streaming=streaming,
         )
-    return load_dataset(
+    return datasets.load_dataset(
         dataset_id,
         DEFAULT_CONFIG,
         split=split,

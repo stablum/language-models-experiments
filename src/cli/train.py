@@ -13,13 +13,13 @@ from src.pipelines.language_model.definition import (
     resume_pipeline_controller_stage,
 )
 from src.pipelines.language_model.model_training import MODEL_STAGE, MODEL_TRAINING_PIPELINE
-from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
-from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
+from src.corpora import normalization
+from src.corpora import registry as corpora_registry
 from src.ml_core.data.splits import (
     DEFAULT_SPLIT_SEED,
     DEFAULT_TRAIN_RATIO,
 )
-from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
+from src.models import registry as model_registry
 from src.ml_core.tracking import clearml_options
 
 
@@ -37,8 +37,8 @@ from src.ml_core.tracking import clearml_options
 @click.option(
     "--model",
     "model_name",
-    type=click.Choice(model_names()),
-    default=DEFAULT_MODEL_NAME,
+    type=click.Choice(model_registry.model_names()),
+    default=model_registry.default_model_name(),
     show_default=True,
     help="Registered model to train.",
 )
@@ -49,8 +49,8 @@ from src.ml_core.tracking import clearml_options
 )
 @click.option(
     "--corpus",
-    type=click.Choice(corpus_names()),
-    default=DEFAULT_CORPUS_NAME,
+    type=click.Choice(corpora_registry.corpus_names()),
+    default=corpora_registry.default_corpus_name(),
     show_default=True,
     help="Registered corpus to train on.",
 )
@@ -139,8 +139,8 @@ from src.ml_core.tracking import clearml_options
 )
 @click.option(
     "--text-normalization",
-    type=click.Choice(TEXT_NORMALIZATION_MODES),
-    default=DEFAULT_TEXT_NORMALIZATION,
+    type=click.Choice(normalization.TEXT_NORMALIZATION_MODES),
+    default=normalization.DEFAULT_TEXT_NORMALIZATION,
     show_default=True,
     help="Text normalization applied before model training.",
 )
@@ -179,8 +179,8 @@ def main(
     clearml_output_uri: str | None,
     clearml_tags: tuple[str, ...],
 ) -> None:
-    corpus_definition = get_corpus(corpus)
-    model_definition = get_model(model_name)
+    corpus_definition = corpora_registry.get_corpus(corpus)
+    model_definition = model_registry.get_model(model_name)
     resolved_tokenizer_model_name = str(tokenizer_model_name or "").strip()
     if not resolved_tokenizer_model_name:
         raise click.ClickException(

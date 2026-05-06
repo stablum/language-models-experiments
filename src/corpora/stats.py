@@ -8,8 +8,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.corpora.normalization import TextNormalization
-from src.corpora.text import iter_text_column
+from src.corpora import normalization
+from src.corpora import text as corpus_text
 
 
 @dataclass(order=True)
@@ -108,12 +108,12 @@ def scan_text_column(
     limit: int | None,
     top_n_lengths: int,
     preview_chars: int,
-    text_normalization: TextNormalization = "none",
+    text_normalization: normalization.TextNormalization = "none",
 ) -> CorpusStats:
     stats = CorpusStats()
 
     for row_number, text in enumerate(
-        iter_text_column(
+        corpus_text.iter_text_column(
             dataset,
             text_column=text_column,
             limit=limit,

@@ -7,31 +7,12 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import sentencepiece as spm
 
-from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TextNormalization
-from src.models import ngram
+from src.corpora import normalization
+from src.models import formatting, ngram, trigram_common
 from src.ml_core.models.definition import ModelDefinition, ModelOptionError, ModelOptions
-from src.models.formatting import (
-    artifact_filename,
-    format_ngram_evaluation_metrics,
-    format_ngram_query,
-)
-from src.models.trigram_common import (
-    BaseTrigramModel,
-    Context,
-    TrigramEvaluationRow,
-    TrigramQueryResult,
-    collect_trigram_counts,
-    parse_context_transitions,
-    parse_token_counts,
-    parse_token_transitions,
-    token_counts_payload,
-    token_transition_payload,
-    trigram_counts_payload,
-)
 
 
 MODEL_NAME = "trigram-kneser-ney"
@@ -51,6 +32,38 @@ class KneserNeyTrigramTrainingSummary:
     continuation_bigram_type_count: int
     discount: float
     text_normalization: str
+
+
+@dataclass
+class _KneserNeyTrigramTrainingSummaryDraft:
+    output_path: Path
+    tokenizer_model: Path
+    vocab_size: int = 0
+    sequence_count: int = 0
+    token_count: int = 0
+    unigram_count: int = 0
+    bigram_transition_count: int = 0
+    trigram_transition_count: int = 0
+    continuation_unigram_count: int = 0
+    continuation_bigram_type_count: int = 0
+    discount: float = 0.0
+    text_normalization: str = "none"
+
+    def freeze(self) -> KneserNeyTrigramTrainingSummary:
+        return KneserNeyTrigramTrainingSummary(
+            output_path=self.output_path,
+            tokenizer_model=self.tokenizer_model,
+            vocab_size=self.vocab_size,
+            sequence_count=self.sequence_count,
+            token_count=self.token_count,
+            unigram_count=self.unigram_count,
+            bigram_transition_count=self.bigram_transition_count,
+            trigram_transition_count=self.trigram_transition_count,
+            continuation_unigram_count=self.continuation_unigram_count,
+            continuation_bigram_type_count=self.continuation_bigram_type_count,
+            discount=self.discount,
+            text_normalization=self.text_normalization,
+        )
 
 
 @dataclass(frozen=True)
@@ -82,7 +95,7 @@ class KneserNeyContinuationCounts:
 
 
 @dataclass(frozen=True)
-class KneserNeyTrigramModel(BaseTrigramModel):
+class KneserNeyTrigramModel(trigram_common.BaseTrigramModel):
     model_path: Path
     tokenizer_model: Path
     processor: spm.SentencePieceProcessor
@@ -95,23 +108,24 @@ class KneserNeyTrigramModel(BaseTrigramModel):
     unigram_counts: dict[int, int]
     unigram_total: int
     bigram_transitions: dict[int, tuple[tuple[int, int], ...]]
-    trigram_transitions: dict[Context, tuple[tuple[int, int], ...]]
+    trigram_transitions: dict[trigram_common.Context, tuple[tuple[int, int], ...]]
     text_normalization: str = "none"
 
-    def evaluation_summary(self, **kwargs: Any) -> KneserNeyTrigramEvaluationSummary:
-        return KneserNeyTrigramEvaluationSummary(
-            model_path=self.model_path,
-            tokenizer_model=self.tokenizer_model,
+    def evaluation_summary(
+        self,
+        summary: ngram.NgramEvaluationSummaryDraft,
+    ) -> KneserNeyTrigramEvaluationSummary:
+        return summary.freeze(
+            KneserNeyTrigramEvaluationSummary,
             discount=self.discount,
-            **kwargs,
         )
 
     def transition_probability(
         self,
         next_id: int,
-        context: Context,
+        context: trigram_common.Context,
         *,
-        row: TrigramEvaluationRow | None = None,
+        row: trigram_common.TrigramEvaluationRow | None = None,
         bigram_counts: dict[int, int] | None = None,
         trigram_counts: dict[int, int] | None = None,
         bigram_total: int | None = None,
@@ -139,9 +153,9 @@ class KneserNeyTrigramModel(BaseTrigramModel):
 
     def _resolved_transition_counts(
         self,
-        context: Context,
+        context: trigram_common.Context,
         *,
-        row: TrigramEvaluationRow | None = None,
+        row: trigram_common.TrigramEvaluationRow | None = None,
         bigram_counts: Mapping[int, int] | None = None,
         trigram_counts: Mapping[int, int] | None = None,
         bigram_total: int | None = None,
@@ -266,10 +280,16 @@ def load_kneser_ney_trigram_model(model_path: Path) -> KneserNeyTrigramModel:
         eos_id=int(data["eos_id"]),
         unk_id=int(data["unk_id"]),
         pieces=ngram.load_pieces(data, processor, vocab_size),
-        unigram_counts=parse_token_counts(data, "kneser_ney_unigrams"),
+        unigram_counts=trigram_common.parse_token_counts(data, "kneser_ney_unigrams"),
         unigram_total=int(data["kneser_ney_unigram_count"]),
-        bigram_transitions=parse_token_transitions(data, "kneser_ney_bigram_transitions"),
-        trigram_transitions=parse_context_transitions(data, "trigram_transitions"),
+        bigram_transitions=trigram_common.parse_token_transitions(
+            data,
+            "kneser_ney_bigram_transitions",
+        ),
+        trigram_transitions=trigram_common.parse_context_transitions(
+            data,
+            "trigram_transitions",
+        ),
         text_normalization=str(data.get("text_normalization", "none")),
     )
 
@@ -281,10 +301,17 @@ def train_kneser_ney_trigram_model(
     output_path: Path,
     stored_tokenizer_model: Path | None = None,
     discount: float = 0.75,
-    text_normalization: TextNormalization = DEFAULT_TEXT_NORMALIZATION,
+    text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> KneserNeyTrigramTrainingSummary:
     processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
-    counts = collect_trigram_counts(
+    summary = _KneserNeyTrigramTrainingSummaryDraft(
+        output_path=output_path,
+        tokenizer_model=tokenizer_model,
+        vocab_size=processor.get_piece_size(),
+        discount=discount,
+        text_normalization=text_normalization,
+    )
+    counts = trigram_common.collect_trigram_counts(
         texts,
         processor,
         text_normalization=text_normalization,
@@ -292,23 +319,32 @@ def train_kneser_ney_trigram_model(
     continuation_counts = collect_kneser_ney_continuation_counts(
         counts.trigram_transitions,
     )
+    summary.sequence_count = counts.sequence_count
+    summary.token_count = counts.token_count
+    summary.unigram_count = counts.unigram_count
+    summary.bigram_transition_count = counts.bigram_transition_count
+    summary.trigram_transition_count = counts.trigram_transition_count
+    summary.continuation_unigram_count = continuation_counts.unigram_count
+    summary.continuation_bigram_type_count = continuation_counts.bigram_type_count
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     model = {
         "schema_version": 1,
         "model_type": "interpolated_kneser_ney_trigram",
         "tokenizer_model": str(stored_tokenizer_model or tokenizer_model),
-        "vocab_size": processor.get_piece_size(),
-        "discount": discount,
+        "vocab_size": summary.vocab_size,
+        "discount": summary.discount,
         "text_normalization": text_normalization,
         "bos_id": processor.bos_id(),
         "eos_id": processor.eos_id(),
         "unk_id": processor.unk_id(),
-        "pieces": [processor.id_to_piece(index) for index in range(processor.get_piece_size())],
-        **trigram_counts_payload(counts),
-        "kneser_ney_unigram_count": continuation_counts.unigram_count,
-        "kneser_ney_unigrams": token_counts_payload(continuation_counts.unigram_counts),
-        "kneser_ney_bigram_transitions": token_transition_payload(
+        "pieces": [processor.id_to_piece(index) for index in range(summary.vocab_size)],
+        **trigram_common.trigram_counts_payload(counts),
+        "kneser_ney_unigram_count": summary.continuation_unigram_count,
+        "kneser_ney_unigrams": trigram_common.token_counts_payload(
+            continuation_counts.unigram_counts
+        ),
+        "kneser_ney_bigram_transitions": trigram_common.token_transition_payload(
             continuation_counts.bigram_transitions
         ),
     }
@@ -317,20 +353,7 @@ def train_kneser_ney_trigram_model(
         encoding="utf-8",
     )
 
-    return KneserNeyTrigramTrainingSummary(
-        output_path=output_path,
-        tokenizer_model=tokenizer_model,
-        vocab_size=processor.get_piece_size(),
-        sequence_count=counts.sequence_count,
-        token_count=counts.token_count,
-        unigram_count=counts.unigram_count,
-        bigram_transition_count=counts.bigram_transition_count,
-        trigram_transition_count=counts.trigram_transition_count,
-        continuation_unigram_count=continuation_counts.unigram_count,
-        continuation_bigram_type_count=continuation_counts.bigram_type_count,
-        discount=discount,
-        text_normalization=text_normalization,
-    )
+    return summary.freeze()
 
 
 def default_tokenizer_model(corpus: str) -> Path:
@@ -395,7 +418,7 @@ def train_from_options(
     )
 
 
-def query_from_options(options: ModelOptions) -> TrigramQueryResult:
+def query_from_options(options: ModelOptions) -> trigram_common.TrigramQueryResult:
     model = load_kneser_ney_trigram_model(resolve_model(options))
     return model.query(
         prompt=options["prompt"],
@@ -419,10 +442,10 @@ def format_summary(
     summary: KneserNeyTrigramTrainingSummary,
 ) -> list[tuple[str, str]]:
     return [
-        ("Tokenizer artifact file", artifact_filename(summary.tokenizer_model)),
+        ("Tokenizer artifact file", formatting.artifact_filename(summary.tokenizer_model)),
         (
             "Interpolated Kneser-Ney trigram model artifact file",
-            artifact_filename(summary.output_path),
+            formatting.artifact_filename(summary.output_path),
         ),
         ("Text normalization", summary.text_normalization),
         ("Vocabulary size", f"{summary.vocab_size:,}"),
@@ -441,16 +464,16 @@ def format_evaluation(
     summary: KneserNeyTrigramEvaluationSummary,
 ) -> list[tuple[str, str]]:
     return [
-        ("Model artifact file", artifact_filename(summary.model_path)),
-        ("Tokenizer artifact file", artifact_filename(summary.tokenizer_model)),
+        ("Model artifact file", formatting.artifact_filename(summary.model_path)),
+        ("Tokenizer artifact file", formatting.artifact_filename(summary.tokenizer_model)),
         ("Text normalization", summary.text_normalization),
         ("Discount", f"{summary.discount:.3f}"),
-        *format_ngram_evaluation_metrics(summary),
+        *formatting.format_ngram_evaluation_metrics(summary),
     ]
 
 
-def format_query(result: TrigramQueryResult) -> list[str]:
-    return format_ngram_query(result)
+def format_query(result: trigram_common.TrigramQueryResult) -> list[str]:
+    return formatting.format_ngram_query(result)
 
 
 MODEL_DEFINITION = ModelDefinition(
@@ -468,7 +491,10 @@ MODEL_DEFINITION = ModelDefinition(
 
 
 def collect_kneser_ney_continuation_counts(
-    trigram_transitions: defaultdict[Context, Counter[int]] | dict[Context, Counter[int]],
+    trigram_transitions: (
+        defaultdict[trigram_common.Context, Counter[int]]
+        | dict[trigram_common.Context, Counter[int]]
+    ),
 ) -> KneserNeyContinuationCounts:
     bigram_transitions: defaultdict[int, Counter[int]] = defaultdict(Counter)
     unigram_predecessors: defaultdict[int, set[int]] = defaultdict(set)

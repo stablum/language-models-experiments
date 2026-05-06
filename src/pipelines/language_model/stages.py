@@ -22,8 +22,9 @@ from src.pipelines.language_model.artifacts import (
     training_summary_metrics,
 )
 from src.ml_core.cli.staging import temporary_staging_directory
-from src.corpora.registry import get_corpus
-from src.corpora.splits import load_partition_texts
+from src.corpora import registry as corpora_registry
+from src.corpora import splits as corpus_splits
+from src.corpora import text as corpus_text
 from src.ml_core.data.splits import (
     PROJECT_PARTITIONS,
     TRAIN_PARTITION,
@@ -33,7 +34,6 @@ from src.ml_core.data.splits import (
     read_model_split_plan,
     source_split_label,
 )
-from src.corpora.text import iter_text_column
 from src.ml_core.models.definition import ModelOptionError
 from src.pipelines.language_model.definition import (
     EVALUATION_STAGE,
@@ -42,7 +42,7 @@ from src.pipelines.language_model.definition import (
     TOKENIZER_STAGE,
 )
 from src.pipelines.language_model.model_options import merge_model_hyperparameters
-from src.models.registry import get_model
+from src.models import registry as model_registry
 from src.tokenizers.sentencepiece_training import train_sentencepiece
 from src.ml_core.tracking import ClearMLRun, configure_clearml_config_file
 
@@ -80,7 +80,7 @@ def train_tokenizer_step(
     stage = "train_tokenizer"
     _configure_step_clearml(clearml_config_file)
     _emit_pipeline_stage_title(stage)
-    corpus_definition = get_corpus(corpus)
+    corpus_definition = corpora_registry.get_corpus(corpus)
     split_plan = build_cli_split_plan(
         corpus_definition,
         corpus=corpus,
@@ -128,7 +128,7 @@ def train_tokenizer_step(
             }
         )
 
-        texts = load_partition_texts(
+        texts = corpus_splits.load_partition_texts(
             corpus_definition,
             dataset_id=dataset_id,
             plan=split_plan,
@@ -206,8 +206,8 @@ def train_model_pipeline_step(
     stage = "train_model"
     _configure_step_clearml(clearml_config_file)
     _emit_pipeline_stage_title(stage)
-    corpus_definition = get_corpus(corpus)
-    model_definition = get_model(model_name)
+    corpus_definition = corpora_registry.get_corpus(corpus)
+    model_definition = model_registry.get_model(model_name)
 
     with temporary_staging_directory(prefix="lme-pipeline-model-") as staging_dir:
         staged_tokenizer_model = stage_tokenizer_model(
@@ -292,7 +292,7 @@ def train_model_pipeline_step(
             }
         )
 
-        texts = load_partition_texts(
+        texts = corpus_splits.load_partition_texts(
             corpus_definition,
             dataset_id=dataset_id,
             plan=split_plan,
@@ -353,8 +353,8 @@ def evaluate_pipeline_step(
     stage = "evaluate"
     _configure_step_clearml(clearml_config_file)
     _emit_pipeline_stage_title(stage)
-    corpus_definition = get_corpus(corpus)
-    model_definition = get_model(model_name)
+    corpus_definition = corpora_registry.get_corpus(corpus)
+    model_definition = model_registry.get_model(model_name)
     if model_definition.evaluate is None:
         raise click.ClickException(f"Model does not support evaluation yet: {model_name}")
 
@@ -471,7 +471,7 @@ def evaluate_pipeline_step(
                 partition=partition,
                 plan=split_plan,
             )
-            texts = iter_text_column(
+            texts = corpus_text.iter_text_column(
                 rows,
                 text_column=text_column,
                 limit=limit,
@@ -574,7 +574,7 @@ def query_pipeline_step(
     stage = "query"
     _configure_step_clearml(clearml_config_file)
     _emit_pipeline_stage_title(stage)
-    model_definition = get_model(model_name)
+    model_definition = model_registry.get_model(model_name)
     if model_definition.query is None:
         raise click.ClickException(f"Model does not support querying yet: {model_name}")
 

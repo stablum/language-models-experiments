@@ -7,11 +7,10 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import sentencepiece as spm
 
-from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TextNormalization
+from src.corpora import normalization
 from src.models import ngram
 
 
@@ -147,32 +146,31 @@ class BaseTrigramModel:
         texts: Iterable[str],
         *,
         top_k: int = 5,
-        text_normalization: TextNormalization | None = None,
+        text_normalization: normalization.TextNormalization | None = None,
     ) -> ngram.NgramEvaluationSummary:
         row_cache: dict[Context, TrigramEvaluationRow] = {}
-        sequence_count = 0
-        token_count = 0
-        transition_count = 0
-        correct_next_token_count = 0
-        top_k_correct_next_token_count = 0
-        negative_log_likelihood = 0.0
-        zero_probability_count = 0
 
         resolved_text_normalization = text_normalization or self.text_normalization
+        summary = ngram.NgramEvaluationSummaryDraft(
+            model_path=self.model_path,
+            tokenizer_model=self.tokenizer_model,
+            top_k=top_k,
+            text_normalization=resolved_text_normalization,
+        )
         for token_ids in iter_trigram_token_sequences(
             texts,
             self.processor,
             text_normalization=resolved_text_normalization,
         ):
-            sequence_count += 1
-            token_count += len(token_ids)
+            summary.sequence_count += 1
+            summary.token_count += len(token_ids)
 
             for previous_previous_id, previous_id, next_id in zip(
                 token_ids,
                 token_ids[1:],
                 token_ids[2:],
             ):
-                transition_count += 1
+                summary.transition_count += 1
                 context = (previous_previous_id, previous_id)
                 row = row_cache.get(context)
                 if row is None:
@@ -180,34 +178,23 @@ class BaseTrigramModel:
                     row_cache[context] = row
 
                 if next_id == row.greedy_token_id:
-                    correct_next_token_count += 1
+                    summary.correct_next_token_count += 1
                 if next_id in row.top_k_token_ids:
-                    top_k_correct_next_token_count += 1
+                    summary.top_k_correct_next_token_count += 1
 
                 probability = self.transition_probability(next_id, context, row=row)
                 if probability <= 0:
-                    zero_probability_count += 1
+                    summary.zero_probability_count += 1
                 else:
-                    negative_log_likelihood -= math.log(probability)
+                    summary.negative_log_likelihood -= math.log(probability)
 
-        return self.evaluation_summary(
-            top_k=top_k,
-            sequence_count=sequence_count,
-            token_count=token_count,
-            transition_count=transition_count,
-            correct_next_token_count=correct_next_token_count,
-            top_k_correct_next_token_count=top_k_correct_next_token_count,
-            negative_log_likelihood=negative_log_likelihood,
-            zero_probability_count=zero_probability_count,
-            text_normalization=resolved_text_normalization,
-        )
+        return self.evaluation_summary(summary)
 
-    def evaluation_summary(self, **kwargs: Any) -> ngram.NgramEvaluationSummary:
-        return ngram.NgramEvaluationSummary(
-            model_path=self.model_path,
-            tokenizer_model=self.tokenizer_model,
-            **kwargs,
-        )
+    def evaluation_summary(
+        self,
+        summary: ngram.NgramEvaluationSummaryDraft,
+    ) -> ngram.NgramEvaluationSummary:
+        return summary.freeze()
 
     def transition_probability(
         self,
@@ -288,7 +275,9 @@ def collect_trigram_counts(
     texts: Iterable[str],
     processor: spm.SentencePieceProcessor,
     *,
-    text_normalization: TextNormalization = DEFAULT_TEXT_NORMALIZATION,
+    text_normalization: normalization.TextNormalization = (
+        normalization.DEFAULT_TEXT_NORMALIZATION
+    ),
 ) -> TrigramCounts:
     unigram_counts: Counter[int] = Counter()
     bigram_transitions: defaultdict[int, Counter[int]] = defaultdict(Counter)
@@ -419,7 +408,7 @@ def iter_trigram_token_sequences(
     texts: Iterable[str],
     processor: spm.SentencePieceProcessor,
     *,
-    text_normalization: TextNormalization = "none",
+    text_normalization: normalization.TextNormalization = "none",
 ) -> Iterator[list[int]]:
     yield from ngram.iter_sentencepiece_token_sequences(
         texts,

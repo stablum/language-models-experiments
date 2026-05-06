@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from datasets import load_dataset
+import datasets
 
 
 DATASET_ID = "BabyLM-community/BabyLM-2026-Strict-Small"
@@ -17,15 +17,15 @@ SPLIT_NOTE = (
 TEXT_COLUMN = "text"
 
 
-def load_babylm_dataset(
+def load_dataset(
     *,
     dataset_id: str = DATASET_ID,
     split: str | None = DEFAULT_SPLIT,
     streaming: bool = False,
 ) -> Any:
     if split is None:
-        return load_dataset(dataset_id, streaming=streaming)
-    return load_dataset(
+        return datasets.load_dataset(dataset_id, streaming=streaming)
+    return datasets.load_dataset(
         dataset_id,
         split=split,
         streaming=streaming,

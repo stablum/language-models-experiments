@@ -5,8 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
 
-from src.corpora.normalization import TextNormalization
-from src.corpora.normalization import normalize_text
+from src.corpora import normalization
 
 
 def iter_rows(
@@ -24,12 +23,12 @@ def iter_text_column(
     *,
     text_column: str,
     limit: int | None,
-    text_normalization: TextNormalization = "none",
+    text_normalization: normalization.TextNormalization = "none",
 ) -> Iterator[str]:
     for row in iter_rows(dataset, limit):
         value = text_column_value(row, text_column)
         text = "" if value is None else str(value)
-        yield normalize_text(text, text_normalization)
+        yield normalization.normalize_text(text, text_normalization)
 
 
 def text_column_value(row: Mapping[str, Any], text_column: str) -> Any:

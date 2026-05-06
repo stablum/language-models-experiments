@@ -11,7 +11,7 @@ from typing import Literal
 
 import sentencepiece as spm
 
-from src.corpora.normalization import TextNormalization, normalize_text
+from src.corpora import normalization
 
 
 DecodingMode = Literal["sample", "most-probable"]
@@ -90,6 +90,41 @@ class NgramEvaluationSummary:
         return math.exp(average_nll)
 
 
+@dataclass
+class NgramEvaluationSummaryDraft:
+    model_path: Path
+    tokenizer_model: Path
+    top_k: int
+    sequence_count: int = 0
+    token_count: int = 0
+    transition_count: int = 0
+    correct_next_token_count: int = 0
+    top_k_correct_next_token_count: int = 0
+    negative_log_likelihood: float = 0.0
+    zero_probability_count: int = 0
+    text_normalization: str = "none"
+
+    def freeze(
+        self,
+        summary_type: type[NgramEvaluationSummary] = NgramEvaluationSummary,
+        **extra_fields: object,
+    ) -> NgramEvaluationSummary:
+        return summary_type(
+            model_path=self.model_path,
+            tokenizer_model=self.tokenizer_model,
+            top_k=self.top_k,
+            sequence_count=self.sequence_count,
+            token_count=self.token_count,
+            transition_count=self.transition_count,
+            correct_next_token_count=self.correct_next_token_count,
+            top_k_correct_next_token_count=self.top_k_correct_next_token_count,
+            negative_log_likelihood=self.negative_log_likelihood,
+            zero_probability_count=self.zero_probability_count,
+            text_normalization=self.text_normalization,
+            **extra_fields,
+        )
+
+
 def divide_or_none(numerator: int, denominator: int) -> float | None:
     if denominator == 0:
         return None
@@ -100,9 +135,9 @@ def encode_prompt(
     processor: spm.SentencePieceProcessor,
     prompt: str,
     *,
-    text_normalization: TextNormalization = "none",
+    text_normalization: normalization.TextNormalization = "none",
 ) -> list[int]:
-    prompt = normalize_text(prompt, text_normalization)
+    prompt = normalization.normalize_text(prompt, text_normalization)
     if not prompt:
         return []
     return processor.encode(prompt, out_type=int)
@@ -215,13 +250,13 @@ def iter_sentencepiece_token_sequences(
     *,
     bos_count: int,
     min_length: int,
-    text_normalization: TextNormalization = "none",
+    text_normalization: normalization.TextNormalization = "none",
 ) -> Iterator[list[int]]:
     bos_id = processor.bos_id()
     eos_id = processor.eos_id()
 
     for text in texts:
-        text = normalize_text(text, text_normalization)
+        text = normalization.normalize_text(text, text_normalization)
         for line in text.splitlines():
             sentence = line.strip()
             if not sentence:

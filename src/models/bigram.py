@@ -11,14 +11,9 @@ from pathlib import Path
 
 import sentencepiece as spm
 
-from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TextNormalization
-from src.models import ngram
+from src.corpora import normalization
+from src.models import formatting, ngram
 from src.ml_core.models.definition import ModelDefinition, ModelOptionError, ModelOptions
-from src.models.formatting import (
-    artifact_filename,
-    format_ngram_evaluation_metrics,
-    format_ngram_query,
-)
 
 
 MODEL_NAME = "bigram"
@@ -33,6 +28,28 @@ class BigramTrainingSummary:
     token_count: int
     transition_count: int
     text_normalization: str
+
+
+@dataclass
+class _BigramTrainingSummaryDraft:
+    output_path: Path
+    tokenizer_model: Path
+    vocab_size: int = 0
+    sequence_count: int = 0
+    token_count: int = 0
+    transition_count: int = 0
+    text_normalization: str = "none"
+
+    def freeze(self) -> BigramTrainingSummary:
+        return BigramTrainingSummary(
+            output_path=self.output_path,
+            tokenizer_model=self.tokenizer_model,
+            vocab_size=self.vocab_size,
+            sequence_count=self.sequence_count,
+            token_count=self.token_count,
+            transition_count=self.transition_count,
+            text_normalization=self.text_normalization,
+        )
 
 
 BigramPrediction = ngram.NgramPrediction
@@ -159,30 +176,29 @@ class BigramModel:
         texts: Iterable[str],
         *,
         top_k: int = 5,
-        text_normalization: TextNormalization | None = None,
+        text_normalization: normalization.TextNormalization | None = None,
     ) -> BigramEvaluationSummary:
         candidate_ids = ngram.candidate_token_ids(self.vocab_size, self.bos_id)
         candidate_id_set = set(candidate_ids)
         row_cache: dict[int, BigramEvaluationRow] = {}
-        sequence_count = 0
-        token_count = 0
-        transition_count = 0
-        correct_next_token_count = 0
-        top_k_correct_next_token_count = 0
-        negative_log_likelihood = 0.0
-        zero_probability_count = 0
 
         resolved_text_normalization = text_normalization or self.text_normalization
+        summary = ngram.NgramEvaluationSummaryDraft(
+            model_path=self.model_path,
+            tokenizer_model=self.tokenizer_model,
+            top_k=top_k,
+            text_normalization=resolved_text_normalization,
+        )
         for token_ids in iter_token_sequences(
             texts,
             self.processor,
             text_normalization=resolved_text_normalization,
         ):
-            sequence_count += 1
-            token_count += len(token_ids)
+            summary.sequence_count += 1
+            summary.token_count += len(token_ids)
 
             for previous_id, next_id in zip(token_ids, token_ids[1:]):
-                transition_count += 1
+                summary.transition_count += 1
                 row = row_cache.get(previous_id)
                 if row is None:
                     row = self.evaluation_row(
@@ -194,9 +210,9 @@ class BigramModel:
                     row_cache[previous_id] = row
 
                 if next_id == row.greedy_token_id:
-                    correct_next_token_count += 1
+                    summary.correct_next_token_count += 1
                 if next_id in row.top_k_token_ids:
-                    top_k_correct_next_token_count += 1
+                    summary.top_k_correct_next_token_count += 1
 
                 probability = self.transition_probability(
                     next_id,
@@ -204,23 +220,11 @@ class BigramModel:
                     candidate_id_set=candidate_id_set,
                 )
                 if probability <= 0:
-                    zero_probability_count += 1
+                    summary.zero_probability_count += 1
                 else:
-                    negative_log_likelihood -= math.log(probability)
+                    summary.negative_log_likelihood -= math.log(probability)
 
-        return BigramEvaluationSummary(
-            model_path=self.model_path,
-            tokenizer_model=self.tokenizer_model,
-            top_k=top_k,
-            sequence_count=sequence_count,
-            token_count=token_count,
-            transition_count=transition_count,
-            correct_next_token_count=correct_next_token_count,
-            top_k_correct_next_token_count=top_k_correct_next_token_count,
-            negative_log_likelihood=negative_log_likelihood,
-            zero_probability_count=zero_probability_count,
-            text_normalization=resolved_text_normalization,
-        )
+        return summary.freeze()
 
     def evaluation_row(
         self,
@@ -310,7 +314,7 @@ def iter_token_sequences(
     texts: Iterable[str],
     processor: spm.SentencePieceProcessor,
     *,
-    text_normalization: TextNormalization = "none",
+    text_normalization: normalization.TextNormalization = "none",
 ) -> Iterator[list[int]]:
     yield from ngram.iter_sentencepiece_token_sequences(
         texts,
@@ -328,41 +332,44 @@ def train_bigram_model(
     output_path: Path,
     stored_tokenizer_model: Path | None = None,
     smoothing: float = 0.1,
-    text_normalization: TextNormalization = DEFAULT_TEXT_NORMALIZATION,
+    text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> BigramTrainingSummary:
     processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
+    summary = _BigramTrainingSummaryDraft(
+        output_path=output_path,
+        tokenizer_model=tokenizer_model,
+        vocab_size=processor.get_piece_size(),
+        text_normalization=text_normalization,
+    )
     transitions: defaultdict[int, Counter[int]] = defaultdict(Counter)
-    sequence_count = 0
-    token_count = 0
-    transition_count = 0
 
     for token_ids in iter_token_sequences(
         texts,
         processor,
         text_normalization=text_normalization,
     ):
-        sequence_count += 1
-        token_count += len(token_ids)
+        summary.sequence_count += 1
+        summary.token_count += len(token_ids)
 
         for previous_id, next_id in zip(token_ids, token_ids[1:]):
             transitions[previous_id][next_id] += 1
-            transition_count += 1
+            summary.transition_count += 1
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     model = {
         "schema_version": 1,
         "model_type": "autoregressive_bigram",
         "tokenizer_model": str(stored_tokenizer_model or tokenizer_model),
-        "vocab_size": processor.get_piece_size(),
+        "vocab_size": summary.vocab_size,
         "smoothing": smoothing,
         "text_normalization": text_normalization,
         "bos_id": processor.bos_id(),
         "eos_id": processor.eos_id(),
         "unk_id": processor.unk_id(),
-        "pieces": [processor.id_to_piece(index) for index in range(processor.get_piece_size())],
-        "sequence_count": sequence_count,
-        "token_count": token_count,
-        "transition_count": transition_count,
+        "pieces": [processor.id_to_piece(index) for index in range(summary.vocab_size)],
+        "sequence_count": summary.sequence_count,
+        "token_count": summary.token_count,
+        "transition_count": summary.transition_count,
         "transitions": {
             str(previous_id): sorted(next_counts.items())
             for previous_id, next_counts in sorted(transitions.items())
@@ -373,15 +380,7 @@ def train_bigram_model(
         encoding="utf-8",
     )
 
-    return BigramTrainingSummary(
-        output_path=output_path,
-        tokenizer_model=tokenizer_model,
-        vocab_size=processor.get_piece_size(),
-        sequence_count=sequence_count,
-        token_count=token_count,
-        transition_count=transition_count,
-        text_normalization=text_normalization,
-    )
+    return summary.freeze()
 
 
 def default_tokenizer_model(corpus: str) -> Path:
@@ -468,8 +467,8 @@ def evaluate_from_options(
 
 def format_summary(summary: BigramTrainingSummary) -> list[tuple[str, str]]:
     return [
-        ("Tokenizer artifact file", artifact_filename(summary.tokenizer_model)),
-        ("Bigram model artifact file", artifact_filename(summary.output_path)),
+        ("Tokenizer artifact file", formatting.artifact_filename(summary.tokenizer_model)),
+        ("Bigram model artifact file", formatting.artifact_filename(summary.output_path)),
         ("Text normalization", summary.text_normalization),
         ("Vocabulary size", f"{summary.vocab_size:,}"),
         ("Sequences", f"{summary.sequence_count:,}"),
@@ -480,15 +479,15 @@ def format_summary(summary: BigramTrainingSummary) -> list[tuple[str, str]]:
 
 def format_evaluation(summary: BigramEvaluationSummary) -> list[tuple[str, str]]:
     return [
-        ("Model artifact file", artifact_filename(summary.model_path)),
-        ("Tokenizer artifact file", artifact_filename(summary.tokenizer_model)),
+        ("Model artifact file", formatting.artifact_filename(summary.model_path)),
+        ("Tokenizer artifact file", formatting.artifact_filename(summary.tokenizer_model)),
         ("Text normalization", summary.text_normalization),
-        *format_ngram_evaluation_metrics(summary),
+        *formatting.format_ngram_evaluation_metrics(summary),
     ]
 
 
 def format_query(result: BigramQueryResult) -> list[str]:
-    return format_ngram_query(result)
+    return formatting.format_ngram_query(result)
 
 
 MODEL_DEFINITION = ModelDefinition(

@@ -7,7 +7,7 @@ from typing import Any
 
 import click
 
-from src.corpora.registry import CorpusDefinition
+from src.corpora import registry as corpora_registry
 from src.ml_core.data.splits import (
     DataSplitPlan,
     SPLIT_PLAN_ARTIFACT,
@@ -43,7 +43,7 @@ def resolve_from_plan(
 
 
 def build_cli_split_plan(
-    corpus_definition: CorpusDefinition,
+    corpus_definition: corpora_registry.CorpusDefinition,
     *,
     corpus: str,
     dataset_id: str,

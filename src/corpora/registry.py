@@ -6,30 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from src.corpora.babylm_2026_strict_small import (
-    AVAILABLE_SPLITS as BABYLM_AVAILABLE_SPLITS,
-    DATASET_ID as BABYLM_DATASET_ID,
-    DEFAULT_SPLIT as BABYLM_DEFAULT_SPLIT,
-    SPLIT_NOTE as BABYLM_SPLIT_NOTE,
-    TEXT_COLUMN as BABYLM_TEXT_COLUMN,
-    load_babylm_dataset,
-)
-from src.corpora.europarl import (
-    AVAILABLE_SPLITS as EUROPARL_AVAILABLE_SPLITS,
-    DATASET_ID as EUROPARL_DATASET_ID,
-    DEFAULT_SPLIT as EUROPARL_DEFAULT_SPLIT,
-    SPLIT_NOTE as EUROPARL_SPLIT_NOTE,
-    TEXT_COLUMN as EUROPARL_TEXT_COLUMN,
-    load_europarl_dataset,
-)
-from src.corpora.tinystories import (
-    AVAILABLE_SPLITS as TINYSTORIES_AVAILABLE_SPLITS,
-    DATASET_ID as TINYSTORIES_DATASET_ID,
-    DEFAULT_SPLIT as TINYSTORIES_DEFAULT_SPLIT,
-    SPLIT_NOTE as TINYSTORIES_SPLIT_NOTE,
-    TEXT_COLUMN as TINYSTORIES_TEXT_COLUMN,
-    load_tinystories_dataset,
-)
+from src.corpora import babylm, europarl, tinystories
 
 
 CorpusLoader = Callable[..., Any]
@@ -46,39 +23,39 @@ class CorpusDefinition:
     split_note: str | None = None
 
 
-DEFAULT_CORPUS_NAME = "babylm-2026-strict-small"
-EUROPARL_CORPUS_NAME = "europarl"
-TINYSTORIES_CORPUS_NAME = "tinystories"
-
 CORPORA = {
-    DEFAULT_CORPUS_NAME: CorpusDefinition(
-        name=DEFAULT_CORPUS_NAME,
-        dataset_id=BABYLM_DATASET_ID,
-        split=BABYLM_DEFAULT_SPLIT,
-        text_column=BABYLM_TEXT_COLUMN,
-        load=load_babylm_dataset,
-        available_splits=BABYLM_AVAILABLE_SPLITS,
-        split_note=BABYLM_SPLIT_NOTE,
+    "babylm-2026-strict-small": CorpusDefinition(
+        name="babylm-2026-strict-small",
+        dataset_id=babylm.DATASET_ID,
+        split=babylm.DEFAULT_SPLIT,
+        text_column=babylm.TEXT_COLUMN,
+        load=babylm.load_dataset,
+        available_splits=babylm.AVAILABLE_SPLITS,
+        split_note=babylm.SPLIT_NOTE,
     ),
-    EUROPARL_CORPUS_NAME: CorpusDefinition(
-        name=EUROPARL_CORPUS_NAME,
-        dataset_id=EUROPARL_DATASET_ID,
-        split=EUROPARL_DEFAULT_SPLIT,
-        text_column=EUROPARL_TEXT_COLUMN,
-        load=load_europarl_dataset,
-        available_splits=EUROPARL_AVAILABLE_SPLITS,
-        split_note=EUROPARL_SPLIT_NOTE,
+    "europarl": CorpusDefinition(
+        name="europarl",
+        dataset_id=europarl.DATASET_ID,
+        split=europarl.DEFAULT_SPLIT,
+        text_column=europarl.TEXT_COLUMN,
+        load=europarl.load_dataset,
+        available_splits=europarl.AVAILABLE_SPLITS,
+        split_note=europarl.SPLIT_NOTE,
     ),
-    TINYSTORIES_CORPUS_NAME: CorpusDefinition(
-        name=TINYSTORIES_CORPUS_NAME,
-        dataset_id=TINYSTORIES_DATASET_ID,
-        split=TINYSTORIES_DEFAULT_SPLIT,
-        text_column=TINYSTORIES_TEXT_COLUMN,
-        load=load_tinystories_dataset,
-        available_splits=TINYSTORIES_AVAILABLE_SPLITS,
-        split_note=TINYSTORIES_SPLIT_NOTE,
+    "tinystories": CorpusDefinition(
+        name="tinystories",
+        dataset_id=tinystories.DATASET_ID,
+        split=tinystories.DEFAULT_SPLIT,
+        text_column=tinystories.TEXT_COLUMN,
+        load=tinystories.load_dataset,
+        available_splits=tinystories.AVAILABLE_SPLITS,
+        split_note=tinystories.SPLIT_NOTE,
     ),
 }
+
+
+def default_corpus_name() -> str:
+    return next(iter(CORPORA))
 
 
 def corpus_names() -> tuple[str, ...]:

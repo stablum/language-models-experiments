@@ -18,7 +18,7 @@ from src.pipelines.language_model.definition import (
     MODEL_TRAINING_STAGES,
     pipeline_stage_tasks,
 )
-from src.models.registry import model_names
+from src.models import registry as model_registry
 from src.ml_core.tracking import clearml_task
 
 
@@ -49,7 +49,7 @@ class SearchSpec:
 
 
 SEARCH_PARAMETERS = {
-    "model_name": SearchParameter(str, choices=model_names()),
+    "model_name": SearchParameter(str, choices=model_registry.model_names()),
     "smoothing": SearchParameter(float, minimum=0.0),
     "unigram_weight": SearchParameter(float, minimum=0.0),
     "bigram_weight": SearchParameter(float, minimum=0.0),

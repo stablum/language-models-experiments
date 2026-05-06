@@ -7,16 +7,16 @@ from pathlib import Path
 
 import sentencepiece as spm
 
-from src.corpora.normalization import TextNormalization, normalize_text
+from src.corpora import normalization
 
 
 def iter_sentencepiece_sentences(
     texts: Iterable[str],
     *,
-    text_normalization: TextNormalization = "none",
+    text_normalization: normalization.TextNormalization = "none",
 ) -> Iterator[str]:
     for text in texts:
-        text = normalize_text(text, text_normalization)
+        text = normalization.normalize_text(text, text_normalization)
         for line in text.splitlines():
             sentence = line.strip()
             if sentence:
@@ -32,7 +32,7 @@ def train_sentencepiece(
     character_coverage: float = 1.0,
     hard_vocab_limit: bool = True,
     max_sentence_length: int | None = None,
-    text_normalization: TextNormalization = "none",
+    text_normalization: normalization.TextNormalization = "none",
 ) -> tuple[Path, Path]:
     output_prefix.parent.mkdir(parents=True, exist_ok=True)
 

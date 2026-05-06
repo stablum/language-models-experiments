@@ -13,8 +13,8 @@ from src.pipelines.language_model.definition import (
     resume_pipeline_controller_stage,
 )
 from src.pipelines.language_model.model_training import MODEL_TRAINING_PIPELINE, QUERY_STAGE
-from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names
-from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
+from src.corpora import registry as corpora_registry
+from src.models import registry as model_registry
 from src.ml_core.tracking import clearml_options
 
 
@@ -44,8 +44,8 @@ def load_query_command_defaults(_config_section: str) -> dict[str, object]:
 @click.option(
     "--model",
     "model_name",
-    type=click.Choice(model_names()),
-    default=DEFAULT_MODEL_NAME,
+    type=click.Choice(model_registry.model_names()),
+    default=model_registry.default_model_name(),
     show_default=True,
     help="Registered model to query.",
 )
@@ -56,8 +56,8 @@ def load_query_command_defaults(_config_section: str) -> dict[str, object]:
 )
 @click.option(
     "--corpus",
-    type=click.Choice(corpus_names()),
-    default=DEFAULT_CORPUS_NAME,
+    type=click.Choice(corpora_registry.corpus_names()),
+    default=corpora_registry.default_corpus_name(),
     show_default=True,
     help="Registered corpus used by model training.",
 )
@@ -140,7 +140,7 @@ def main(
     clearml_output_uri: str | None,
     clearml_tags: tuple[str, ...],
 ) -> None:
-    model_definition = get_model(model_name)
+    model_definition = model_registry.get_model(model_name)
     if model_definition.query is None or model_definition.query_lines is None:
         raise click.ClickException(f"Model does not support querying yet: {model_name}")
     resolved_tokenizer_model_name = str(tokenizer_model_name or "").strip()

@@ -2,30 +2,23 @@
 
 from __future__ import annotations
 
-from src.models.bigram import MODEL_DEFINITION as BIGRAM_MODEL
 from src.ml_core.models.definition import ModelDefinition
-from src.models.trigram import MODEL_DEFINITION as TRIGRAM_MODEL
-from src.models.trigram_absolute_discount import (
-    MODEL_DEFINITION as ABSOLUTE_DISCOUNT_TRIGRAM_MODEL,
-)
-from src.models.trigram_kneser_ney import MODEL_DEFINITION as KNESER_NEY_TRIGRAM_MODEL
-
-
-DEFAULT_MODEL_NAME = BIGRAM_MODEL.name
-TRIGRAM_MODEL_NAME = TRIGRAM_MODEL.name
-ABSOLUTE_DISCOUNT_TRIGRAM_MODEL_NAME = ABSOLUTE_DISCOUNT_TRIGRAM_MODEL.name
-KNESER_NEY_TRIGRAM_MODEL_NAME = KNESER_NEY_TRIGRAM_MODEL.name
+from src.models import bigram, trigram, trigram_absolute_discount, trigram_kneser_ney
 
 
 MODELS = {
     model.name: model
     for model in (
-        BIGRAM_MODEL,
-        TRIGRAM_MODEL,
-        ABSOLUTE_DISCOUNT_TRIGRAM_MODEL,
-        KNESER_NEY_TRIGRAM_MODEL,
+        bigram.MODEL_DEFINITION,
+        trigram.MODEL_DEFINITION,
+        trigram_absolute_discount.MODEL_DEFINITION,
+        trigram_kneser_ney.MODEL_DEFINITION,
     )
 }
+
+
+def default_model_name() -> str:
+    return next(iter(MODELS))
 
 
 def model_names() -> tuple[str, ...]:

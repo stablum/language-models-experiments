@@ -7,12 +7,9 @@ from pathlib import Path
 import click
 
 from src.ml_core.data.split_artifacts import build_cli_split_plan
-from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
-from src.corpora.registry import (
-    DEFAULT_CORPUS_NAME,
-    corpus_names,
-    get_corpus,
-)
+from src.corpora import normalization
+from src.corpora import registry as corpora_registry
+from src.corpora import stats as corpus_stats
 from src.ml_core.cli.config import configured_command
 from src.ml_core.cli.output import stage_title
 from src.ml_core.data.splits import (
@@ -21,7 +18,6 @@ from src.ml_core.data.splits import (
     iter_merged_source_rows,
     source_split_label,
 )
-from src.corpora.stats import distribution_metrics, print_corpus_report, scan_text_column
 from src.ml_core.tracking import (
     clearml_options,
     clearml_settings,
@@ -39,8 +35,8 @@ from src.ml_core.tracking import (
 )
 @click.option(
     "--corpus",
-    type=click.Choice(corpus_names()),
-    default=DEFAULT_CORPUS_NAME,
+    type=click.Choice(corpora_registry.corpus_names()),
+    default=corpora_registry.default_corpus_name(),
     show_default=True,
     help="Registered corpus to scan.",
 )
@@ -83,8 +79,8 @@ from src.ml_core.tracking import (
 )
 @click.option(
     "--text-normalization",
-    type=click.Choice(TEXT_NORMALIZATION_MODES),
-    default=DEFAULT_TEXT_NORMALIZATION,
+    type=click.Choice(normalization.TEXT_NORMALIZATION_MODES),
+    default=normalization.DEFAULT_TEXT_NORMALIZATION,
     show_default=True,
     help="Text normalization applied before computing stats.",
 )
@@ -106,7 +102,7 @@ def main(
     clearml_output_uri: str | None,
     clearml_tags: tuple[str, ...],
 ) -> None:
-    corpus_definition = get_corpus(corpus)
+    corpus_definition = corpora_registry.get_corpus(corpus)
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
     resolved_source_split = source_split if source_split is not None else corpus_definition.split
     resolved_text_column = text_column or corpus_definition.text_column
@@ -164,7 +160,7 @@ def main(
             for _, _, row in iter_merged_source_rows(dataset, plan=split_plan)
         )
 
-        stats = scan_text_column(
+        stats = corpus_stats.scan_text_column(
             rows,
             text_column=resolved_text_column,
             limit=limit,
@@ -183,7 +179,7 @@ def main(
             },
         )
 
-    print_corpus_report(
+    corpus_stats.print_corpus_report(
         dataset_label=resolved_dataset_id,
         split=source_split_label(resolved_source_split),
         mode="streaming" if streaming else "download/cache",
@@ -228,7 +224,7 @@ def prefixed_distribution_metrics(
 ) -> dict[str, float]:
     return {
         f"{prefix}_{metric}": value
-        for metric, value, _format_spec in distribution_metrics(values, total)
+        for metric, value, _format_spec in corpus_stats.distribution_metrics(values, total)
     }
 
 

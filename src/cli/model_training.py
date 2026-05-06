@@ -41,15 +41,15 @@ from src.pipelines.language_model.optuna import (
     parse_optuna_search_specs,
     sample_trial_parameters,
 )
-from src.corpora.normalization import DEFAULT_TEXT_NORMALIZATION, TEXT_NORMALIZATION_MODES
-from src.corpora.registry import DEFAULT_CORPUS_NAME, corpus_names, get_corpus
+from src.corpora import normalization
+from src.corpora import registry as corpora_registry
 from src.ml_core.data.splits import (
     DEFAULT_SPLIT_SEED,
     DEFAULT_TRAIN_RATIO,
     PROJECT_PARTITIONS,
     VALIDATION_PARTITION,
 )
-from src.models.registry import DEFAULT_MODEL_NAME, get_model, model_names
+from src.models import registry as model_registry
 from src.ml_core.tracking import (
     assert_clearml_endpoints_reachable,
     clearml_options,
@@ -307,8 +307,8 @@ def _mapped_config_values(
 @click.option(
     "--model",
     "model_name",
-    type=click.Choice(model_names()),
-    default=DEFAULT_MODEL_NAME,
+    type=click.Choice(model_registry.model_names()),
+    default=model_registry.default_model_name(),
     show_default=True,
     help="Registered model to train, evaluate, and query.",
 )
@@ -325,8 +325,8 @@ def _mapped_config_values(
 )
 @click.option(
     "--corpus",
-    type=click.Choice(corpus_names()),
-    default=DEFAULT_CORPUS_NAME,
+    type=click.Choice(corpora_registry.corpus_names()),
+    default=corpora_registry.default_corpus_name(),
     show_default=True,
     help="Registered corpus to use.",
 )
@@ -475,8 +475,8 @@ def _mapped_config_values(
 )
 @click.option(
     "--text-normalization",
-    type=click.Choice(TEXT_NORMALIZATION_MODES),
-    default=DEFAULT_TEXT_NORMALIZATION,
+    type=click.Choice(normalization.TEXT_NORMALIZATION_MODES),
+    default=normalization.DEFAULT_TEXT_NORMALIZATION,
     show_default=True,
     help="Text normalization applied before model training.",
 )
@@ -780,8 +780,8 @@ def main(
     optuna_search_specs = parse_optuna_search_specs(optuna_search)
     optuna_enabled = optuna_trials > 0 or bool(optuna_search_specs)
 
-    corpus_definition = get_corpus(corpus)
-    model_definition = get_model(model_name)
+    corpus_definition = corpora_registry.get_corpus(corpus)
+    model_definition = model_registry.get_model(model_name)
     if model_definition.evaluate is None or model_definition.evaluation_items is None:
         raise click.ClickException(f"Model does not support evaluation yet: {model_name}")
     if model_definition.query is None or model_definition.query_lines is None:
@@ -1156,7 +1156,7 @@ def _run_model_training_pipeline(
     clearml_tags: tuple[str, ...],
     extra_controller_parameters: Mapping[str, object] | None = None,
 ) -> str:
-    model_definition = get_model(model_name)
+    model_definition = model_registry.get_model(model_name)
     if model_definition.evaluate is None or model_definition.evaluation_items is None:
         raise click.ClickException(f"Model does not support evaluation yet: {model_name}")
     if model_definition.query is None or model_definition.query_lines is None:
