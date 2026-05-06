@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter, defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -56,6 +56,15 @@ class KneserNeyTrigramTrainingSummary:
 @dataclass(frozen=True)
 class KneserNeyTrigramEvaluationSummary(ngram.NgramEvaluationSummary):
     discount: float
+
+
+@dataclass(frozen=True)
+class _ResolvedTransitionCounts:
+    previous_id: int
+    bigram_counts: Mapping[int, int]
+    trigram_counts: Mapping[int, int]
+    bigram_total: int
+    trigram_total: int
 
 
 @dataclass(frozen=True)
@@ -111,29 +120,58 @@ class KneserNeyTrigramModel(BaseTrigramModel):
         if next_id == self.bos_id:
             return 0.0
 
-        previous_id = context[1]
-        if row is not None:
-            bigram_counts = row.bigram_counts
-            trigram_counts = row.trigram_counts
-            bigram_total = row.bigram_total
-            trigram_total = row.trigram_total
-        else:
-            if bigram_counts is None:
-                bigram_counts = dict(self.bigram_transitions.get(previous_id, ()))
-            if trigram_counts is None:
-                trigram_counts = dict(self.trigram_transitions.get(context, ()))
-            if bigram_total is None:
-                bigram_total = sum(bigram_counts.values())
-            if trigram_total is None:
-                trigram_total = sum(trigram_counts.values())
-
-        return self.trigram_probability(
-            next_id,
-            previous_id=previous_id,
+        counts = self._resolved_transition_counts(
+            context,
+            row=row,
             bigram_counts=bigram_counts,
             trigram_counts=trigram_counts,
             bigram_total=bigram_total,
             trigram_total=trigram_total,
+        )
+        return self.trigram_probability(
+            next_id,
+            previous_id=counts.previous_id,
+            bigram_counts=counts.bigram_counts,
+            trigram_counts=counts.trigram_counts,
+            bigram_total=counts.bigram_total,
+            trigram_total=counts.trigram_total,
+        )
+
+    def _resolved_transition_counts(
+        self,
+        context: Context,
+        *,
+        row: TrigramEvaluationRow | None = None,
+        bigram_counts: Mapping[int, int] | None = None,
+        trigram_counts: Mapping[int, int] | None = None,
+        bigram_total: int | None = None,
+        trigram_total: int | None = None,
+    ) -> _ResolvedTransitionCounts:
+        previous_id = context[1]
+        if row is not None:
+            return _ResolvedTransitionCounts(
+                previous_id=previous_id,
+                bigram_counts=row.bigram_counts,
+                trigram_counts=row.trigram_counts,
+                bigram_total=row.bigram_total,
+                trigram_total=row.trigram_total,
+            )
+
+        if bigram_counts is None:
+            bigram_counts = dict(self.bigram_transitions.get(previous_id, ()))
+        if trigram_counts is None:
+            trigram_counts = dict(self.trigram_transitions.get(context, ()))
+
+        return _ResolvedTransitionCounts(
+            previous_id=previous_id,
+            bigram_counts=bigram_counts,
+            trigram_counts=trigram_counts,
+            bigram_total=(
+                bigram_total if bigram_total is not None else sum(bigram_counts.values())
+            ),
+            trigram_total=(
+                trigram_total if trigram_total is not None else sum(trigram_counts.values())
+            ),
         )
 
     def trigram_probability(
@@ -141,8 +179,8 @@ class KneserNeyTrigramModel(BaseTrigramModel):
         token_id: int,
         *,
         previous_id: int,
-        bigram_counts: dict[int, int],
-        trigram_counts: dict[int, int],
+        bigram_counts: Mapping[int, int],
+        trigram_counts: Mapping[int, int],
         bigram_total: int,
         trigram_total: int,
     ) -> float:
@@ -152,20 +190,19 @@ class KneserNeyTrigramModel(BaseTrigramModel):
             counts=bigram_counts,
             total=bigram_total,
         )
-        if trigram_total <= 0:
-            return lower_order_probability
-
-        observed_count = trigram_counts.get(token_id, 0)
-        discounted_probability = max(observed_count - self.discount, 0.0) / trigram_total
-        interpolation_weight = self.discount * len(trigram_counts) / trigram_total
-        return discounted_probability + interpolation_weight * lower_order_probability
+        return self._discounted_interpolation_probability(
+            token_id,
+            counts=trigram_counts,
+            total=trigram_total,
+            lower_order_probability=lower_order_probability,
+        )
 
     def bigram_probability(
         self,
         token_id: int,
         *,
         previous_id: int,
-        counts: dict[int, int] | None = None,
+        counts: Mapping[int, int] | None = None,
         total: int | None = None,
     ) -> float:
         if counts is None:
@@ -173,14 +210,12 @@ class KneserNeyTrigramModel(BaseTrigramModel):
         if total is None:
             total = sum(counts.values())
 
-        lower_order_probability = self.unigram_probability(token_id)
-        if total <= 0:
-            return lower_order_probability
-
-        observed_count = counts.get(token_id, 0)
-        discounted_probability = max(observed_count - self.discount, 0.0) / total
-        interpolation_weight = self.discount * len(counts) / total
-        return discounted_probability + interpolation_weight * lower_order_probability
+        return self._discounted_interpolation_probability(
+            token_id,
+            counts=counts,
+            total=total,
+            lower_order_probability=self.unigram_probability(token_id),
+        )
 
     def unigram_probability(self, token_id: int) -> float:
         candidate_count = ngram.candidate_token_count(self.vocab_size, self.bos_id)
@@ -188,13 +223,28 @@ class KneserNeyTrigramModel(BaseTrigramModel):
             return 0.0
 
         uniform_probability = 1 / candidate_count
-        if self.unigram_total <= 0:
-            return uniform_probability
+        return self._discounted_interpolation_probability(
+            token_id,
+            counts=self.unigram_counts,
+            total=self.unigram_total,
+            lower_order_probability=uniform_probability,
+        )
 
-        observed_count = self.unigram_counts.get(token_id, 0)
-        discounted_probability = max(observed_count - self.discount, 0.0) / self.unigram_total
-        interpolation_weight = self.discount * len(self.unigram_counts) / self.unigram_total
-        return discounted_probability + interpolation_weight * uniform_probability
+    def _discounted_interpolation_probability(
+        self,
+        token_id: int,
+        *,
+        counts: Mapping[int, int],
+        total: int,
+        lower_order_probability: float,
+    ) -> float:
+        if total <= 0:
+            return lower_order_probability
+
+        observed_count = counts.get(token_id, 0)
+        discounted_probability = max(observed_count - self.discount, 0.0) / total
+        interpolation_weight = self.discount * len(counts) / total
+        return discounted_probability + interpolation_weight * lower_order_probability
 
 
 def load_kneser_ney_trigram_model(model_path: Path) -> KneserNeyTrigramModel:

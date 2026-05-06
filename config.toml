@@ -47,7 +47,7 @@ add_run_number = true
 # query_decoding, query_temperature, and query_seed.
 optuna_trials = 50
 optuna_metric = "next_token_accuracy"
-optuna_direction = "minimize"
+optuna_direction = "maximize"
 optuna_search = [
    "smoothing=float:1e-4:1.0:log",
    "unigram_weight=float:0:1.0",
