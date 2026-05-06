@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable
-from dataclasses import dataclass
 from pathlib import Path
 
 import sentencepiece as spm
@@ -17,24 +16,7 @@ from src.ml_core.models.definition import ModelDefinition, ModelOptionError, Mod
 MODEL_NAME = "trigram"
 
 
-@dataclass(frozen=True)
-class TrigramTrainingSummary:
-    output_path: Path
-    tokenizer_model: Path
-    vocab_size: int
-    sequence_count: int
-    token_count: int
-    unigram_count: int
-    bigram_transition_count: int
-    trigram_transition_count: int
-    unigram_weight: float
-    bigram_weight: float
-    trigram_weight: float
-    text_normalization: str
-
-
-@dataclass
-class _TrigramTrainingSummaryDraft:
+class TrigramTrainingSummary(ngram.NgramPydanticModel):
     output_path: Path
     tokenizer_model: Path
     vocab_size: int = 0
@@ -48,31 +30,13 @@ class _TrigramTrainingSummaryDraft:
     trigram_weight: float = 0.0
     text_normalization: str = "none"
 
-    def freeze(self) -> TrigramTrainingSummary:
-        return TrigramTrainingSummary(
-            output_path=self.output_path,
-            tokenizer_model=self.tokenizer_model,
-            vocab_size=self.vocab_size,
-            sequence_count=self.sequence_count,
-            token_count=self.token_count,
-            unigram_count=self.unigram_count,
-            bigram_transition_count=self.bigram_transition_count,
-            trigram_transition_count=self.trigram_transition_count,
-            unigram_weight=self.unigram_weight,
-            bigram_weight=self.bigram_weight,
-            trigram_weight=self.trigram_weight,
-            text_normalization=self.text_normalization,
-        )
 
-
-@dataclass(frozen=True)
 class TrigramEvaluationSummary(ngram.NgramEvaluationSummary):
-    unigram_weight: float
-    bigram_weight: float
-    trigram_weight: float
+    unigram_weight: float = 0.0
+    bigram_weight: float = 0.0
+    trigram_weight: float = 0.0
 
 
-@dataclass(frozen=True)
 class TrigramModel(trigram_common.BaseTrigramModel):
     model_path: Path
     tokenizer_model: Path
@@ -94,10 +58,15 @@ class TrigramModel(trigram_common.BaseTrigramModel):
 
     def evaluation_summary(
         self,
-        summary: ngram.NgramEvaluationSummaryDraft,
+        *,
+        top_k: int,
+        text_normalization: str,
     ) -> TrigramEvaluationSummary:
-        return summary.freeze(
-            TrigramEvaluationSummary,
+        return TrigramEvaluationSummary(
+            model_path=self.model_path,
+            tokenizer_model=self.tokenizer_model,
+            top_k=top_k,
+            text_normalization=text_normalization,
             unigram_weight=self.unigram_weight,
             bigram_weight=self.bigram_weight,
             trigram_weight=self.trigram_weight,
@@ -233,7 +202,7 @@ def train_trigram_model(
         trigram_weight=trigram_weight,
     )
     processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
-    summary = _TrigramTrainingSummaryDraft(
+    summary = TrigramTrainingSummary(
         output_path=output_path,
         tokenizer_model=tokenizer_model,
         vocab_size=processor.get_piece_size(),
@@ -277,7 +246,7 @@ def train_trigram_model(
         encoding="utf-8",
     )
 
-    return summary.freeze()
+    return summary
 
 
 def default_tokenizer_model(corpus: str) -> Path:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable
-from dataclasses import dataclass
 from pathlib import Path
 
 import sentencepiece as spm
@@ -17,22 +16,7 @@ from src.ml_core.models.definition import ModelDefinition, ModelOptionError, Mod
 MODEL_NAME = "trigram-absolute-discount"
 
 
-@dataclass(frozen=True)
-class AbsoluteDiscountTrigramTrainingSummary:
-    output_path: Path
-    tokenizer_model: Path
-    vocab_size: int
-    sequence_count: int
-    token_count: int
-    unigram_count: int
-    bigram_transition_count: int
-    trigram_transition_count: int
-    discount: float
-    text_normalization: str
-
-
-@dataclass
-class _AbsoluteDiscountTrigramTrainingSummaryDraft:
+class AbsoluteDiscountTrigramTrainingSummary(ngram.NgramPydanticModel):
     output_path: Path
     tokenizer_model: Path
     vocab_size: int = 0
@@ -44,27 +28,11 @@ class _AbsoluteDiscountTrigramTrainingSummaryDraft:
     discount: float = 0.0
     text_normalization: str = "none"
 
-    def freeze(self) -> AbsoluteDiscountTrigramTrainingSummary:
-        return AbsoluteDiscountTrigramTrainingSummary(
-            output_path=self.output_path,
-            tokenizer_model=self.tokenizer_model,
-            vocab_size=self.vocab_size,
-            sequence_count=self.sequence_count,
-            token_count=self.token_count,
-            unigram_count=self.unigram_count,
-            bigram_transition_count=self.bigram_transition_count,
-            trigram_transition_count=self.trigram_transition_count,
-            discount=self.discount,
-            text_normalization=self.text_normalization,
-        )
 
-
-@dataclass(frozen=True)
 class AbsoluteDiscountTrigramEvaluationSummary(ngram.NgramEvaluationSummary):
-    discount: float
+    discount: float = 0.0
 
 
-@dataclass(frozen=True)
 class AbsoluteDiscountTrigramModel(trigram_common.BaseTrigramModel):
     model_path: Path
     tokenizer_model: Path
@@ -82,10 +50,15 @@ class AbsoluteDiscountTrigramModel(trigram_common.BaseTrigramModel):
 
     def evaluation_summary(
         self,
-        summary: ngram.NgramEvaluationSummaryDraft,
+        *,
+        top_k: int,
+        text_normalization: str,
     ) -> AbsoluteDiscountTrigramEvaluationSummary:
-        return summary.freeze(
-            AbsoluteDiscountTrigramEvaluationSummary,
+        return AbsoluteDiscountTrigramEvaluationSummary(
+            model_path=self.model_path,
+            tokenizer_model=self.tokenizer_model,
+            top_k=top_k,
+            text_normalization=text_normalization,
             discount=self.discount,
         )
 
@@ -202,7 +175,7 @@ def train_absolute_discount_trigram_model(
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> AbsoluteDiscountTrigramTrainingSummary:
     processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
-    summary = _AbsoluteDiscountTrigramTrainingSummaryDraft(
+    summary = AbsoluteDiscountTrigramTrainingSummary(
         output_path=output_path,
         tokenizer_model=tokenizer_model,
         vocab_size=processor.get_piece_size(),
@@ -240,7 +213,7 @@ def train_absolute_discount_trigram_model(
         encoding="utf-8",
     )
 
-    return summary.freeze()
+    return summary
 
 
 def default_tokenizer_model(corpus: str) -> Path:

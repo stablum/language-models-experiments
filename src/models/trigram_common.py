@@ -44,7 +44,7 @@ class TrigramEvaluationRow:
     top_k_token_ids: frozenset[int]
 
 
-class BaseTrigramModel:
+class BaseTrigramModel(ngram.NgramPydanticModel):
     model_path: Path
     tokenizer_model: Path
     processor: spm.SentencePieceProcessor
@@ -151,9 +151,7 @@ class BaseTrigramModel:
         row_cache: dict[Context, TrigramEvaluationRow] = {}
 
         resolved_text_normalization = text_normalization or self.text_normalization
-        summary = ngram.NgramEvaluationSummaryDraft(
-            model_path=self.model_path,
-            tokenizer_model=self.tokenizer_model,
+        summary = self.evaluation_summary(
             top_k=top_k,
             text_normalization=resolved_text_normalization,
         )
@@ -188,13 +186,20 @@ class BaseTrigramModel:
                 else:
                     summary.negative_log_likelihood -= math.log(probability)
 
-        return self.evaluation_summary(summary)
+        return summary
 
     def evaluation_summary(
         self,
-        summary: ngram.NgramEvaluationSummaryDraft,
+        *,
+        top_k: int,
+        text_normalization: str,
     ) -> ngram.NgramEvaluationSummary:
-        return summary.freeze()
+        return ngram.NgramEvaluationSummary(
+            model_path=self.model_path,
+            tokenizer_model=self.tokenizer_model,
+            top_k=top_k,
+            text_normalization=text_normalization,
+        )
 
     def transition_probability(
         self,

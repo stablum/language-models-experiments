@@ -18,24 +18,7 @@ from src.ml_core.models.definition import ModelDefinition, ModelOptionError, Mod
 MODEL_NAME = "trigram-kneser-ney"
 
 
-@dataclass(frozen=True)
-class KneserNeyTrigramTrainingSummary:
-    output_path: Path
-    tokenizer_model: Path
-    vocab_size: int
-    sequence_count: int
-    token_count: int
-    unigram_count: int
-    bigram_transition_count: int
-    trigram_transition_count: int
-    continuation_unigram_count: int
-    continuation_bigram_type_count: int
-    discount: float
-    text_normalization: str
-
-
-@dataclass
-class _KneserNeyTrigramTrainingSummaryDraft:
+class KneserNeyTrigramTrainingSummary(ngram.NgramPydanticModel):
     output_path: Path
     tokenizer_model: Path
     vocab_size: int = 0
@@ -49,26 +32,9 @@ class _KneserNeyTrigramTrainingSummaryDraft:
     discount: float = 0.0
     text_normalization: str = "none"
 
-    def freeze(self) -> KneserNeyTrigramTrainingSummary:
-        return KneserNeyTrigramTrainingSummary(
-            output_path=self.output_path,
-            tokenizer_model=self.tokenizer_model,
-            vocab_size=self.vocab_size,
-            sequence_count=self.sequence_count,
-            token_count=self.token_count,
-            unigram_count=self.unigram_count,
-            bigram_transition_count=self.bigram_transition_count,
-            trigram_transition_count=self.trigram_transition_count,
-            continuation_unigram_count=self.continuation_unigram_count,
-            continuation_bigram_type_count=self.continuation_bigram_type_count,
-            discount=self.discount,
-            text_normalization=self.text_normalization,
-        )
 
-
-@dataclass(frozen=True)
 class KneserNeyTrigramEvaluationSummary(ngram.NgramEvaluationSummary):
-    discount: float
+    discount: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -94,7 +60,6 @@ class KneserNeyContinuationCounts:
         return sum(len(next_counts) for next_counts in self.bigram_transitions.values())
 
 
-@dataclass(frozen=True)
 class KneserNeyTrigramModel(trigram_common.BaseTrigramModel):
     model_path: Path
     tokenizer_model: Path
@@ -113,10 +78,15 @@ class KneserNeyTrigramModel(trigram_common.BaseTrigramModel):
 
     def evaluation_summary(
         self,
-        summary: ngram.NgramEvaluationSummaryDraft,
+        *,
+        top_k: int,
+        text_normalization: str,
     ) -> KneserNeyTrigramEvaluationSummary:
-        return summary.freeze(
-            KneserNeyTrigramEvaluationSummary,
+        return KneserNeyTrigramEvaluationSummary(
+            model_path=self.model_path,
+            tokenizer_model=self.tokenizer_model,
+            top_k=top_k,
+            text_normalization=text_normalization,
             discount=self.discount,
         )
 
@@ -304,7 +274,7 @@ def train_kneser_ney_trigram_model(
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> KneserNeyTrigramTrainingSummary:
     processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
-    summary = _KneserNeyTrigramTrainingSummaryDraft(
+    summary = KneserNeyTrigramTrainingSummary(
         output_path=output_path,
         tokenizer_model=tokenizer_model,
         vocab_size=processor.get_piece_size(),
@@ -353,7 +323,7 @@ def train_kneser_ney_trigram_model(
         encoding="utf-8",
     )
 
-    return summary.freeze()
+    return summary
 
 
 def default_tokenizer_model(corpus: str) -> Path:

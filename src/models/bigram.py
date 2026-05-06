@@ -19,19 +19,7 @@ from src.ml_core.models.definition import ModelDefinition, ModelOptionError, Mod
 MODEL_NAME = "bigram"
 
 
-@dataclass(frozen=True)
-class BigramTrainingSummary:
-    output_path: Path
-    tokenizer_model: Path
-    vocab_size: int
-    sequence_count: int
-    token_count: int
-    transition_count: int
-    text_normalization: str
-
-
-@dataclass
-class _BigramTrainingSummaryDraft:
+class BigramTrainingSummary(ngram.NgramPydanticModel):
     output_path: Path
     tokenizer_model: Path
     vocab_size: int = 0
@@ -39,17 +27,6 @@ class _BigramTrainingSummaryDraft:
     token_count: int = 0
     transition_count: int = 0
     text_normalization: str = "none"
-
-    def freeze(self) -> BigramTrainingSummary:
-        return BigramTrainingSummary(
-            output_path=self.output_path,
-            tokenizer_model=self.tokenizer_model,
-            vocab_size=self.vocab_size,
-            sequence_count=self.sequence_count,
-            token_count=self.token_count,
-            transition_count=self.transition_count,
-            text_normalization=self.text_normalization,
-        )
 
 
 BigramPrediction = ngram.NgramPrediction
@@ -65,8 +42,7 @@ class BigramEvaluationRow:
     top_k_token_ids: frozenset[int]
 
 
-@dataclass(frozen=True)
-class BigramModel:
+class BigramModel(ngram.NgramPydanticModel):
     model_path: Path
     tokenizer_model: Path
     processor: spm.SentencePieceProcessor
@@ -183,7 +159,7 @@ class BigramModel:
         row_cache: dict[int, BigramEvaluationRow] = {}
 
         resolved_text_normalization = text_normalization or self.text_normalization
-        summary = ngram.NgramEvaluationSummaryDraft(
+        summary = BigramEvaluationSummary(
             model_path=self.model_path,
             tokenizer_model=self.tokenizer_model,
             top_k=top_k,
@@ -224,7 +200,7 @@ class BigramModel:
                 else:
                     summary.negative_log_likelihood -= math.log(probability)
 
-        return summary.freeze()
+        return summary
 
     def evaluation_row(
         self,
@@ -335,7 +311,7 @@ def train_bigram_model(
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> BigramTrainingSummary:
     processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
-    summary = _BigramTrainingSummaryDraft(
+    summary = BigramTrainingSummary(
         output_path=output_path,
         tokenizer_model=tokenizer_model,
         vocab_size=processor.get_piece_size(),
@@ -380,7 +356,7 @@ def train_bigram_model(
         encoding="utf-8",
     )
 
-    return summary.freeze()
+    return summary
 
 
 def default_tokenizer_model(corpus: str) -> Path:
