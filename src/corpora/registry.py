@@ -14,6 +14,14 @@ from src.corpora.babylm_2026_strict_small import (
     TEXT_COLUMN as BABYLM_TEXT_COLUMN,
     load_babylm_dataset,
 )
+from src.corpora.europarl import (
+    AVAILABLE_SPLITS as EUROPARL_AVAILABLE_SPLITS,
+    DATASET_ID as EUROPARL_DATASET_ID,
+    DEFAULT_SPLIT as EUROPARL_DEFAULT_SPLIT,
+    SPLIT_NOTE as EUROPARL_SPLIT_NOTE,
+    TEXT_COLUMN as EUROPARL_TEXT_COLUMN,
+    load_europarl_dataset,
+)
 from src.corpora.tinystories import (
     AVAILABLE_SPLITS as TINYSTORIES_AVAILABLE_SPLITS,
     DATASET_ID as TINYSTORIES_DATASET_ID,
@@ -39,6 +47,7 @@ class CorpusDefinition:
 
 
 DEFAULT_CORPUS_NAME = "babylm-2026-strict-small"
+EUROPARL_CORPUS_NAME = "europarl"
 TINYSTORIES_CORPUS_NAME = "tinystories"
 
 CORPORA = {
@@ -50,6 +59,15 @@ CORPORA = {
         load=load_babylm_dataset,
         available_splits=BABYLM_AVAILABLE_SPLITS,
         split_note=BABYLM_SPLIT_NOTE,
+    ),
+    EUROPARL_CORPUS_NAME: CorpusDefinition(
+        name=EUROPARL_CORPUS_NAME,
+        dataset_id=EUROPARL_DATASET_ID,
+        split=EUROPARL_DEFAULT_SPLIT,
+        text_column=EUROPARL_TEXT_COLUMN,
+        load=load_europarl_dataset,
+        available_splits=EUROPARL_AVAILABLE_SPLITS,
+        split_note=EUROPARL_SPLIT_NOTE,
     ),
     TINYSTORIES_CORPUS_NAME: CorpusDefinition(
         name=TINYSTORIES_CORPUS_NAME,

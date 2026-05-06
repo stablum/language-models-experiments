@@ -27,12 +27,37 @@ def iter_text_column(
     text_normalization: TextNormalization = "none",
 ) -> Iterator[str]:
     for row in iter_rows(dataset, limit):
-        if text_column not in row:
-            available = ", ".join(row.keys())
-            raise KeyError(
-                f"Text column {text_column!r} was not found. Available columns: {available}"
-            )
-
-        value = row[text_column]
+        value = text_column_value(row, text_column)
         text = "" if value is None else str(value)
         yield normalize_text(text, text_normalization)
+
+
+def text_column_value(row: Mapping[str, Any], text_column: str) -> Any:
+    if text_column in row:
+        return row[text_column]
+
+    value: Any = row
+    for part in text_column.split("."):
+        if isinstance(value, Mapping) and part in value:
+            value = value[part]
+            continue
+
+        available = _available_column_paths(row)
+        raise KeyError(
+            f"Text column {text_column!r} was not found. Available columns: {available}"
+        )
+    return value
+
+
+def _available_column_paths(row: Mapping[str, Any]) -> str:
+    paths: list[str] = []
+
+    def visit(prefix: str, value: Any) -> None:
+        if isinstance(value, Mapping):
+            for key, nested_value in value.items():
+                child = f"{prefix}.{key}" if prefix else str(key)
+                paths.append(child)
+                visit(child, nested_value)
+
+    visit("", row)
+    return ", ".join(paths)

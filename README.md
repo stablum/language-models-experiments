@@ -330,6 +330,7 @@ The CLI is corpus-generic. These corpora are currently registered:
 
 ```text
 babylm-2026-strict-small
+europarl
 tinystories
 ```
 
@@ -340,6 +341,13 @@ whose source splits are `train` and `validation`. Because source splits are inpu
 shards in this project, omitting `--source-split` merges both TinyStories source splits
 before creating reusable project partitions. Pass `--source-split train` when you want
 to train and evaluate only from the original TinyStories training split.
+
+The registered Europarl corpus uses the Hugging Face dataset `Helsinki-NLP/europarl`,
+defaulting to the `en-fr` language-pair configuration and the English text path
+`translation.en`. Europarl provides only a `train` source split for each language pair,
+so the project creates reusable `train` and `validation` partitions from that source
+split. Pass `--text-column translation.fr` to train on the French side of the default
+pair.
 
 To add another corpus, add a loader module under `src/corpora/` and register a new `CorpusDefinition` in `src/corpora/registry.py`.
 
