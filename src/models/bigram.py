@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
@@ -13,10 +12,11 @@ import sentencepiece as spm
 
 from src.corpora import normalization
 from src.models import formatting, ngram
-from src.ml_core.models.definition import ModelDefinition, ModelOptionError, ModelOptions
+from src.ml_core.models.definition import ModelDefinition, ModelOptions
 
 
 MODEL_NAME = "bigram"
+MODEL_SUFFIX = "bigram"
 
 
 class BigramTrainingSummary(ngram.NgramPydanticModel):
@@ -255,13 +255,15 @@ class BigramModel(ngram.NgramPydanticModel):
 
 
 def load_bigram_model(model_path: Path) -> BigramModel:
-    data = json.loads(model_path.read_text(encoding="utf-8"))
-    if data.get("model_type") != "autoregressive_bigram":
-        raise ValueError(f"Not an autoregressive bigram model: {model_path}")
-
-    tokenizer_model = ngram.resolve_stored_path(Path(data["tokenizer_model"]), model_path)
-    processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
-    vocab_size = int(data["vocab_size"])
+    data = ngram.load_json_model_payload(
+        model_path,
+        model_type="autoregressive_bigram",
+        label="an autoregressive bigram model",
+    )
+    tokenizer_model, processor, vocab_size = ngram.load_sentencepiece_from_payload(
+        data,
+        model_path,
+    )
     pieces = ngram.load_pieces(data, processor, vocab_size)
     transitions = {
         int(previous_id): tuple(
@@ -331,18 +333,17 @@ def train_bigram_model(
             transitions[previous_id][next_id] += 1
             summary.transition_count += 1
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     model = {
         "schema_version": 1,
         "model_type": "autoregressive_bigram",
-        "tokenizer_model": str(stored_tokenizer_model or tokenizer_model),
-        "vocab_size": summary.vocab_size,
+        **ngram.sentencepiece_model_payload(
+            processor,
+            tokenizer_model=tokenizer_model,
+            stored_tokenizer_model=stored_tokenizer_model,
+            vocab_size=summary.vocab_size,
+            text_normalization=text_normalization,
+        ),
         "smoothing": smoothing,
-        "text_normalization": text_normalization,
-        "bos_id": processor.bos_id(),
-        "eos_id": processor.eos_id(),
-        "unk_id": processor.unk_id(),
-        "pieces": [processor.id_to_piece(index) for index in range(summary.vocab_size)],
         "sequence_count": summary.sequence_count,
         "token_count": summary.token_count,
         "transition_count": summary.transition_count,
@@ -351,20 +352,17 @@ def train_bigram_model(
             for previous_id, next_counts in sorted(transitions.items())
         },
     }
-    output_path.write_text(
-        json.dumps(model, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    ngram.write_json_model_payload(output_path, model)
 
     return summary
 
 
 def default_tokenizer_model(corpus: str) -> Path:
-    return Path("artifacts", "tokenizers", f"{corpus}-sentencepiece-1000.model")
+    return ngram.default_tokenizer_model(corpus)
 
 
 def default_output(corpus: str) -> Path:
-    return Path("artifacts", "models", f"{corpus}-sentencepiece-bigram.json")
+    return ngram.default_ngram_output(corpus, MODEL_SUFFIX)
 
 
 def default_model(corpus: str) -> Path:
@@ -372,38 +370,23 @@ def default_model(corpus: str) -> Path:
 
 
 def resolve_tokenizer_model(options: ModelOptions) -> Path:
-    tokenizer_model = options.get("tokenizer_model")
-    if tokenizer_model:
-        return Path(tokenizer_model)
-    return default_tokenizer_model(str(options["corpus"]))
+    return ngram.resolve_tokenizer_model(options)
 
 
 def resolve_output(options: ModelOptions) -> Path:
-    output = options.get("output")
-    return Path(output) if output else default_output(str(options["corpus"]))
+    return ngram.resolve_output(options, model_suffix=MODEL_SUFFIX)
 
 
 def resolve_model(options: ModelOptions) -> Path:
-    model_path = options.get("model_path")
-    return Path(model_path) if model_path else default_model(str(options["corpus"]))
+    return ngram.resolve_model(options, model_suffix=MODEL_SUFFIX)
 
 
 def validate_options(options: ModelOptions) -> None:
-    tokenizer_model = resolve_tokenizer_model(options)
-    if not tokenizer_model.exists():
-        raise ModelOptionError(
-            f"Tokenizer model not found: {tokenizer_model}. "
-            "Train it first with src.cli.tokenizer_training."
-        )
+    ngram.validate_tokenizer_model(options)
 
 
 def validate_query_options(options: ModelOptions) -> None:
-    model_path = resolve_model(options)
-    if not model_path.exists():
-        raise ModelOptionError(
-            f"Bigram model not found: {model_path}. "
-            "Train it first with src.cli.train."
-        )
+    ngram.validate_model_path(options, model_suffix=MODEL_SUFFIX, label="Bigram")
 
 
 def train_from_options(
@@ -422,14 +405,10 @@ def train_from_options(
 
 
 def query_from_options(options: ModelOptions) -> BigramQueryResult:
-    model = load_bigram_model(resolve_model(options))
-    return model.query(
-        prompt=options["prompt"],
-        max_tokens=options["max_tokens"],
-        top_k=options["top_k"],
-        decoding=options["decoding"],
-        temperature=options["temperature"],
-        seed=options["seed"],
+    return ngram.query_from_options(
+        options,
+        load_model=load_bigram_model,
+        model_suffix=MODEL_SUFFIX,
     )
 
 
@@ -437,27 +416,27 @@ def evaluate_from_options(
     texts: Iterable[str],
     options: ModelOptions,
 ) -> BigramEvaluationSummary:
-    model = load_bigram_model(resolve_model(options))
-    return model.evaluate(texts, top_k=options["top_k"])
+    return ngram.evaluate_from_options(
+        texts,
+        options,
+        load_model=load_bigram_model,
+        model_suffix=MODEL_SUFFIX,
+    )
 
 
 def format_summary(summary: BigramTrainingSummary) -> list[tuple[str, str]]:
     return [
-        ("Tokenizer artifact file", formatting.artifact_filename(summary.tokenizer_model)),
-        ("Bigram model artifact file", formatting.artifact_filename(summary.output_path)),
-        ("Text normalization", summary.text_normalization),
-        ("Vocabulary size", f"{summary.vocab_size:,}"),
-        ("Sequences", f"{summary.sequence_count:,}"),
-        ("Tokens", f"{summary.token_count:,}"),
+        *ngram.base_training_summary_items(
+            summary=summary,
+            artifact_label="Bigram model artifact file",
+        ),
         ("Transitions", f"{summary.transition_count:,}"),
     ]
 
 
 def format_evaluation(summary: BigramEvaluationSummary) -> list[tuple[str, str]]:
     return [
-        ("Model artifact file", formatting.artifact_filename(summary.model_path)),
-        ("Tokenizer artifact file", formatting.artifact_filename(summary.tokenizer_model)),
-        ("Text normalization", summary.text_normalization),
+        *ngram.base_evaluation_items(summary),
         *formatting.format_ngram_evaluation_metrics(summary),
     ]
 

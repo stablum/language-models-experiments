@@ -44,6 +44,15 @@ class TrigramEvaluationRow:
     top_k_token_ids: frozenset[int]
 
 
+@dataclass(frozen=True)
+class ResolvedTrigramContextCounts:
+    previous_id: int
+    bigram_counts: dict[int, int]
+    trigram_counts: dict[int, int]
+    bigram_total: int
+    trigram_total: int
+
+
 class BaseTrigramModel(ngram.NgramPydanticModel):
     model_path: Path
     tokenizer_model: Path
@@ -214,6 +223,41 @@ class BaseTrigramModel(ngram.NgramPydanticModel):
     ) -> float:
         raise NotImplementedError
 
+    def resolved_context_counts(
+        self,
+        context: Context,
+        *,
+        row: TrigramEvaluationRow | None = None,
+        bigram_counts: dict[int, int] | None = None,
+        trigram_counts: dict[int, int] | None = None,
+        bigram_total: int | None = None,
+        trigram_total: int | None = None,
+    ) -> ResolvedTrigramContextCounts:
+        previous_id = context[1]
+        if row is not None:
+            return ResolvedTrigramContextCounts(
+                previous_id=previous_id,
+                bigram_counts=row.bigram_counts,
+                trigram_counts=row.trigram_counts,
+                bigram_total=row.bigram_total,
+                trigram_total=row.trigram_total,
+            )
+
+        if bigram_counts is None:
+            bigram_counts = dict(self.bigram_transitions.get(previous_id, ()))
+        if trigram_counts is None:
+            trigram_counts = dict(self.trigram_transitions.get(context, ()))
+
+        return ResolvedTrigramContextCounts(
+            previous_id=previous_id,
+            bigram_counts=bigram_counts,
+            trigram_counts=trigram_counts,
+            bigram_total=bigram_total if bigram_total is not None else sum(bigram_counts.values()),
+            trigram_total=(
+                trigram_total if trigram_total is not None else sum(trigram_counts.values())
+            ),
+        )
+
     def evaluation_row(
         self,
         context: Context,
@@ -334,6 +378,68 @@ def trigram_counts_payload(counts: TrigramCounts) -> dict[str, object]:
         "unigrams": token_counts_payload(counts.unigram_counts),
         "bigram_transitions": token_transition_payload(counts.bigram_transitions),
         "trigram_transitions": context_transition_payload(counts.trigram_transitions),
+    }
+
+
+def apply_trigram_counts_to_summary(
+    summary: ngram.NgramPydanticModel,
+    counts: TrigramCounts,
+) -> None:
+    summary.sequence_count = counts.sequence_count
+    summary.token_count = counts.token_count
+    summary.unigram_count = counts.unigram_count
+    summary.bigram_transition_count = counts.bigram_transition_count
+    summary.trigram_transition_count = counts.trigram_transition_count
+
+
+def base_training_summary_items(
+    *,
+    summary: ngram.NgramPydanticModel,
+    artifact_label: str,
+) -> list[tuple[str, str]]:
+    return [
+        *ngram.base_training_summary_items(summary=summary, artifact_label=artifact_label),
+        ("Unigrams", f"{summary.unigram_count:,}"),
+        ("Bigram transitions", f"{summary.bigram_transition_count:,}"),
+        ("Trigram transitions", f"{summary.trigram_transition_count:,}"),
+    ]
+
+
+def load_standard_trigram_payload(
+    model_path: Path,
+    *,
+    model_type: str,
+    label: str,
+) -> tuple[dict[str, object], Path, spm.SentencePieceProcessor, int]:
+    data = ngram.load_json_model_payload(model_path, model_type=model_type, label=label)
+    tokenizer_model, processor, vocab_size = ngram.load_sentencepiece_from_payload(
+        data,
+        model_path,
+    )
+    return data, tokenizer_model, processor, vocab_size
+
+
+def standard_trigram_model_payload(
+    processor: spm.SentencePieceProcessor,
+    *,
+    model_type: str,
+    tokenizer_model: Path,
+    stored_tokenizer_model: Path | None,
+    vocab_size: int,
+    text_normalization: normalization.TextNormalization,
+    counts: TrigramCounts,
+) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "model_type": model_type,
+        **ngram.sentencepiece_model_payload(
+            processor,
+            tokenizer_model=tokenizer_model,
+            stored_tokenizer_model=stored_tokenizer_model,
+            vocab_size=vocab_size,
+            text_normalization=text_normalization,
+        ),
+        **trigram_counts_payload(counts),
     }
 
 
