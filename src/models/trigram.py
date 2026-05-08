@@ -9,7 +9,7 @@ import sentencepiece as spm
 
 from src.corpora import normalization
 from src.models import formatting, ngram, trigram_common
-from src.ml_core.models.definition import ModelDefinition, ModelOptionError, ModelOptions
+from src.ml_core.models.definition import ModelOptionError, ModelOptions
 
 
 MODEL_NAME = "trigram"
@@ -231,33 +231,7 @@ def train_trigram_model(
     return summary
 
 
-def default_tokenizer_model(corpus: str) -> Path:
-    return ngram.default_tokenizer_model(corpus)
-
-
-def default_output(corpus: str) -> Path:
-    return ngram.default_ngram_output(corpus, MODEL_SUFFIX)
-
-
-def default_model(corpus: str) -> Path:
-    return default_output(corpus)
-
-
-def resolve_tokenizer_model(options: ModelOptions) -> Path:
-    return ngram.resolve_tokenizer_model(options)
-
-
-def resolve_output(options: ModelOptions) -> Path:
-    return ngram.resolve_output(options, model_suffix=MODEL_SUFFIX)
-
-
-def resolve_model(options: ModelOptions) -> Path:
-    return ngram.resolve_model(options, model_suffix=MODEL_SUFFIX)
-
-
-def validate_options(options: ModelOptions) -> None:
-    ngram.validate_tokenizer_model(options)
-
+def validate_interpolation_options(options: ModelOptions) -> None:
     try:
         normalize_interpolation_weights(
             unigram_weight=options["unigram_weight"],
@@ -268,10 +242,6 @@ def validate_options(options: ModelOptions) -> None:
         raise ModelOptionError(str(error)) from error
 
 
-def validate_query_options(options: ModelOptions) -> None:
-    ngram.validate_model_path(options, model_suffix=MODEL_SUFFIX, label="Trigram")
-
-
 def train_from_options(
     texts: Iterable[str],
     options: ModelOptions,
@@ -279,34 +249,14 @@ def train_from_options(
     stored_tokenizer_model = options.get("stored_tokenizer_model")
     return train_trigram_model(
         texts,
-        tokenizer_model=resolve_tokenizer_model(options),
-        output_path=resolve_output(options),
+        tokenizer_model=ngram.resolve_tokenizer_model(options),
+        output_path=ngram.resolve_output(options, model_suffix=MODEL_SUFFIX),
         stored_tokenizer_model=Path(stored_tokenizer_model) if stored_tokenizer_model else None,
         smoothing=options["smoothing"],
         unigram_weight=options["unigram_weight"],
         bigram_weight=options["bigram_weight"],
         trigram_weight=options["trigram_weight"],
         text_normalization=options["text_normalization"],
-    )
-
-
-def query_from_options(options: ModelOptions) -> trigram_common.TrigramQueryResult:
-    return ngram.query_from_options(
-        options,
-        load_model=load_trigram_model,
-        model_suffix=MODEL_SUFFIX,
-    )
-
-
-def evaluate_from_options(
-    texts: Iterable[str],
-    options: ModelOptions,
-) -> TrigramEvaluationSummary:
-    return ngram.evaluate_from_options(
-        texts,
-        options,
-        load_model=load_trigram_model,
-        model_suffix=MODEL_SUFFIX,
     )
 
 
@@ -346,15 +296,14 @@ def format_query(result: trigram_common.TrigramQueryResult) -> list[str]:
     return formatting.format_ngram_query(result)
 
 
-MODEL_DEFINITION = ModelDefinition(
+MODEL_DEFINITION = ngram.model_definition(
     name=MODEL_NAME,
+    model_suffix=MODEL_SUFFIX,
+    model_label="Trigram",
     train=train_from_options,
-    validate_options=validate_options,
     summary_items=format_summary,
-    query=query_from_options,
-    validate_query_options=validate_query_options,
+    load_model=load_trigram_model,
     query_lines=format_query,
-    evaluate=evaluate_from_options,
-    validate_evaluation_options=validate_query_options,
     evaluation_items=format_evaluation,
+    validate_training_options=validate_interpolation_options,
 )

@@ -13,7 +13,14 @@ import pydantic
 import sentencepiece as spm
 
 from src.corpora import normalization
-from src.ml_core.models.definition import ModelOptionError, ModelOptions
+from src.ml_core.models.definition import (
+    ModelDefinition,
+    ModelOptionError,
+    ModelOptionValidator,
+    ModelOptions,
+    QueryFormatter,
+    SummaryFormatter,
+)
 from src.models import formatting
 
 
@@ -100,6 +107,7 @@ class NgramEvaluationSummary(NgramPydanticModel):
 QueryResult = TypeVar("QueryResult", bound=NgramQueryResult)
 EvaluationSummary = TypeVar("EvaluationSummary", bound=NgramEvaluationSummary)
 LoadedModel = TypeVar("LoadedModel")
+TrainingSummary = TypeVar("TrainingSummary")
 
 
 def divide_or_none(numerator: int, denominator: int) -> float | None:
@@ -310,32 +318,53 @@ def validate_model_path(options: ModelOptions, *, model_suffix: str, label: str)
         )
 
 
-def query_from_options(
-    options: ModelOptions,
+def model_definition(
     *,
-    load_model: Callable[[Path], LoadedModel],
+    name: str,
     model_suffix: str,
-) -> QueryResult:
-    model = load_model(resolve_model(options, model_suffix=model_suffix))
-    return model.query(
-        prompt=options["prompt"],
-        max_tokens=options["max_tokens"],
-        top_k=options["top_k"],
-        decoding=options["decoding"],
-        temperature=options["temperature"],
-        seed=options["seed"],
+    model_label: str,
+    train: Callable[[Iterable[str], ModelOptions], TrainingSummary],
+    load_model: Callable[[Path], LoadedModel],
+    summary_items: SummaryFormatter,
+    query_lines: QueryFormatter,
+    evaluation_items: SummaryFormatter,
+    validate_training_options: ModelOptionValidator | None = None,
+) -> ModelDefinition:
+    def validate_options(options: ModelOptions) -> None:
+        validate_tokenizer_model(options)
+        if validate_training_options is not None:
+            validate_training_options(options)
+
+    def validate_query_options(options: ModelOptions) -> None:
+        validate_model_path(options, model_suffix=model_suffix, label=model_label)
+
+    def query(options: ModelOptions) -> QueryResult:
+        model = load_model(resolve_model(options, model_suffix=model_suffix))
+        return model.query(
+            prompt=options["prompt"],
+            max_tokens=options["max_tokens"],
+            top_k=options["top_k"],
+            decoding=options["decoding"],
+            temperature=options["temperature"],
+            seed=options["seed"],
+        )
+
+    def evaluate(texts: Iterable[str], options: ModelOptions) -> EvaluationSummary:
+        model = load_model(resolve_model(options, model_suffix=model_suffix))
+        return model.evaluate(texts, top_k=options["top_k"])
+
+    return ModelDefinition(
+        name=name,
+        train=train,
+        validate_options=validate_options,
+        summary_items=summary_items,
+        query=query,
+        validate_query_options=validate_query_options,
+        query_lines=query_lines,
+        evaluate=evaluate,
+        validate_evaluation_options=validate_query_options,
+        evaluation_items=evaluation_items,
     )
-
-
-def evaluate_from_options(
-    texts: Iterable[str],
-    options: ModelOptions,
-    *,
-    load_model: Callable[[Path], LoadedModel],
-    model_suffix: str,
-) -> EvaluationSummary:
-    model = load_model(resolve_model(options, model_suffix=model_suffix))
-    return model.evaluate(texts, top_k=options["top_k"])
 
 
 def base_training_summary_items(
