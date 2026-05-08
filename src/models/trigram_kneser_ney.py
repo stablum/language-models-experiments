@@ -123,13 +123,13 @@ class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
         total: int,
         lower_order_probability: float,
     ) -> float:
-        if total <= 0:
-            return lower_order_probability
-
-        observed_count = counts.get(token_id, 0)
-        discounted_probability = max(observed_count - self.discount, 0.0) / total
-        interpolation_weight = self.discount * len(counts) / total
-        return discounted_probability + interpolation_weight * lower_order_probability
+        return ngram.discounted_interpolation_probability(
+            token_id,
+            counts=counts,
+            total=total,
+            discount=self.discount,
+            lower_order_probability=lower_order_probability,
+        )
 
 
 def load_kneser_ney_trigram_model(model_path: Path) -> KneserNeyTrigramModel:

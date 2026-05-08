@@ -275,7 +275,7 @@ def most_probable_token(
     eos_id: int,
 ) -> int:
     if not predictions:
-        return eos_id if eos_id >= 0 else 0
+        return fallback_token_id(eos_id)
     return predictions[0].token_id
 
 
@@ -287,7 +287,7 @@ def sample_token(
     temperature: float,
 ) -> int:
     if not predictions:
-        return eos_id if eos_id >= 0 else 0
+        return fallback_token_id(eos_id)
     if temperature == 0:
         return predictions[0].token_id
     if temperature < 0:
@@ -306,6 +306,10 @@ def sample_token(
 
 def seeded_rng(seed: int | None) -> random.Random:
     return random.Random(seed)
+
+
+def fallback_token_id(eos_id: int) -> int:
+    return eos_id if eos_id >= 0 else 0
 
 
 def load_pieces(
@@ -476,6 +480,23 @@ def additive_smoothed_probability(
     if denominator <= 0:
         return 0.0
     return (counts.get(token_id, 0) + smoothing) / denominator
+
+
+def discounted_interpolation_probability(
+    token_id: int,
+    *,
+    counts: Mapping[int, int],
+    total: int,
+    discount: float,
+    lower_order_probability: float,
+) -> float:
+    if total <= 0:
+        return lower_order_probability
+
+    observed_count = counts.get(token_id, 0)
+    discounted_probability = max(observed_count - discount, 0.0) / total
+    interpolation_weight = discount * len(counts) / total
+    return discounted_probability + interpolation_weight * lower_order_probability
 
 
 def model_name_from_module(module_name: str) -> str:

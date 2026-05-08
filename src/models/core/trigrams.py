@@ -231,7 +231,7 @@ class BaseTrigramModel(ngram.BaseNgramModel):
             bigram_total=bigram_total,
             trigram_total=trigram_total,
         )
-        fallback_token_id = self.eos_id if self.eos_id >= 0 else 0
+        fallback_token_id = ngram.fallback_token_id(self.eos_id)
         greedy_token_id = ranked_token_ids[0] if ranked_token_ids else fallback_token_id
         return TrigramEvaluationRow(
             bigram_counts=bigram_counts,

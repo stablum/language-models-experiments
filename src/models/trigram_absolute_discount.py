@@ -53,13 +53,13 @@ class AbsoluteDiscountTrigramModel(trigrams.DiscountedTrigramModel):
             counts=bigram_counts,
             total=bigram_total,
         )
-        if trigram_total <= 0:
-            return lower_order_probability
-
-        observed_count = trigram_counts.get(token_id, 0)
-        discounted_probability = max(observed_count - self.discount, 0.0) / trigram_total
-        backoff_weight = self.discount * len(trigram_counts) / trigram_total
-        return discounted_probability + backoff_weight * lower_order_probability
+        return ngram.discounted_interpolation_probability(
+            token_id,
+            counts=trigram_counts,
+            total=trigram_total,
+            discount=self.discount,
+            lower_order_probability=lower_order_probability,
+        )
 
     def lower_order_probability(
         self,

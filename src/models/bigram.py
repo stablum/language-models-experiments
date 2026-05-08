@@ -46,8 +46,9 @@ class BigramModel(ngram.BaseNgramModel):
     ) -> list[ngram.NgramPrediction]:
         candidate_ids = ngram.candidate_token_ids(self.vocab_size, self.bos_id)
         observed = dict(self.transitions.get(previous_id, ()))
-        denominator = sum(observed.get(token_id, 0) for token_id in candidate_ids)
-        denominator += self.smoothing * len(candidate_ids)
+        observed_total = sum(observed.get(token_id, 0) for token_id in candidate_ids)
+        candidate_count = len(candidate_ids)
+        denominator = observed_total + self.smoothing * candidate_count
 
         if denominator <= 0:
             return []
@@ -57,7 +58,13 @@ class BigramModel(ngram.BaseNgramModel):
                 token_id=token_id,
                 piece=self.pieces[token_id],
                 count=observed.get(token_id, 0),
-                probability=(observed.get(token_id, 0) + self.smoothing) / denominator,
+                probability=ngram.additive_smoothed_probability(
+                    token_id,
+                    counts=observed,
+                    total=observed_total,
+                    smoothing=self.smoothing,
+                    candidate_count=candidate_count,
+                ),
             )
             for token_id in candidate_ids
             if observed.get(token_id, 0) > 0 or self.smoothing > 0
@@ -135,7 +142,7 @@ class BigramModel(ngram.BaseNgramModel):
             counts=counts,
             candidate_ids=candidate_ids,
         )
-        fallback_token_id = self.eos_id if self.eos_id >= 0 else 0
+        fallback_token_id = ngram.fallback_token_id(self.eos_id)
         greedy_token_id = ranked_token_ids[0] if ranked_token_ids else fallback_token_id
         return BigramEvaluationRow(
             counts=counts,
