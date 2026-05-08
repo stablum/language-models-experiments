@@ -263,6 +263,14 @@ uv run python -m src.cli.model_training --model trigram-kneser-ney --tokenizer-m
 
 This is the recursive discounted/interpolated model usually called interpolated Kneser-Ney smoothing. It discounts the trigram distribution, interpolates with a lower-order Kneser-Ney bigram distribution built from continuation counts, then recursively discounts and interpolates that lower-order distribution down to a uniform base. The default discount is `0.75`; adjust it with `--discount`.
 
+Train a Good-Turing trigram model:
+
+```powershell
+uv run python -m src.cli.model_training --model trigram-good-turing --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
+```
+
+The Good-Turing model adjusts each trigram row from its count-of-counts, reserves the estimated unseen mass for unseen continuations, and recursively backs off through Good-Turing bigram and unigram distributions. It has no smoothing hyperparameter.
+
 The model-training pipeline runs a query stage after model training. Configure that query with pipeline options:
 
 ```powershell
@@ -281,7 +289,7 @@ Ask for the most probable continuation after a prompt:
 uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --query-prompt "Once upon" --query-decoding most-probable --query-max-tokens 80
 ```
 
-The same query and evaluation commands work with `--model trigram`, `--model trigram-absolute-discount`, or `--model trigram-kneser-ney` after training that model.
+The same query and evaluation commands work with `--model trigram`, `--model trigram-absolute-discount`, `--model trigram-good-turing`, or `--model trigram-kneser-ney` after training that model.
 
 The query command normalizes prompts with the mode stored in the model file. It also prints the most likely next tokens for the prompt, with special tokens shown as labels such as `[EOS]`. The bigram model conditions on the last prompt token; the trigram models condition on the last two prompt tokens. `--decoding most-probable` chooses the highest-probability next token at each step.
 
@@ -353,11 +361,11 @@ To add another corpus, add a loader module under `src/corpora/` and register a n
 
 ## Models
 
-The model training, query, and evaluation CLIs are model-generic. `bigram`, `trigram`, `trigram-absolute-discount`, and `trigram-kneser-ney` are currently registered.
+The model training, query, and evaluation CLIs are model-generic. `bigram`, `trigram`, `trigram-absolute-discount`, `trigram-good-turing`, and `trigram-kneser-ney` are currently registered.
 
 See [MODELS.md](MODELS.md) for the probability formulas and brief model descriptions.
 
-To add another model, add its code under `src/models/` and register a new `ModelDefinition` in `src/models/registry.py`.
+To add another model, add its code under `src/models/` and expose a module-level `MODEL_DEFINITION`; the model registry discovers concrete model modules automatically.
 
 ## ClearML
 

@@ -46,6 +46,18 @@ and
 N_+(u,v,\cdot) = |\{w \in \mathcal{V}_\star : c(u,v,w) > 0\}|.
 ```
 
+Good-Turing count-of-counts are written as
+
+```math
+N_r(h) = |\{w \in \mathcal{V}_\star : c(h,w) = r\}|,
+```
+
+where h may be empty for unigrams, one token for bigrams, or two tokens for trigrams. In particular,
+
+```math
+N_0(h) = |\mathcal{V}_\star| - N_+(h,\cdot).
+```
+
 The add-k smoothing constant is non-negative. The absolute discount is D, with the usual practical range
 
 ```math
@@ -200,6 +212,103 @@ P_{+2}(w \mid v)
 \neq
 P_{\mathrm{AD},2}(w \mid v).
 ```
+
+## Good-Turing Trigram
+
+Registered name: `trigram-good-turing`.
+
+This model applies Good-Turing adjusted counts to unigram, bigram, and trigram rows, then recursively backs off through lower-order Good-Turing distributions for unseen continuations.
+
+For a non-empty row h and an observed count r, the adjusted count is
+
+```math
+r^\star_h
+=
+\frac{(r+1)N_{r+1}(h)}{N_r(h)}.
+```
+
+Sparse rows often have missing count buckets. In that case the implementation falls back to the empirical count for that bucket:
+
+```math
+g_h(r)
+=
+\begin{cases}
+\frac{(r+1)N_{r+1}(h)}{N_r(h)}, & N_{r+1}(h) > 0, \\
+r, & N_{r+1}(h) = 0.
+\end{cases}
+```
+
+The raw observed and unseen masses are
+
+```math
+A(h)
+=
+\frac{\sum_{x:c(h,x)>0} g_h(c(h,x))}{c(h,\cdot)},
+```
+
+and
+
+```math
+U(h)
+=
+\begin{cases}
+\frac{N_1(h)}{c(h,\cdot)}, & N_0(h) > 0, \\
+0, & N_0(h) = 0.
+\end{cases}
+```
+
+They are renormalized with
+
+```math
+Z(h) = A(h) + U(h).
+```
+
+Observed continuations receive
+
+```math
+P_{\mathrm{GT}}(w \mid h)
+=
+\frac{g_h(c(h,w))}{c(h,\cdot)Z(h)}.
+```
+
+The unseen mass is
+
+```math
+\alpha_{\mathrm{GT}}(h) = \frac{U(h)}{Z(h)}.
+```
+
+For unseen continuations, the model backs off to the lower-order distribution renormalized over tokens that were unseen after h:
+
+```math
+P_{\mathrm{GT}}(w \mid h)
+=
+\alpha_{\mathrm{GT}}(h)
+\cdot
+\frac{P_{\mathrm{lower}}(w)}
+{\sum_{x:c(h,x)=0} P_{\mathrm{lower}}(x)}.
+```
+
+If a row h was never observed, the model uses the lower-order distribution directly. The base distribution below the unigram model is uniform:
+
+```math
+P_0(w) = \frac{1}{|\mathcal{V}_\star|}.
+```
+
+The final model is
+
+```math
+P_{\mathrm{GT},3}(w \mid u,v),
+```
+
+with lower orders
+
+```math
+P_{\mathrm{GT},2}(w \mid v)
+\quad\text{and}\quad
+P_{\mathrm{GT},1}(w).
+```
+
+This makes Good-Turing's unseen-mass estimate usable for sparse trigram contexts without introducing a tunable smoothing hyperparameter.
 
 ## Interpolated Kneser-Ney Trigram
 
