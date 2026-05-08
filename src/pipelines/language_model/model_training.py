@@ -178,9 +178,6 @@ def add_pipeline_steps(
     )
 
 
-add_model_training_steps = add_pipeline_steps
-
-
 def _add_pipeline_parameters(
     pipeline: object,
     parameters: dict[str, object],
@@ -216,7 +213,6 @@ __all__ = (
     "MODEL_TRAINING_STAGE_DEPENDENCIES",
     "MODEL_TRAINING_STAGES",
     "QUERY_STAGE",
-    "add_model_training_steps",
     "add_pipeline_steps",
     "resolve_tokenizer_training_task",
 )

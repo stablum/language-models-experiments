@@ -774,7 +774,3 @@ def pipeline_metric_monitors(
             ("Query", "top_next_token_probability"),
         ],
     }
-
-
-def output_uri_value(clearml_output_uri: str | None) -> str | bool:
-    return clearml_output_uri if clearml_output_uri is not None else True

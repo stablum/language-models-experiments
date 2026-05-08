@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import sys
 import time
 import tomllib
 from collections.abc import Callable, Mapping, Sequence
@@ -726,9 +725,3 @@ def _enqueue_pipeline_controller(controller_id: str, queue_name: str) -> None:
 def _status_value(status: object) -> str:
     value = getattr(status, "value", status)
     return str(value or "").lower()
-
-
-# Compatibility for older imports of src.ml_core.pipeline.clearml.
-__path__ = []
-clearml = sys.modules[__name__]
-sys.modules.setdefault(f"{__name__}.clearml", clearml)

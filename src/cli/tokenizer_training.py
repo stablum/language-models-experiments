@@ -20,7 +20,7 @@ from src.pipelines.language_model.definition import (
 from src.pipelines.language_model.tokenizer_training import (
     TOKENIZER_STAGE,
     TOKENIZER_TRAINING_PIPELINE,
-    add_tokenizer_training_step,
+    add_pipeline_steps,
 )
 from src.corpora import normalization
 from src.corpora import registry as corpora_registry
@@ -250,7 +250,7 @@ def main(
             "text_normalization": text_normalization,
         },
     )
-    add_tokenizer_training_step(
+    add_pipeline_steps(
         pipeline,
         clearml_project=settings.project_name,
         clearml_output_uri=settings.output_uri,

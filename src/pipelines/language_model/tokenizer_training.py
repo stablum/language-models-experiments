@@ -98,9 +98,6 @@ def add_pipeline_steps(
     )
 
 
-add_tokenizer_training_step = add_pipeline_steps
-
-
 __all__ = (
     "DEFAULT_TOKENIZER_TRAINING_NAME",
     "TOKENIZER_STAGE",
@@ -108,5 +105,4 @@ __all__ = (
     "TOKENIZER_TRAINING_STAGE_DEPENDENCIES",
     "TOKENIZER_TRAINING_STAGES",
     "add_pipeline_steps",
-    "add_tokenizer_training_step",
 )
