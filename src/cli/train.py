@@ -19,7 +19,7 @@ from src.ml_core.data.splits import (
     DEFAULT_SPLIT_SEED,
     DEFAULT_TRAIN_RATIO,
 )
-from src.models import registry as model_registry
+from src.models.core import registry as model_registry
 from src.ml_core.tracking import clearml_options
 
 

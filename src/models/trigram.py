@@ -9,15 +9,12 @@ from typing import ClassVar
 import sentencepiece as spm
 
 from src.corpora import normalization
-from src.models import formatting, ngram, trigram_common
+from src.models.core import formatting, ngram
+from src.models.core import trigram as trigrams
 from src.ml_core.models.definition import ModelOptionError, ModelOptions
 
 
-MODEL_NAME = "trigram"
-MODEL_SUFFIX = "trigram"
-
-
-class TrigramTrainingSummary(trigram_common.TrigramTrainingSummary):
+class TrigramTrainingSummary(trigrams.TrigramTrainingSummary):
     unigram_weight: float = 0.0
     bigram_weight: float = 0.0
     trigram_weight: float = 0.0
@@ -29,7 +26,7 @@ class TrigramEvaluationSummary(ngram.NgramEvaluationSummary):
     trigram_weight: float = 0.0
 
 
-class TrigramModel(trigram_common.BaseTrigramModel):
+class TrigramModel(trigrams.BaseTrigramModel):
     evaluation_summary_type: ClassVar[type[ngram.NgramEvaluationSummary]] = (
         TrigramEvaluationSummary
     )
@@ -50,8 +47,8 @@ class TrigramModel(trigram_common.BaseTrigramModel):
     def context_probability(
         self,
         next_id: int,
-        context: trigram_common.Context,
-        counts: trigram_common.ResolvedTrigramContextCounts,
+        context: trigrams.Context,
+        counts: trigrams.ResolvedTrigramContextCounts,
     ) -> float:
         return (
             self.unigram_weight * self.unigram_probability(next_id)
@@ -105,7 +102,7 @@ def normalize_interpolation_weights(
 
 
 def load_trigram_model(model_path: Path) -> TrigramModel:
-    data, tokenizer_model, processor, vocab_size = trigram_common.load_standard_trigram_payload(
+    data, tokenizer_model, processor, vocab_size = trigrams.load_standard_trigram_payload(
         model_path,
         model_type="interpolated_trigram",
         label="an interpolated trigram model",
@@ -121,10 +118,10 @@ def load_trigram_model(model_path: Path) -> TrigramModel:
         unigram_weight=float(weights["unigram"]),
         bigram_weight=float(weights["bigram"]),
         trigram_weight=float(weights["trigram"]),
-        unigram_counts=trigram_common.parse_unigram_counts(data),
+        unigram_counts=trigrams.parse_unigram_counts(data),
         unigram_total=int(data["unigram_count"]),
-        bigram_transitions=trigram_common.parse_bigram_transitions(data),
-        trigram_transitions=trigram_common.parse_trigram_transitions(data),
+        bigram_transitions=trigrams.parse_bigram_transitions(data),
+        trigram_transitions=trigrams.parse_trigram_transitions(data),
     )
 
 
@@ -155,15 +152,15 @@ def train_trigram_model(
         trigram_weight=normalized_weights[2],
         text_normalization=text_normalization,
     )
-    counts = trigram_common.collect_trigram_counts(
+    counts = trigrams.collect_trigram_counts(
         texts,
         processor,
         text_normalization=text_normalization,
     )
-    trigram_common.apply_trigram_counts_to_summary(summary, counts)
+    trigrams.apply_trigram_counts_to_summary(summary, counts)
 
     model = {
-        **trigram_common.standard_trigram_model_payload(
+        **trigrams.standard_trigram_model_payload(
             processor,
             model_type="interpolated_trigram",
             tokenizer_model=tokenizer_model,
@@ -197,7 +194,7 @@ def validate_interpolation_options(options: ModelOptions) -> None:
 
 def format_summary(summary: TrigramTrainingSummary) -> list[tuple[str, str]]:
     return [
-        *trigram_common.base_training_summary_items(
+        *trigrams.base_training_summary_items(
             summary=summary,
             artifact_label="Trigram model artifact file",
         ),
@@ -228,9 +225,7 @@ def format_evaluation(summary: TrigramEvaluationSummary) -> list[tuple[str, str]
 
 
 MODEL_DEFINITION = ngram.model_definition(
-    name=MODEL_NAME,
-    model_suffix=MODEL_SUFFIX,
-    model_label="Trigram",
+    module_name=__name__,
     train_model=train_trigram_model,
     summary_items=format_summary,
     load_model=load_trigram_model,

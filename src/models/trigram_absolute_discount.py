@@ -9,24 +9,21 @@ from typing import ClassVar
 import sentencepiece as spm
 
 from src.corpora import normalization
-from src.models import ngram, trigram_common
+from src.models.core import ngram
+from src.models.core import trigram as trigrams
 
 
-MODEL_NAME = "trigram-absolute-discount"
-MODEL_SUFFIX = "trigram-absolute-discount"
-
-
-class AbsoluteDiscountTrigramTrainingSummary(trigram_common.TrigramTrainingSummary):
+class AbsoluteDiscountTrigramTrainingSummary(trigrams.TrigramTrainingSummary):
     discount: float = 0.0
 
 
 class AbsoluteDiscountTrigramEvaluationSummary(
-    trigram_common.DiscountedTrigramEvaluationSummary
+    trigrams.DiscountedTrigramEvaluationSummary
 ):
     pass
 
 
-class AbsoluteDiscountTrigramModel(trigram_common.DiscountedTrigramModel):
+class AbsoluteDiscountTrigramModel(trigrams.DiscountedTrigramModel):
     evaluation_summary_type: ClassVar[type[ngram.NgramEvaluationSummary]] = (
         AbsoluteDiscountTrigramEvaluationSummary
     )
@@ -35,8 +32,8 @@ class AbsoluteDiscountTrigramModel(trigram_common.DiscountedTrigramModel):
     def context_probability(
         self,
         next_id: int,
-        context: trigram_common.Context,
-        counts: trigram_common.ResolvedTrigramContextCounts,
+        context: trigrams.Context,
+        counts: trigrams.ResolvedTrigramContextCounts,
     ) -> float:
         return self.trigram_probability(
             next_id,
@@ -85,7 +82,7 @@ class AbsoluteDiscountTrigramModel(trigram_common.DiscountedTrigramModel):
 
 
 def load_absolute_discount_trigram_model(model_path: Path) -> AbsoluteDiscountTrigramModel:
-    data, tokenizer_model, processor, vocab_size = trigram_common.load_standard_trigram_payload(
+    data, tokenizer_model, processor, vocab_size = trigrams.load_standard_trigram_payload(
         model_path,
         model_type="absolute_discount_trigram",
         label="an absolute-discount trigram model",
@@ -98,8 +95,8 @@ def load_absolute_discount_trigram_model(model_path: Path) -> AbsoluteDiscountTr
         **ngram.sentencepiece_model_fields(data, processor, vocab_size),
         smoothing=float(data["smoothing"]),
         discount=float(data["discount"]),
-        bigram_transitions=trigram_common.parse_bigram_transitions(data),
-        trigram_transitions=trigram_common.parse_trigram_transitions(data),
+        bigram_transitions=trigrams.parse_bigram_transitions(data),
+        trigram_transitions=trigrams.parse_trigram_transitions(data),
     )
 
 
@@ -121,15 +118,15 @@ def train_absolute_discount_trigram_model(
         discount=discount,
         text_normalization=text_normalization,
     )
-    counts = trigram_common.collect_trigram_counts(
+    counts = trigrams.collect_trigram_counts(
         texts,
         processor,
         text_normalization=text_normalization,
     )
-    trigram_common.apply_trigram_counts_to_summary(summary, counts)
+    trigrams.apply_trigram_counts_to_summary(summary, counts)
 
     model = {
-        **trigram_common.standard_trigram_model_payload(
+        **trigrams.standard_trigram_model_payload(
             processor,
             model_type="absolute_discount_trigram",
             tokenizer_model=tokenizer_model,
@@ -150,21 +147,19 @@ def format_summary(
     summary: AbsoluteDiscountTrigramTrainingSummary,
 ) -> list[tuple[str, str]]:
     return [
-        *trigram_common.base_training_summary_items(
+        *trigrams.base_training_summary_items(
             summary=summary,
             artifact_label="Absolute-discount trigram model artifact file",
         ),
-        trigram_common.discount_item(summary),
+        trigrams.discount_item(summary),
     ]
 
 
 MODEL_DEFINITION = ngram.model_definition(
-    name=MODEL_NAME,
-    model_suffix=MODEL_SUFFIX,
-    model_label="Absolute-discount trigram",
+    module_name=__name__,
     train_model=train_absolute_discount_trigram_model,
     summary_items=format_summary,
     load_model=load_absolute_discount_trigram_model,
-    evaluation_items=trigram_common.discounted_evaluation_items,
+    evaluation_items=trigrams.discounted_evaluation_items,
     training_option_names=("smoothing", "discount"),
 )

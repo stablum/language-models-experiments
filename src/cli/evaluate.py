@@ -23,7 +23,7 @@ from src.ml_core.data.splits import (
     VALIDATION_PARTITION,
 )
 from src.corpora import registry as corpora_registry
-from src.models import registry as model_registry
+from src.models.core import registry as model_registry
 from src.ml_core.tracking import clearml_options
 
 

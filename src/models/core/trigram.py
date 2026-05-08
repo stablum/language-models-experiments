@@ -11,7 +11,7 @@ from typing import ClassVar
 import sentencepiece as spm
 
 from src.corpora import normalization
-from src.models import formatting, ngram
+from src.models.core import formatting, ngram
 
 
 Context = tuple[int, int]

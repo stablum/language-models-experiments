@@ -42,7 +42,7 @@ from src.pipelines.language_model.definition import (
     TOKENIZER_STAGE,
 )
 from src.pipelines.language_model.model_options import merge_model_hyperparameters
-from src.models import registry as model_registry
+from src.models.core import registry as model_registry
 from src.tokenizers.sentencepiece_training import train_sentencepiece
 from src.ml_core.tracking import ClearMLRun, configure_clearml_config_file
 

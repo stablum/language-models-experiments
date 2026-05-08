@@ -10,11 +10,7 @@ from pathlib import Path
 import sentencepiece as spm
 
 from src.corpora import normalization
-from src.models import ngram
-
-
-MODEL_NAME = "bigram"
-MODEL_SUFFIX = "bigram"
+from src.models.core import ngram
 
 
 class BigramTrainingSummary(ngram.NgramTrainingSummary):
@@ -273,9 +269,7 @@ def format_summary(summary: BigramTrainingSummary) -> list[tuple[str, str]]:
 
 
 MODEL_DEFINITION = ngram.model_definition(
-    name=MODEL_NAME,
-    model_suffix=MODEL_SUFFIX,
-    model_label="Bigram",
+    module_name=__name__,
     train_model=train_bigram_model,
     summary_items=format_summary,
     load_model=load_bigram_model,

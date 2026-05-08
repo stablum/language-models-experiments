@@ -18,7 +18,7 @@ from src.pipelines.language_model.definition import (
     MODEL_TRAINING_STAGES,
     pipeline_stage_tasks,
 )
-from src.models import registry as model_registry
+from src.models.core import registry as model_registry
 from src.ml_core.tracking import clearml_task
 
 

@@ -11,20 +11,17 @@ from typing import ClassVar
 import sentencepiece as spm
 
 from src.corpora import normalization
-from src.models import ngram, trigram_common
+from src.models.core import ngram
+from src.models.core import trigram as trigrams
 
 
-MODEL_NAME = "trigram-kneser-ney"
-MODEL_SUFFIX = "trigram-kneser-ney"
-
-
-class KneserNeyTrigramTrainingSummary(trigram_common.TrigramTrainingSummary):
+class KneserNeyTrigramTrainingSummary(trigrams.TrigramTrainingSummary):
     continuation_unigram_count: int = 0
     continuation_bigram_type_count: int = 0
     discount: float = 0.0
 
 
-class KneserNeyTrigramEvaluationSummary(trigram_common.DiscountedTrigramEvaluationSummary):
+class KneserNeyTrigramEvaluationSummary(trigrams.DiscountedTrigramEvaluationSummary):
     pass
 
 
@@ -42,7 +39,7 @@ class KneserNeyContinuationCounts:
         return sum(len(next_counts) for next_counts in self.bigram_transitions.values())
 
 
-class KneserNeyTrigramModel(trigram_common.DiscountedTrigramModel):
+class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
     evaluation_summary_type: ClassVar[type[ngram.NgramEvaluationSummary]] = (
         KneserNeyTrigramEvaluationSummary
     )
@@ -52,8 +49,8 @@ class KneserNeyTrigramModel(trigram_common.DiscountedTrigramModel):
     def context_probability(
         self,
         next_id: int,
-        context: trigram_common.Context,
-        counts: trigram_common.ResolvedTrigramContextCounts,
+        context: trigrams.Context,
+        counts: trigrams.ResolvedTrigramContextCounts,
     ) -> float:
         return self.trigram_probability(
             next_id,
@@ -138,7 +135,7 @@ class KneserNeyTrigramModel(trigram_common.DiscountedTrigramModel):
 
 
 def load_kneser_ney_trigram_model(model_path: Path) -> KneserNeyTrigramModel:
-    data, tokenizer_model, processor, vocab_size = trigram_common.load_standard_trigram_payload(
+    data, tokenizer_model, processor, vocab_size = trigrams.load_standard_trigram_payload(
         model_path,
         model_type="interpolated_kneser_ney_trigram",
         label="an interpolated Kneser-Ney trigram model",
@@ -150,13 +147,13 @@ def load_kneser_ney_trigram_model(model_path: Path) -> KneserNeyTrigramModel:
         processor=processor,
         **ngram.sentencepiece_model_fields(data, processor, vocab_size),
         discount=float(data["discount"]),
-        unigram_counts=trigram_common.parse_token_counts(data, "kneser_ney_unigrams"),
+        unigram_counts=trigrams.parse_token_counts(data, "kneser_ney_unigrams"),
         unigram_total=int(data["kneser_ney_unigram_count"]),
-        bigram_transitions=trigram_common.parse_token_transitions(
+        bigram_transitions=trigrams.parse_token_transitions(
             data,
             "kneser_ney_bigram_transitions",
         ),
-        trigram_transitions=trigram_common.parse_context_transitions(
+        trigram_transitions=trigrams.parse_context_transitions(
             data,
             "trigram_transitions",
         ),
@@ -180,7 +177,7 @@ def train_kneser_ney_trigram_model(
         discount=discount,
         text_normalization=text_normalization,
     )
-    counts = trigram_common.collect_trigram_counts(
+    counts = trigrams.collect_trigram_counts(
         texts,
         processor,
         text_normalization=text_normalization,
@@ -188,12 +185,12 @@ def train_kneser_ney_trigram_model(
     continuation_counts = collect_kneser_ney_continuation_counts(
         counts.trigram_transitions,
     )
-    trigram_common.apply_trigram_counts_to_summary(summary, counts)
+    trigrams.apply_trigram_counts_to_summary(summary, counts)
     summary.continuation_unigram_count = continuation_counts.unigram_count
     summary.continuation_bigram_type_count = continuation_counts.bigram_type_count
 
     model = {
-        **trigram_common.standard_trigram_model_payload(
+        **trigrams.standard_trigram_model_payload(
             processor,
             model_type="interpolated_kneser_ney_trigram",
             tokenizer_model=tokenizer_model,
@@ -204,10 +201,10 @@ def train_kneser_ney_trigram_model(
         ),
         "discount": summary.discount,
         "kneser_ney_unigram_count": summary.continuation_unigram_count,
-        "kneser_ney_unigrams": trigram_common.token_counts_payload(
+        "kneser_ney_unigrams": trigrams.token_counts_payload(
             continuation_counts.unigram_counts
         ),
-        "kneser_ney_bigram_transitions": trigram_common.token_transition_payload(
+        "kneser_ney_bigram_transitions": trigrams.token_transition_payload(
             continuation_counts.bigram_transitions
         ),
     }
@@ -220,32 +217,30 @@ def format_summary(
     summary: KneserNeyTrigramTrainingSummary,
 ) -> list[tuple[str, str]]:
     return [
-        *trigram_common.base_training_summary_items(
+        *trigrams.base_training_summary_items(
             summary=summary,
             artifact_label="Interpolated Kneser-Ney trigram model artifact file",
         ),
         ("Continuation unigrams", f"{summary.continuation_unigram_count:,}"),
         ("Continuation bigram types", f"{summary.continuation_bigram_type_count:,}"),
-        trigram_common.discount_item(summary),
+        trigrams.discount_item(summary),
     ]
 
 
 MODEL_DEFINITION = ngram.model_definition(
-    name=MODEL_NAME,
-    model_suffix=MODEL_SUFFIX,
-    model_label="Interpolated Kneser-Ney trigram",
+    module_name=__name__,
     train_model=train_kneser_ney_trigram_model,
     summary_items=format_summary,
     load_model=load_kneser_ney_trigram_model,
-    evaluation_items=trigram_common.discounted_evaluation_items,
+    evaluation_items=trigrams.discounted_evaluation_items,
     training_option_names=("discount",),
 )
 
 
 def collect_kneser_ney_continuation_counts(
     trigram_transitions: (
-        defaultdict[trigram_common.Context, Counter[int]]
-        | dict[trigram_common.Context, Counter[int]]
+        defaultdict[trigrams.Context, Counter[int]]
+        | dict[trigrams.Context, Counter[int]]
     ),
 ) -> KneserNeyContinuationCounts:
     bigram_transitions: defaultdict[int, Counter[int]] = defaultdict(Counter)

@@ -1,1 +1,1 @@
-"""Simple language model utilities."""
+"""Concrete language model modules."""

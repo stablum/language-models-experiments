@@ -49,7 +49,7 @@ from src.ml_core.data.splits import (
     PROJECT_PARTITIONS,
     VALIDATION_PARTITION,
 )
-from src.models import registry as model_registry
+from src.models.core import registry as model_registry
 from src.ml_core.tracking import (
     assert_clearml_endpoints_reachable,
     clearml_options,

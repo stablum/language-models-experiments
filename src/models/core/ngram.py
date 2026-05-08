@@ -22,7 +22,7 @@ from src.ml_core.models.definition import (
     QueryFormatter,
     SummaryFormatter,
 )
-from src.models import formatting
+from src.models.core import formatting
 
 
 DecodingMode = Literal["sample", "most-probable"]
@@ -467,11 +467,17 @@ def additive_smoothed_probability(
     return (counts.get(token_id, 0) + smoothing) / denominator
 
 
+def model_name_from_module(module_name: str) -> str:
+    return module_name.rsplit(".", maxsplit=1)[-1].replace("_", "-")
+
+
+def model_label_from_name(name: str) -> str:
+    return name.replace("-", " ").capitalize()
+
+
 def model_definition(
     *,
-    name: str,
-    model_suffix: str,
-    model_label: str,
+    module_name: str,
     train_model: Callable[..., TrainingSummary],
     load_model: Callable[[Path], LoadedModel],
     summary_items: SummaryFormatter,
@@ -480,6 +486,9 @@ def model_definition(
     evaluation_items: SummaryFormatter | None = None,
     validate_training_options: ModelOptionValidator | None = None,
 ) -> ModelDefinition:
+    name = model_name_from_module(module_name)
+    model_label = model_label_from_name(name)
+
     def train(texts: Iterable[str], options: ModelOptions) -> TrainingSummary:
         stored_tokenizer_model = options.get("stored_tokenizer_model")
         training_options = {
@@ -489,7 +498,7 @@ def model_definition(
         return train_model(
             texts,
             tokenizer_model=resolve_tokenizer_model(options),
-            output_path=resolve_output(options, model_suffix=model_suffix),
+            output_path=resolve_output(options, model_suffix=name),
             stored_tokenizer_model=(
                 Path(stored_tokenizer_model) if stored_tokenizer_model else None
             ),
@@ -503,10 +512,10 @@ def model_definition(
             validate_training_options(options)
 
     def validate_query_options(options: ModelOptions) -> None:
-        validate_model_path(options, model_suffix=model_suffix, label=model_label)
+        validate_model_path(options, model_suffix=name, label=model_label)
 
     def query(options: ModelOptions) -> QueryResult:
-        model = load_model(resolve_model(options, model_suffix=model_suffix))
+        model = load_model(resolve_model(options, model_suffix=name))
         return model.query(
             prompt=options["prompt"],
             max_tokens=options["max_tokens"],
@@ -517,7 +526,7 @@ def model_definition(
         )
 
     def evaluate(texts: Iterable[str], options: ModelOptions) -> EvaluationSummary:
-        model = load_model(resolve_model(options, model_suffix=model_suffix))
+        model = load_model(resolve_model(options, model_suffix=name))
         return model.evaluate(texts, top_k=options["top_k"])
 
     return ModelDefinition(
