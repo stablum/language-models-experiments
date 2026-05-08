@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
+import pydantic
 import sentencepiece as spm
 
 from src.corpora import normalization
@@ -81,7 +82,7 @@ class BaseTrigramModel(ngram.BaseNgramModel):
                 count=trigram_counts.get(token_id, 0),
                 probability=self.transition_probability(token_id, context),
             )
-            for token_id in ngram.candidate_token_ids(self.vocab_size, self.bos_id)
+            for token_id in self.candidate_ids
         ]
         predictions.sort(key=lambda prediction: (-prediction.probability, prediction.token_id))
         return predictions[:top_k] if top_k > 0 else predictions
@@ -158,7 +159,7 @@ class BaseTrigramModel(ngram.BaseNgramModel):
         bigram_total: int | None = None,
         trigram_total: int | None = None,
     ) -> float:
-        if next_id == self.bos_id:
+        if next_id not in self.candidate_id_set:
             return 0.0
 
         counts = self.resolved_context_counts(
@@ -252,7 +253,7 @@ class BaseTrigramModel(ngram.BaseNgramModel):
         trigram_total: int,
     ) -> list[int]:
         return sorted(
-            ngram.candidate_token_ids(self.vocab_size, self.bos_id),
+            self.candidate_ids,
             key=lambda token_id: (
                 -self.transition_probability(
                     token_id,
@@ -287,6 +288,184 @@ class DiscountedTrigramModel(BaseTrigramModel):
 
     def evaluation_summary_fields(self) -> dict[str, object]:
         return {"discount": self.discount}
+
+
+class BackoffTrigramModel(BaseTrigramModel):
+    unigram_counts: dict[int, int]
+    unigram_total: int
+    _unigram_distribution: ngram.BackoffDistribution | None = pydantic.PrivateAttr(
+        default=None
+    )
+    _bigram_distributions: dict[int, ngram.BackoffDistribution] = pydantic.PrivateAttr(
+        default_factory=dict
+    )
+    _trigram_distributions: dict[Context, ngram.BackoffDistribution] = pydantic.PrivateAttr(
+        default_factory=dict
+    )
+
+    def next_token_predictions(
+        self,
+        context: Context,
+        *,
+        top_k: int,
+    ) -> list[ngram.NgramPrediction]:
+        trigram_counts = dict(self.trigram_transitions.get(context, ()))
+        predictions = [
+            ngram.NgramPrediction(
+                token_id=token_id,
+                piece=self.pieces[token_id],
+                count=trigram_counts.get(token_id, 0),
+                probability=self.trigram_probability(token_id, context),
+            )
+            for token_id in self.candidate_ids
+        ]
+        predictions.sort(key=lambda prediction: (-prediction.probability, prediction.token_id))
+        return predictions[:top_k] if top_k > 0 else predictions
+
+    def transition_probability(
+        self,
+        next_id: int,
+        context: Context,
+        *,
+        row: TrigramEvaluationRow | None = None,
+        bigram_counts: dict[int, int] | None = None,
+        trigram_counts: dict[int, int] | None = None,
+        bigram_total: int | None = None,
+        trigram_total: int | None = None,
+    ) -> float:
+        if next_id not in self.candidate_id_set:
+            return 0.0
+        if row is not None or all(
+            value is None
+            for value in (bigram_counts, trigram_counts, bigram_total, trigram_total)
+        ):
+            return self.trigram_probability(next_id, context)
+        return super().transition_probability(
+            next_id,
+            context,
+            bigram_counts=bigram_counts,
+            trigram_counts=trigram_counts,
+            bigram_total=bigram_total,
+            trigram_total=trigram_total,
+        )
+
+    def context_probability(
+        self,
+        next_id: int,
+        counts: ResolvedTrigramContextCounts,
+    ) -> float:
+        lower_probability = lambda token_id: self.bigram_probability(
+            token_id,
+            previous_id=counts.previous_id,
+            counts=counts.bigram_counts,
+            total=counts.bigram_total,
+        )
+        distribution = self.smooth_counts(
+            counts.trigram_counts,
+            total=counts.trigram_total,
+            lower_probability=lower_probability,
+        )
+        return distribution.probability(
+            next_id,
+            lower_probability=lower_probability,
+        )
+
+    def ranked_token_ids(
+        self,
+        context: Context,
+        *,
+        bigram_counts: dict[int, int],
+        trigram_counts: dict[int, int],
+        bigram_total: int,
+        trigram_total: int,
+    ) -> list[int]:
+        return sorted(
+            self.candidate_ids,
+            key=lambda token_id: (-self.trigram_probability(token_id, context), token_id),
+        )
+
+    def trigram_probability(self, token_id: int, context: Context) -> float:
+        if token_id not in self.candidate_id_set:
+            return 0.0
+        previous_id = context[1]
+        return self.trigram_distribution(context).probability(
+            token_id,
+            lower_probability=lambda lower_id: self.bigram_probability(
+                lower_id,
+                previous_id=previous_id,
+            ),
+        )
+
+    def trigram_distribution(self, context: Context) -> ngram.BackoffDistribution:
+        distribution = self._trigram_distributions.get(context)
+        if distribution is None:
+            previous_id = context[1]
+            distribution = self.smooth_counts(
+                dict(self.trigram_transitions.get(context, ())),
+                lower_probability=lambda token_id: self.bigram_probability(
+                    token_id,
+                    previous_id=previous_id,
+                ),
+            )
+            self._trigram_distributions[context] = distribution
+        return distribution
+
+    def bigram_probability(
+        self,
+        token_id: int,
+        *,
+        previous_id: int,
+        counts: Mapping[int, int] | None = None,
+        total: int | None = None,
+    ) -> float:
+        if token_id not in self.candidate_id_set:
+            return 0.0
+        lower_probability = self.unigram_probability
+        if counts is not None:
+            distribution = self.smooth_counts(
+                counts,
+                total=total,
+                lower_probability=lower_probability,
+            )
+        else:
+            distribution = self._bigram_distributions.get(previous_id)
+            if distribution is None:
+                distribution = self.smooth_counts(
+                    dict(self.bigram_transitions.get(previous_id, ())),
+                    lower_probability=lower_probability,
+                )
+                self._bigram_distributions[previous_id] = distribution
+        return distribution.probability(token_id, lower_probability=lower_probability)
+
+    def unigram_probability(self, token_id: int) -> float:
+        if token_id not in self.candidate_id_set:
+            return 0.0
+        distribution = self._unigram_distribution
+        if distribution is None:
+            distribution = self.smooth_counts(
+                self.unigram_counts,
+                total=self.unigram_total,
+                lower_probability=self.uniform_probability,
+            )
+            self._unigram_distribution = distribution
+        return distribution.probability(
+            token_id,
+            lower_probability=self.uniform_probability,
+        )
+
+    def uniform_probability(self, token_id: int) -> float:
+        if token_id not in self.candidate_id_set or not self.candidate_ids:
+            return 0.0
+        return 1 / len(self.candidate_ids)
+
+    def smooth_counts(
+        self,
+        counts: Mapping[int, int],
+        *,
+        lower_probability: ngram.ProbabilityFn,
+        total: int | None = None,
+    ) -> ngram.BackoffDistribution:
+        raise NotImplementedError
 
 
 def collect_trigram_counts(
