@@ -6,11 +6,11 @@ from pathlib import Path
 
 import click
 
-from src.ml_core.cli.config import configured_command, load_defaults_from_sections
+from src.cli import stage_resume
+from src.ml_core.cli.config import configured_command
 from src.pipelines.language_model.definition import (
     pipeline_options,
     pipeline_resume_option,
-    resume_pipeline_controller_stage,
 )
 from src.pipelines.language_model.model_training import (
     EVALUATION_STAGE,
@@ -28,14 +28,7 @@ from src.ml_core.tracking import clearml_options
 
 
 def load_evaluate_command_defaults(_config_section: str) -> dict[str, object]:
-    defaults = load_defaults_from_sections(("defaults", "clearml"))
-    train_defaults = load_defaults_from_sections(("train",))
-    if "model_name" in train_defaults:
-        defaults["model_name"] = train_defaults["model_name"]
-    if "tokenizer_model_name" in train_defaults:
-        defaults["tokenizer_model_name"] = train_defaults["tokenizer_model_name"]
-    defaults.update(load_defaults_from_sections(("evaluate",)))
-    return defaults
+    return stage_resume.load_stage_command_defaults("evaluate")
 
 
 @configured_command(
@@ -174,28 +167,23 @@ def main(
 
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
     resolved_source_split = source_split if source_split is not None else corpus_definition.split
-    resolved_tokenizer_model_name = str(tokenizer_model_name or "").strip()
-    if not resolved_tokenizer_model_name:
-        raise click.ClickException(
-            "Evaluation requires --tokenizer-model-name, or tokenizer_model_name in [train]."
-        )
-    if model_task_id is not None or model_path is not None:
-        raise click.ClickException(
-            "Evaluation now resumes the canonical ClearML pipeline DAG. "
-            "Run train first in the same pipeline instead of passing --model-task-id or --model-path."
-        )
-    if pipeline_local:
-        raise click.ClickException(
-            "Existing PipelineController runs are resumed by re-enqueueing the controller task. "
-            "Use --pipeline-queued for stage CLIs."
-        )
-    resume_pipeline_controller_stage(
+    resolved_tokenizer_model_name = stage_resume.require_tokenizer_model_name(
+        tokenizer_model_name,
+        action="Evaluation",
+    )
+    stage_resume.reject_deprecated_model_dependency(
+        model_task_id,
+        model_path,
+        action="Evaluation",
+    )
+    stage_resume.reject_pipeline_local(pipeline_local)
+    stage_resume.resume_model_training_stage(
         stage_name=EVALUATION_STAGE,
-        pipeline_controller_id=pipeline_controller_id,
         pipeline_name=pipeline_name,
         pipeline_version=pipeline_version,
         controller_queue=controller_queue,
         wait=wait,
+        pipeline_controller_id=pipeline_controller_id,
         clearml_project=clearml_project,
         clearml_task_name=clearml_task_name,
         clearml_config_file=clearml_config_file,
@@ -210,8 +198,6 @@ def main(
             "source_split": resolved_source_split or "",
             "evaluation_partition": evaluation_partition,
         },
-        stage_dependencies=MODEL_TRAINING_PIPELINE.stage_dependencies,
-        stage_names=MODEL_TRAINING_PIPELINE.stages,
     )
 
 

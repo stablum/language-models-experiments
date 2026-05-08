@@ -6,11 +6,11 @@ from pathlib import Path
 
 import click
 
+from src.cli import stage_resume
 from src.ml_core.cli.config import configured_command
 from src.pipelines.language_model.definition import (
     pipeline_options,
     pipeline_resume_option,
-    resume_pipeline_controller_stage,
 )
 from src.pipelines.language_model.model_training import MODEL_STAGE, MODEL_TRAINING_PIPELINE
 from src.corpora import normalization
@@ -181,11 +181,10 @@ def main(
 ) -> None:
     corpus_definition = corpora_registry.get_corpus(corpus)
     model_definition = model_registry.get_model(model_name)
-    resolved_tokenizer_model_name = str(tokenizer_model_name or "").strip()
-    if not resolved_tokenizer_model_name:
-        raise click.ClickException(
-            "Model training requires --tokenizer-model-name, or tokenizer_model_name in [train]."
-        )
+    resolved_tokenizer_model_name = stage_resume.require_tokenizer_model_name(
+        tokenizer_model_name,
+        action="Model training",
+    )
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
     resolved_source_split = source_split if source_split is not None else corpus_definition.split
     if tokenizer_task_id is not None or tokenizer_model is not None:
@@ -194,18 +193,14 @@ def main(
             "Set --tokenizer-model-name instead of passing --tokenizer-task-id or "
             "--tokenizer-model."
         )
-    if pipeline_local:
-        raise click.ClickException(
-            "Existing PipelineController runs are resumed by re-enqueueing the controller task. "
-            "Use --pipeline-queued for stage CLIs."
-        )
-    resume_pipeline_controller_stage(
+    stage_resume.reject_pipeline_local(pipeline_local)
+    stage_resume.resume_model_training_stage(
         stage_name=MODEL_STAGE,
-        pipeline_controller_id=pipeline_controller_id,
         pipeline_name=pipeline_name,
         pipeline_version=pipeline_version,
         controller_queue=controller_queue,
         wait=wait,
+        pipeline_controller_id=pipeline_controller_id,
         clearml_project=clearml_project,
         clearml_task_name=clearml_task_name,
         clearml_config_file=clearml_config_file,
@@ -219,8 +214,6 @@ def main(
             "dataset_id": resolved_dataset_id,
             "source_split": resolved_source_split or "",
         },
-        stage_dependencies=MODEL_TRAINING_PIPELINE.stage_dependencies,
-        stage_names=MODEL_TRAINING_PIPELINE.stages,
     )
 
 
