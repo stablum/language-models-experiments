@@ -12,17 +12,16 @@ import sentencepiece as spm
 
 from src.corpora import normalization
 from src.models.core import ngram
-from src.models.core import trigram as trigrams
+from src.models.core import trigrams
+
+
+_SCHEMA_TYPE = "interpolated_kneser_ney_trigram"
 
 
 class KneserNeyTrigramTrainingSummary(trigrams.TrigramTrainingSummary):
     continuation_unigram_count: int = 0
     continuation_bigram_type_count: int = 0
     discount: float = 0.0
-
-
-class KneserNeyTrigramEvaluationSummary(trigrams.DiscountedTrigramEvaluationSummary):
-    pass
 
 
 @dataclass(frozen=True)
@@ -41,7 +40,7 @@ class KneserNeyContinuationCounts:
 
 class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
     evaluation_summary_type: ClassVar[type[ngram.NgramEvaluationSummary]] = (
-        KneserNeyTrigramEvaluationSummary
+        trigrams.DiscountedTrigramEvaluationSummary
     )
     unigram_counts: dict[int, int]
     unigram_total: int
@@ -49,7 +48,6 @@ class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
     def context_probability(
         self,
         next_id: int,
-        context: trigrams.Context,
         counts: trigrams.ResolvedTrigramContextCounts,
     ) -> float:
         return self.trigram_probability(
@@ -137,8 +135,7 @@ class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
 def load_kneser_ney_trigram_model(model_path: Path) -> KneserNeyTrigramModel:
     data, tokenizer_model, processor, vocab_size = trigrams.load_standard_trigram_payload(
         model_path,
-        model_type="interpolated_kneser_ney_trigram",
-        label="an interpolated Kneser-Ney trigram model",
+        model_type=_SCHEMA_TYPE,
     )
 
     return KneserNeyTrigramModel(
@@ -147,9 +144,9 @@ def load_kneser_ney_trigram_model(model_path: Path) -> KneserNeyTrigramModel:
         processor=processor,
         **ngram.sentencepiece_model_fields(data, processor, vocab_size),
         discount=float(data["discount"]),
-        unigram_counts=trigrams.parse_token_counts(data, "kneser_ney_unigrams"),
+        unigram_counts=ngram.parse_token_counts(data, "kneser_ney_unigrams"),
         unigram_total=int(data["kneser_ney_unigram_count"]),
-        bigram_transitions=trigrams.parse_token_transitions(
+        bigram_transitions=ngram.parse_token_transitions(
             data,
             "kneser_ney_bigram_transitions",
         ),
@@ -192,7 +189,7 @@ def train_kneser_ney_trigram_model(
     model = {
         **trigrams.standard_trigram_model_payload(
             processor,
-            model_type="interpolated_kneser_ney_trigram",
+            model_type=_SCHEMA_TYPE,
             tokenizer_model=tokenizer_model,
             stored_tokenizer_model=stored_tokenizer_model,
             vocab_size=summary.vocab_size,
@@ -201,10 +198,10 @@ def train_kneser_ney_trigram_model(
         ),
         "discount": summary.discount,
         "kneser_ney_unigram_count": summary.continuation_unigram_count,
-        "kneser_ney_unigrams": trigrams.token_counts_payload(
+        "kneser_ney_unigrams": ngram.token_counts_payload(
             continuation_counts.unigram_counts
         ),
-        "kneser_ney_bigram_transitions": trigrams.token_transition_payload(
+        "kneser_ney_bigram_transitions": ngram.token_transition_payload(
             continuation_counts.bigram_transitions
         ),
     }

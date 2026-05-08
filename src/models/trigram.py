@@ -10,8 +10,11 @@ import sentencepiece as spm
 
 from src.corpora import normalization
 from src.models.core import formatting, ngram
-from src.models.core import trigram as trigrams
+from src.models.core import trigrams
 from src.ml_core.models.definition import ModelOptionError, ModelOptions
+
+
+_SCHEMA_TYPE = "interpolated_trigram"
 
 
 class TrigramTrainingSummary(trigrams.TrigramTrainingSummary):
@@ -47,7 +50,6 @@ class TrigramModel(trigrams.BaseTrigramModel):
     def context_probability(
         self,
         next_id: int,
-        context: trigrams.Context,
         counts: trigrams.ResolvedTrigramContextCounts,
     ) -> float:
         return (
@@ -104,8 +106,7 @@ def normalize_interpolation_weights(
 def load_trigram_model(model_path: Path) -> TrigramModel:
     data, tokenizer_model, processor, vocab_size = trigrams.load_standard_trigram_payload(
         model_path,
-        model_type="interpolated_trigram",
-        label="an interpolated trigram model",
+        model_type=_SCHEMA_TYPE,
     )
     weights = data["interpolation_weights"]
 
@@ -162,7 +163,7 @@ def train_trigram_model(
     model = {
         **trigrams.standard_trigram_model_payload(
             processor,
-            model_type="interpolated_trigram",
+            model_type=_SCHEMA_TYPE,
             tokenizer_model=tokenizer_model,
             stored_tokenizer_model=stored_tokenizer_model,
             vocab_size=summary.vocab_size,

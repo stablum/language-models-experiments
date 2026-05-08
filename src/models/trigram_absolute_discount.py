@@ -10,29 +10,25 @@ import sentencepiece as spm
 
 from src.corpora import normalization
 from src.models.core import ngram
-from src.models.core import trigram as trigrams
+from src.models.core import trigrams
+
+
+_SCHEMA_TYPE = "absolute_discount_trigram"
 
 
 class AbsoluteDiscountTrigramTrainingSummary(trigrams.TrigramTrainingSummary):
     discount: float = 0.0
 
 
-class AbsoluteDiscountTrigramEvaluationSummary(
-    trigrams.DiscountedTrigramEvaluationSummary
-):
-    pass
-
-
 class AbsoluteDiscountTrigramModel(trigrams.DiscountedTrigramModel):
     evaluation_summary_type: ClassVar[type[ngram.NgramEvaluationSummary]] = (
-        AbsoluteDiscountTrigramEvaluationSummary
+        trigrams.DiscountedTrigramEvaluationSummary
     )
     smoothing: float
 
     def context_probability(
         self,
         next_id: int,
-        context: trigrams.Context,
         counts: trigrams.ResolvedTrigramContextCounts,
     ) -> float:
         return self.trigram_probability(
@@ -84,8 +80,7 @@ class AbsoluteDiscountTrigramModel(trigrams.DiscountedTrigramModel):
 def load_absolute_discount_trigram_model(model_path: Path) -> AbsoluteDiscountTrigramModel:
     data, tokenizer_model, processor, vocab_size = trigrams.load_standard_trigram_payload(
         model_path,
-        model_type="absolute_discount_trigram",
-        label="an absolute-discount trigram model",
+        model_type=_SCHEMA_TYPE,
     )
 
     return AbsoluteDiscountTrigramModel(
@@ -128,7 +123,7 @@ def train_absolute_discount_trigram_model(
     model = {
         **trigrams.standard_trigram_model_payload(
             processor,
-            model_type="absolute_discount_trigram",
+            model_type=_SCHEMA_TYPE,
             tokenizer_model=tokenizer_model,
             stored_tokenizer_model=stored_tokenizer_model,
             vocab_size=summary.vocab_size,

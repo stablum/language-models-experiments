@@ -13,13 +13,11 @@ from src.corpora import normalization
 from src.models.core import ngram
 
 
+_SCHEMA_TYPE = "autoregressive_bigram"
+
+
 class BigramTrainingSummary(ngram.NgramTrainingSummary):
     transition_count: int = 0
-
-
-BigramPrediction = ngram.NgramPrediction
-BigramQueryResult = ngram.NgramQueryResult
-BigramEvaluationSummary = ngram.NgramEvaluationSummary
 
 
 @dataclass(frozen=True)
@@ -45,7 +43,7 @@ class BigramModel(ngram.BaseNgramModel):
         previous_id: int,
         *,
         top_k: int,
-    ) -> list[BigramPrediction]:
+    ) -> list[ngram.NgramPrediction]:
         candidate_ids = ngram.candidate_token_ids(self.vocab_size, self.bos_id)
         observed = dict(self.transitions.get(previous_id, ()))
         denominator = sum(observed.get(token_id, 0) for token_id in candidate_ids)
@@ -55,7 +53,7 @@ class BigramModel(ngram.BaseNgramModel):
             return []
 
         predictions = [
-            BigramPrediction(
+            ngram.NgramPrediction(
                 token_id=token_id,
                 piece=self.pieces[token_id],
                 count=observed.get(token_id, 0),
@@ -73,13 +71,13 @@ class BigramModel(ngram.BaseNgramModel):
         *,
         top_k: int = 5,
         text_normalization: normalization.TextNormalization | None = None,
-    ) -> BigramEvaluationSummary:
+    ) -> ngram.NgramEvaluationSummary:
         candidate_ids = ngram.candidate_token_ids(self.vocab_size, self.bos_id)
         candidate_id_set = set(candidate_ids)
         row_cache: dict[int, BigramEvaluationRow] = {}
 
         resolved_text_normalization = text_normalization or self.text_normalization
-        summary = BigramEvaluationSummary(
+        summary = ngram.NgramEvaluationSummary(
             model_path=self.model_path,
             tokenizer_model=self.tokenizer_model,
             top_k=top_k,
@@ -174,8 +172,7 @@ class BigramModel(ngram.BaseNgramModel):
 def load_bigram_model(model_path: Path) -> BigramModel:
     data = ngram.load_json_model_payload(
         model_path,
-        model_type="autoregressive_bigram",
-        label="an autoregressive bigram model",
+        model_type=_SCHEMA_TYPE,
     )
     tokenizer_model, processor, vocab_size = ngram.load_sentencepiece_from_payload(
         data,
@@ -239,7 +236,7 @@ def train_bigram_model(
 
     model = {
         "schema_version": 1,
-        "model_type": "autoregressive_bigram",
+        "model_type": _SCHEMA_TYPE,
         **ngram.sentencepiece_model_payload(
             processor,
             tokenizer_model=tokenizer_model,

@@ -15,8 +15,6 @@ from src.models.core import formatting, ngram
 
 
 Context = tuple[int, int]
-TrigramPrediction = ngram.NgramPrediction
-TrigramQueryResult = ngram.NgramQueryResult
 
 
 @dataclass(frozen=True)
@@ -74,10 +72,10 @@ class BaseTrigramModel(ngram.BaseNgramModel):
         context: Context,
         *,
         top_k: int,
-    ) -> list[TrigramPrediction]:
+    ) -> list[ngram.NgramPrediction]:
         trigram_counts = dict(self.trigram_transitions.get(context, ()))
         predictions = [
-            TrigramPrediction(
+            ngram.NgramPrediction(
                 token_id=token_id,
                 piece=self.pieces[token_id],
                 count=trigram_counts.get(token_id, 0),
@@ -171,12 +169,11 @@ class BaseTrigramModel(ngram.BaseNgramModel):
             bigram_total=bigram_total,
             trigram_total=trigram_total,
         )
-        return self.context_probability(next_id, context, counts)
+        return self.context_probability(next_id, counts)
 
     def context_probability(
         self,
         next_id: int,
-        context: Context,
         counts: ResolvedTrigramContextCounts,
     ) -> float:
         raise NotImplementedError
@@ -347,8 +344,8 @@ def trigram_counts_payload(counts: TrigramCounts) -> dict[str, object]:
         "unigram_count": counts.unigram_count,
         "bigram_transition_count": counts.bigram_transition_count,
         "trigram_transition_count": counts.trigram_transition_count,
-        "unigrams": token_counts_payload(counts.unigram_counts),
-        "bigram_transitions": token_transition_payload(counts.bigram_transitions),
+        "unigrams": ngram.token_counts_payload(counts.unigram_counts),
+        "bigram_transitions": ngram.token_transition_payload(counts.bigram_transitions),
         "trigram_transitions": context_transition_payload(counts.trigram_transitions),
     }
 
@@ -395,7 +392,7 @@ def load_standard_trigram_payload(
     model_path: Path,
     *,
     model_type: str,
-    label: str,
+    label: str | None = None,
 ) -> tuple[dict[str, object], Path, spm.SentencePieceProcessor, int]:
     data = ngram.load_json_model_payload(model_path, model_type=model_type, label=label)
     tokenizer_model, processor, vocab_size = ngram.load_sentencepiece_from_payload(
@@ -430,7 +427,7 @@ def standard_trigram_model_payload(
 
 
 def parse_unigram_counts(data: dict[str, object]) -> dict[int, int]:
-    return parse_token_counts(data, "unigrams")
+    return ngram.parse_token_counts(data, "unigrams")
 
 
 def parse_bigram_transitions(data: dict[str, object]) -> dict[int, tuple[tuple[int, int], ...]]:
@@ -443,16 +440,6 @@ def parse_trigram_transitions(
     return parse_context_transitions(data, "trigram_transitions")
 
 
-def token_counts_payload(counts: Counter[int] | dict[int, int]) -> list[tuple[int, int]]:
-    return sorted(counts.items())
-
-
-def token_transition_payload(
-    transitions: defaultdict[int, Counter[int]] | dict[int, Counter[int]],
-) -> dict[str, list[tuple[int, int]]]:
-    return ngram.token_transition_payload(transitions)
-
-
 def context_transition_payload(
     transitions: defaultdict[Context, Counter[int]] | dict[Context, Counter[int]],
 ) -> dict[str, list[tuple[int, int]]]:
@@ -463,20 +450,6 @@ def context_transition_payload(
             previous_id,
         ), next_counts in sorted(transitions.items())
     }
-
-
-def parse_token_counts(data: dict[str, object], key: str) -> dict[int, int]:
-    return {
-        int(token_id): int(count)
-        for token_id, count in data[key]
-    }
-
-
-def parse_token_transitions(
-    data: dict[str, object],
-    key: str,
-) -> dict[int, tuple[tuple[int, int], ...]]:
-    return ngram.parse_token_transitions(data, key)
 
 
 def parse_context_transitions(

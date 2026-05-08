@@ -330,10 +330,21 @@ def resolve_stored_path(stored_path: Path, model_path: Path) -> Path:
     return stored_path
 
 
-def load_json_model_payload(model_path: Path, *, model_type: str, label: str) -> dict[str, Any]:
+def schema_label(model_type: str) -> str:
+    words = model_type.replace("_", " ")
+    article = "an" if words[:1].lower() in {"a", "e", "i", "o", "u"} else "a"
+    return f"{article} {words} model"
+
+
+def load_json_model_payload(
+    model_path: Path,
+    *,
+    model_type: str,
+    label: str | None = None,
+) -> dict[str, Any]:
     data = json.loads(model_path.read_text(encoding="utf-8"))
     if data.get("model_type") != model_type:
-        raise ValueError(f"Not {label}: {model_path}")
+        raise ValueError(f"Not {label or schema_label(model_type)}: {model_path}")
     return data
 
 
@@ -586,6 +597,13 @@ def parse_token_transitions(
     }
 
 
+def parse_token_counts(data: dict[str, object], key: str) -> dict[int, int]:
+    return {
+        int(token_id): int(count)
+        for token_id, count in data[key]
+    }
+
+
 def token_transition_payload(
     transitions: defaultdict[int, Counter[int]] | dict[int, Counter[int]],
 ) -> dict[str, list[tuple[int, int]]]:
@@ -593,6 +611,10 @@ def token_transition_payload(
         str(previous_id): sorted(next_counts.items())
         for previous_id, next_counts in sorted(transitions.items())
     }
+
+
+def token_counts_payload(counts: Counter[int] | Mapping[int, int]) -> list[tuple[int, int]]:
+    return sorted(counts.items())
 
 
 def iter_sentencepiece_token_sequences(
