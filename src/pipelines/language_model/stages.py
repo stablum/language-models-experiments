@@ -77,7 +77,7 @@ def train_tokenizer_step(
     clearml_config_file: str | None = None,
 ) -> str:
     """Train and publish the tokenizer step artifacts."""
-    stage = "train_tokenizer"
+    stage = TOKENIZER_STAGE
     _configure_step_clearml(clearml_config_file)
     _emit_pipeline_stage_title(stage)
     corpus_definition = corpora_registry.get_corpus(corpus)
@@ -203,7 +203,7 @@ def train_model_pipeline_step(
     **legacy_model_hyperparameters: object,
 ) -> str:
     """Train the language model from the tokenizer step artifact."""
-    stage = "train_model"
+    stage = MODEL_STAGE
     _configure_step_clearml(clearml_config_file)
     _emit_pipeline_stage_title(stage)
     corpus_definition = corpora_registry.get_corpus(corpus)
@@ -350,7 +350,7 @@ def evaluate_pipeline_step(
     clearml_config_file: str | None = None,
 ) -> str:
     """Evaluate the trained model step artifact."""
-    stage = "evaluate"
+    stage = EVALUATION_STAGE
     _configure_step_clearml(clearml_config_file)
     _emit_pipeline_stage_title(stage)
     corpus_definition = corpora_registry.get_corpus(corpus)
@@ -571,7 +571,7 @@ def query_pipeline_step(
     clearml_config_file: str | None = None,
 ) -> str:
     """Query the trained model step artifact."""
-    stage = "query"
+    stage = QUERY_STAGE
     _configure_step_clearml(clearml_config_file)
     _emit_pipeline_stage_title(stage)
     model_definition = model_registry.get_model(model_name)

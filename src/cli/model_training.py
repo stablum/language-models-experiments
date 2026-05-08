@@ -99,31 +99,44 @@ def _resolve_consistent_stage_default(
     if parameter_name in pipeline_defaults:
         return current_value
 
-    values = [
+    values = _stage_config_values(candidates)
+    if not values:
+        return current_value
+    return _consistent_stage_value(parameter_name, values)
+
+
+def _stage_config_values(
+    candidates: tuple[tuple[str, Mapping[str, object], str], ...],
+) -> list[tuple[str, object]]:
+    return [
         (section, defaults[key])
         for section, defaults, key in candidates
         if key in defaults
     ]
-    if not values:
-        return current_value
 
+
+def _consistent_stage_value(
+    parameter_name: str,
+    values: Sequence[tuple[str, object]],
+) -> object:
     first_value = values[0][1]
     conflicts = [
         (section, value)
         for section, value in values[1:]
         if value != first_value
     ]
-    if conflicts:
-        formatted_values = ", ".join(
-            f"[{section}] {parameter_name}={value!r}"
-            for section, value in values
-        )
-        raise click.ClickException(
-            f"Conflicting pipeline defaults for {parameter_name!r}: {formatted_values}. "
-            "Set one shared value in [defaults] or [model-training], "
-            "or make the stage sections match."
-        )
-    return first_value
+    if not conflicts:
+        return first_value
+
+    formatted_values = ", ".join(
+        f"[{section}] {parameter_name}={value!r}"
+        for section, value in values
+    )
+    raise click.ClickException(
+        f"Conflicting pipeline defaults for {parameter_name!r}: {formatted_values}. "
+        "Set one shared value in [defaults] or [model-training], "
+        "or make the stage sections match."
+    )
 
 
 def _resolve_stage_limit(
@@ -142,8 +155,16 @@ def _resolve_stage_limit(
     if _parameter_is_explicit(ctx, "limit") or "limit" in pipeline_defaults:
         return global_limit
     if "limit" in stage_defaults:
-        return stage_defaults["limit"]  # type: ignore[return-value]
+        return _optional_int_default(stage_defaults["limit"], name="limit")
     return global_limit
+
+
+def _optional_int_default(value: object, *, name: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise click.ClickException(f"Config default {name!r} must be an integer.")
+    return value
 
 
 def _parameter_is_explicit(ctx: click.Context | None, parameter_name: str) -> bool:
@@ -249,22 +270,7 @@ def _consistent_config_values(
         ]
         if not values:
             continue
-        first_value = values[0][1]
-        conflicts = [
-            (section, value)
-            for section, value in values[1:]
-            if value != first_value
-        ]
-        if conflicts:
-            formatted_values = ", ".join(
-                f"[{section}] {parameter_name}={value!r}"
-                for section, value in values
-            )
-            raise click.ClickException(
-                f"Conflicting pipeline defaults for {parameter_name!r}: {formatted_values}. "
-                "Set one shared value in [defaults] or [model-training], "
-                "or make the stage sections match."
-            )
+        first_value = _consistent_stage_value(parameter_name, values)
         if parameter_name not in current_defaults or first_value != current_defaults[parameter_name]:
             resolved[parameter_name] = first_value
     return resolved
