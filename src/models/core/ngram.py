@@ -7,7 +7,6 @@ import math
 import random
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal, TypeVar
 
@@ -27,7 +26,6 @@ from src.models.core import formatting
 
 
 DecodingMode = Literal["sample", "most-probable"]
-ProbabilityFn = Callable[[int], float]
 
 
 class NgramPydanticModel(pydantic.BaseModel):
@@ -114,30 +112,6 @@ class NgramEvaluationSummary(NgramPydanticModel):
         if math.isinf(average_nll):
             return math.inf
         return math.exp(average_nll)
-
-
-@dataclass(frozen=True)
-class BackoffDistribution:
-    observed_probabilities: dict[int, float]
-    reserved_mass: float
-    lower_mass: float
-    fallback_count: int
-
-    def probability(
-        self,
-        token_id: int,
-        *,
-        lower_probability: ProbabilityFn,
-    ) -> float:
-        if token_id in self.observed_probabilities:
-            return self.observed_probabilities[token_id]
-        if self.reserved_mass <= 0:
-            return 0.0
-        if self.lower_mass > 0:
-            return self.reserved_mass * lower_probability(token_id) / self.lower_mass
-        if self.fallback_count > 0:
-            return self.reserved_mass / self.fallback_count
-        return 0.0
 
 
 class BaseNgramModel(NgramPydanticModel):
@@ -537,80 +511,6 @@ def discounted_interpolation_probability(
     discounted_probability = max(observed_count - discount, 0.0) / total
     interpolation_weight = discount * len(counts) / total
     return discounted_probability + interpolation_weight * lower_order_probability
-
-
-def good_turing_smoothed_distribution(
-    counts: Mapping[int, int],
-    *,
-    candidate_ids: Sequence[int],
-    lower_probability: ProbabilityFn,
-    total: int | None = None,
-) -> BackoffDistribution:
-    candidate_id_set = frozenset(candidate_ids)
-    if not candidate_ids:
-        return BackoffDistribution(
-            observed_probabilities={},
-            reserved_mass=0.0,
-            lower_mass=0.0,
-            fallback_count=0,
-        )
-
-    clean_counts = {
-        token_id: int(count)
-        for token_id, count in counts.items()
-        if token_id in candidate_id_set and count > 0
-    }
-    unseen_count = max(len(candidate_ids) - len(clean_counts), 0)
-    row_total = total if total is not None else sum(clean_counts.values())
-    if row_total <= 0:
-        return BackoffDistribution(
-            observed_probabilities={},
-            reserved_mass=1.0,
-            lower_mass=sum(lower_probability(token_id) for token_id in candidate_ids),
-            fallback_count=len(candidate_ids),
-        )
-
-    frequency_counts = Counter(clean_counts.values())
-    adjusted_counts = {
-        token_id: good_turing_count(count, frequency_counts)
-        for token_id, count in clean_counts.items()
-    }
-    adjusted_total = sum(adjusted_counts.values())
-    raw_reserved_mass = frequency_counts.get(1, 0) / row_total if unseen_count > 0 else 0.0
-    raw_observed_mass = adjusted_total / row_total
-    normalizer = raw_observed_mass + raw_reserved_mass
-    if normalizer <= 0:
-        adjusted_counts = {token_id: float(count) for token_id, count in clean_counts.items()}
-        adjusted_total = sum(adjusted_counts.values())
-        raw_observed_mass = adjusted_total / row_total
-        normalizer = raw_observed_mass + raw_reserved_mass
-
-    observed_probabilities = (
-        {
-            token_id: (adjusted_count / row_total) / normalizer
-            for token_id, adjusted_count in adjusted_counts.items()
-        }
-        if normalizer > 0
-        else {}
-    )
-    observed_ids = frozenset(clean_counts)
-    return BackoffDistribution(
-        observed_probabilities=observed_probabilities,
-        reserved_mass=raw_reserved_mass / normalizer if normalizer > 0 else 0.0,
-        lower_mass=sum(
-            lower_probability(token_id)
-            for token_id in candidate_ids
-            if token_id not in observed_ids
-        ),
-        fallback_count=unseen_count,
-    )
-
-
-def good_turing_count(count: int, frequency_counts: Mapping[int, int]) -> float:
-    next_frequency = frequency_counts.get(count + 1, 0)
-    if next_frequency <= 0:
-        return float(count)
-    return (count + 1) * next_frequency / frequency_counts[count]
 
 
 def model_name_from_module(module_name: str) -> str:
