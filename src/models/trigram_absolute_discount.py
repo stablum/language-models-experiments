@@ -4,87 +4,40 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
+from typing import ClassVar
 
 import sentencepiece as spm
 
 from src.corpora import normalization
-from src.models import formatting, ngram, trigram_common
-from src.ml_core.models.definition import ModelOptions
+from src.models import ngram, trigram_common
 
 
 MODEL_NAME = "trigram-absolute-discount"
 MODEL_SUFFIX = "trigram-absolute-discount"
 
 
-class AbsoluteDiscountTrigramTrainingSummary(ngram.NgramPydanticModel):
-    output_path: Path
-    tokenizer_model: Path
-    vocab_size: int = 0
-    sequence_count: int = 0
-    token_count: int = 0
-    unigram_count: int = 0
-    bigram_transition_count: int = 0
-    trigram_transition_count: int = 0
-    discount: float = 0.0
-    text_normalization: str = "none"
-
-
-class AbsoluteDiscountTrigramEvaluationSummary(ngram.NgramEvaluationSummary):
+class AbsoluteDiscountTrigramTrainingSummary(trigram_common.TrigramTrainingSummary):
     discount: float = 0.0
 
 
-class AbsoluteDiscountTrigramModel(trigram_common.BaseTrigramModel):
-    model_path: Path
-    tokenizer_model: Path
-    processor: spm.SentencePieceProcessor
-    vocab_size: int
+class AbsoluteDiscountTrigramEvaluationSummary(
+    trigram_common.DiscountedTrigramEvaluationSummary
+):
+    pass
+
+
+class AbsoluteDiscountTrigramModel(trigram_common.DiscountedTrigramModel):
+    evaluation_summary_type: ClassVar[type[ngram.NgramEvaluationSummary]] = (
+        AbsoluteDiscountTrigramEvaluationSummary
+    )
     smoothing: float
-    discount: float
-    bos_id: int
-    eos_id: int
-    unk_id: int
-    pieces: tuple[str, ...]
-    bigram_transitions: dict[int, tuple[tuple[int, int], ...]]
-    trigram_transitions: dict[trigram_common.Context, tuple[tuple[int, int], ...]]
-    text_normalization: str = "none"
 
-    def evaluation_summary(
-        self,
-        *,
-        top_k: int,
-        text_normalization: str,
-    ) -> AbsoluteDiscountTrigramEvaluationSummary:
-        return AbsoluteDiscountTrigramEvaluationSummary(
-            model_path=self.model_path,
-            tokenizer_model=self.tokenizer_model,
-            top_k=top_k,
-            text_normalization=text_normalization,
-            discount=self.discount,
-        )
-
-    def transition_probability(
+    def context_probability(
         self,
         next_id: int,
         context: trigram_common.Context,
-        *,
-        row: trigram_common.TrigramEvaluationRow | None = None,
-        bigram_counts: dict[int, int] | None = None,
-        trigram_counts: dict[int, int] | None = None,
-        bigram_total: int | None = None,
-        trigram_total: int | None = None,
+        counts: trigram_common.ResolvedTrigramContextCounts,
     ) -> float:
-        if next_id == self.bos_id:
-            return 0.0
-
-        counts = self.resolved_context_counts(
-            context,
-            row=row,
-            bigram_counts=bigram_counts,
-            trigram_counts=trigram_counts,
-            bigram_total=bigram_total,
-            trigram_total=trigram_total,
-        )
-
         return self.trigram_probability(
             next_id,
             bigram_counts=counts.bigram_counts,
@@ -122,13 +75,13 @@ class AbsoluteDiscountTrigramModel(trigram_common.BaseTrigramModel):
         counts: dict[int, int],
         total: int,
     ) -> float:
-        denominator = total + self.smoothing * ngram.candidate_token_count(
-            self.vocab_size,
-            self.bos_id,
+        return ngram.additive_smoothed_probability(
+            token_id,
+            counts=counts,
+            total=total,
+            smoothing=self.smoothing,
+            candidate_count=ngram.candidate_token_count(self.vocab_size, self.bos_id),
         )
-        if denominator <= 0:
-            return 0.0
-        return (counts.get(token_id, 0) + self.smoothing) / denominator
 
 
 def load_absolute_discount_trigram_model(model_path: Path) -> AbsoluteDiscountTrigramModel:
@@ -142,16 +95,11 @@ def load_absolute_discount_trigram_model(model_path: Path) -> AbsoluteDiscountTr
         model_path=model_path,
         tokenizer_model=tokenizer_model,
         processor=processor,
-        vocab_size=vocab_size,
+        **ngram.sentencepiece_model_fields(data, processor, vocab_size),
         smoothing=float(data["smoothing"]),
         discount=float(data["discount"]),
-        bos_id=int(data["bos_id"]),
-        eos_id=int(data["eos_id"]),
-        unk_id=int(data["unk_id"]),
-        pieces=ngram.load_pieces(data, processor, vocab_size),
         bigram_transitions=trigram_common.parse_bigram_transitions(data),
         trigram_transitions=trigram_common.parse_trigram_transitions(data),
-        text_normalization=str(data.get("text_normalization", "none")),
     )
 
 
@@ -198,22 +146,6 @@ def train_absolute_discount_trigram_model(
     return summary
 
 
-def train_from_options(
-    texts: Iterable[str],
-    options: ModelOptions,
-) -> AbsoluteDiscountTrigramTrainingSummary:
-    stored_tokenizer_model = options.get("stored_tokenizer_model")
-    return train_absolute_discount_trigram_model(
-        texts,
-        tokenizer_model=ngram.resolve_tokenizer_model(options),
-        output_path=ngram.resolve_output(options, model_suffix=MODEL_SUFFIX),
-        stored_tokenizer_model=Path(stored_tokenizer_model) if stored_tokenizer_model else None,
-        smoothing=options["smoothing"],
-        discount=options["discount"],
-        text_normalization=options["text_normalization"],
-    )
-
-
 def format_summary(
     summary: AbsoluteDiscountTrigramTrainingSummary,
 ) -> list[tuple[str, str]]:
@@ -222,31 +154,17 @@ def format_summary(
             summary=summary,
             artifact_label="Absolute-discount trigram model artifact file",
         ),
-        ("Discount", f"{summary.discount:.3f}"),
+        trigram_common.discount_item(summary),
     ]
-
-
-def format_evaluation(
-    summary: AbsoluteDiscountTrigramEvaluationSummary,
-) -> list[tuple[str, str]]:
-    return [
-        *ngram.base_evaluation_items(summary),
-        ("Discount", f"{summary.discount:.3f}"),
-        *formatting.format_ngram_evaluation_metrics(summary),
-    ]
-
-
-def format_query(result: trigram_common.TrigramQueryResult) -> list[str]:
-    return formatting.format_ngram_query(result)
 
 
 MODEL_DEFINITION = ngram.model_definition(
     name=MODEL_NAME,
     model_suffix=MODEL_SUFFIX,
     model_label="Absolute-discount trigram",
-    train=train_from_options,
+    train_model=train_absolute_discount_trigram_model,
     summary_items=format_summary,
     load_model=load_absolute_discount_trigram_model,
-    query_lines=format_query,
-    evaluation_items=format_evaluation,
+    evaluation_items=trigram_common.discounted_evaluation_items,
+    training_option_names=("smoothing", "discount"),
 )

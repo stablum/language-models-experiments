@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import math
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
 import sentencepiece as spm
 
 from src.corpora import normalization
-from src.models import ngram
+from src.models import formatting, ngram
 
 
 Context = tuple[int, int]
@@ -34,6 +34,12 @@ class TrigramCounts:
         return sum(self.unigram_counts.values())
 
 
+class TrigramTrainingSummary(ngram.NgramTrainingSummary):
+    unigram_count: int = 0
+    bigram_transition_count: int = 0
+    trigram_transition_count: int = 0
+
+
 @dataclass(frozen=True)
 class TrigramEvaluationRow:
     bigram_counts: dict[int, int]
@@ -53,25 +59,15 @@ class ResolvedTrigramContextCounts:
     trigram_total: int
 
 
-class BaseTrigramModel(ngram.NgramPydanticModel):
-    model_path: Path
-    tokenizer_model: Path
-    processor: spm.SentencePieceProcessor
-    vocab_size: int
-    bos_id: int
-    eos_id: int
-    unk_id: int
-    pieces: tuple[str, ...]
+class BaseTrigramModel(ngram.BaseNgramModel):
+    evaluation_summary_type: ClassVar[type[ngram.NgramEvaluationSummary]] = (
+        ngram.NgramEvaluationSummary
+    )
     bigram_transitions: dict[int, tuple[tuple[int, int], ...]]
     trigram_transitions: dict[Context, tuple[tuple[int, int], ...]]
-    text_normalization: str
 
-    def encode_prompt(self, prompt: str) -> list[int]:
-        return ngram.encode_prompt(
-            self.processor,
-            prompt,
-            text_normalization=self.text_normalization,
-        )
+    def advance_context(self, context: Context, next_id: int) -> Context:
+        return context[1], next_id
 
     def next_token_predictions(
         self,
@@ -91,64 +87,6 @@ class BaseTrigramModel(ngram.NgramPydanticModel):
         ]
         predictions.sort(key=lambda prediction: (-prediction.probability, prediction.token_id))
         return predictions[:top_k] if top_k > 0 else predictions
-
-    def query(
-        self,
-        *,
-        prompt: str = "",
-        max_tokens: int = 80,
-        top_k: int = 10,
-        decoding: ngram.DecodingMode = "sample",
-        temperature: float = 1.0,
-        seed: int | None = None,
-    ) -> TrigramQueryResult:
-        prompt_token_ids = self.encode_prompt(prompt)
-        context = self.context_for_tokens(prompt_token_ids)
-        next_token_predictions = self.next_token_predictions(context, top_k=top_k)
-        rng = ngram.seeded_rng(seed)
-        token_ids = list(prompt_token_ids)
-        generated_token_ids: list[int] = []
-
-        for _ in range(max_tokens):
-            next_id = ngram.select_next_token(
-                self.next_token_predictions(context, top_k=0),
-                eos_id=self.eos_id,
-                decoding=decoding,
-                rng=rng,
-                temperature=temperature,
-            )
-            if next_id == self.eos_id:
-                break
-
-            generated_token_ids.append(next_id)
-            token_ids.append(next_id)
-            context = (context[1], next_id)
-
-        prompt_text = self.processor.decode(prompt_token_ids)
-        generated_text = self.processor.decode(token_ids)
-        continuation_text = ngram.decode_continuation(
-            self.processor,
-            generated_text=generated_text,
-            prompt_text=prompt_text,
-            generated_token_ids=generated_token_ids,
-        )
-
-        return TrigramQueryResult(
-            model_path=self.model_path,
-            tokenizer_model=self.tokenizer_model,
-            decoding=decoding,
-            bos_id=self.bos_id,
-            eos_id=self.eos_id,
-            unk_id=self.unk_id,
-            prompt=prompt,
-            prompt_token_ids=prompt_token_ids,
-            continuation_text=continuation_text,
-            generated_text=generated_text,
-            generated_token_ids=generated_token_ids,
-            token_ids=token_ids,
-            next_token_predictions=next_token_predictions,
-            text_normalization=self.text_normalization,
-        )
 
     def evaluate(
         self,
@@ -184,16 +122,13 @@ class BaseTrigramModel(ngram.NgramPydanticModel):
                     row = self.evaluation_row(context, top_k=top_k)
                     row_cache[context] = row
 
-                if next_id == row.greedy_token_id:
-                    summary.correct_next_token_count += 1
-                if next_id in row.top_k_token_ids:
-                    summary.top_k_correct_next_token_count += 1
-
-                probability = self.transition_probability(next_id, context, row=row)
-                if probability <= 0:
-                    summary.zero_probability_count += 1
-                else:
-                    summary.negative_log_likelihood -= math.log(probability)
+                ngram.score_evaluation_transition(
+                    summary,
+                    actual_token_id=next_id,
+                    greedy_token_id=row.greedy_token_id,
+                    top_k_token_ids=row.top_k_token_ids,
+                    probability=self.transition_probability(next_id, context, row=row),
+                )
 
         return summary
 
@@ -203,12 +138,16 @@ class BaseTrigramModel(ngram.NgramPydanticModel):
         top_k: int,
         text_normalization: str,
     ) -> ngram.NgramEvaluationSummary:
-        return ngram.NgramEvaluationSummary(
+        return self.evaluation_summary_type(
             model_path=self.model_path,
             tokenizer_model=self.tokenizer_model,
             top_k=top_k,
             text_normalization=text_normalization,
+            **self.evaluation_summary_fields(),
         )
+
+    def evaluation_summary_fields(self) -> dict[str, object]:
+        return {}
 
     def transition_probability(
         self,
@@ -220,6 +159,25 @@ class BaseTrigramModel(ngram.NgramPydanticModel):
         trigram_counts: dict[int, int] | None = None,
         bigram_total: int | None = None,
         trigram_total: int | None = None,
+    ) -> float:
+        if next_id == self.bos_id:
+            return 0.0
+
+        counts = self.resolved_context_counts(
+            context,
+            row=row,
+            bigram_counts=bigram_counts,
+            trigram_counts=trigram_counts,
+            bigram_total=bigram_total,
+            trigram_total=trigram_total,
+        )
+        return self.context_probability(next_id, context, counts)
+
+    def context_probability(
+        self,
+        next_id: int,
+        context: Context,
+        counts: ResolvedTrigramContextCounts,
     ) -> float:
         raise NotImplementedError
 
@@ -320,6 +278,20 @@ class BaseTrigramModel(ngram.NgramPydanticModel):
         return bos_id, bos_id
 
 
+class DiscountedTrigramEvaluationSummary(ngram.NgramEvaluationSummary):
+    discount: float = 0.0
+
+
+class DiscountedTrigramModel(BaseTrigramModel):
+    evaluation_summary_type: ClassVar[type[ngram.NgramEvaluationSummary]] = (
+        DiscountedTrigramEvaluationSummary
+    )
+    discount: float
+
+    def evaluation_summary_fields(self) -> dict[str, object]:
+        return {"discount": self.discount}
+
+
 def collect_trigram_counts(
     texts: Iterable[str],
     processor: spm.SentencePieceProcessor,
@@ -405,6 +377,20 @@ def base_training_summary_items(
     ]
 
 
+def discount_item(summary: ngram.NgramPydanticModel) -> tuple[str, str]:
+    return "Discount", f"{summary.discount:.3f}"
+
+
+def discounted_evaluation_items(
+    summary: DiscountedTrigramEvaluationSummary,
+) -> list[tuple[str, str]]:
+    return [
+        *ngram.base_evaluation_items(summary),
+        discount_item(summary),
+        *formatting.format_ngram_evaluation_metrics(summary),
+    ]
+
+
 def load_standard_trigram_payload(
     model_path: Path,
     *,
@@ -448,7 +434,7 @@ def parse_unigram_counts(data: dict[str, object]) -> dict[int, int]:
 
 
 def parse_bigram_transitions(data: dict[str, object]) -> dict[int, tuple[tuple[int, int], ...]]:
-    return parse_token_transitions(data, "bigram_transitions")
+    return ngram.parse_token_transitions(data, "bigram_transitions")
 
 
 def parse_trigram_transitions(
@@ -464,10 +450,7 @@ def token_counts_payload(counts: Counter[int] | dict[int, int]) -> list[tuple[in
 def token_transition_payload(
     transitions: defaultdict[int, Counter[int]] | dict[int, Counter[int]],
 ) -> dict[str, list[tuple[int, int]]]:
-    return {
-        str(previous_id): sorted(next_counts.items())
-        for previous_id, next_counts in sorted(transitions.items())
-    }
+    return ngram.token_transition_payload(transitions)
 
 
 def context_transition_payload(
@@ -493,13 +476,7 @@ def parse_token_transitions(
     data: dict[str, object],
     key: str,
 ) -> dict[int, tuple[tuple[int, int], ...]]:
-    return {
-        int(previous_id): tuple(
-            (int(next_id), int(count))
-            for next_id, count in next_counts
-        )
-        for previous_id, next_counts in data[key].items()
-    }
+    return ngram.parse_token_transitions(data, key)
 
 
 def parse_context_transitions(

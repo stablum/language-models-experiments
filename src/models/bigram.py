@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
@@ -11,22 +10,15 @@ from pathlib import Path
 import sentencepiece as spm
 
 from src.corpora import normalization
-from src.models import formatting, ngram
-from src.ml_core.models.definition import ModelOptions
+from src.models import ngram
 
 
 MODEL_NAME = "bigram"
 MODEL_SUFFIX = "bigram"
 
 
-class BigramTrainingSummary(ngram.NgramPydanticModel):
-    output_path: Path
-    tokenizer_model: Path
-    vocab_size: int = 0
-    sequence_count: int = 0
-    token_count: int = 0
+class BigramTrainingSummary(ngram.NgramTrainingSummary):
     transition_count: int = 0
-    text_normalization: str = "none"
 
 
 BigramPrediction = ngram.NgramPrediction
@@ -42,25 +34,15 @@ class BigramEvaluationRow:
     top_k_token_ids: frozenset[int]
 
 
-class BigramModel(ngram.NgramPydanticModel):
-    model_path: Path
-    tokenizer_model: Path
-    processor: spm.SentencePieceProcessor
-    vocab_size: int
+class BigramModel(ngram.BaseNgramModel):
     smoothing: float
-    bos_id: int
-    eos_id: int
-    unk_id: int
-    pieces: tuple[str, ...]
     transitions: dict[int, tuple[tuple[int, int], ...]]
-    text_normalization: str = "none"
 
-    def encode_prompt(self, prompt: str) -> list[int]:
-        return ngram.encode_prompt(
-            self.processor,
-            prompt,
-            text_normalization=self.text_normalization,
-        )
+    def context_for_tokens(self, token_ids: list[int]) -> int:
+        return token_ids[-1] if token_ids else self.bos_id
+
+    def advance_context(self, context: int, next_id: int) -> int:
+        return next_id
 
     def next_token_predictions(
         self,
@@ -88,64 +70,6 @@ class BigramModel(ngram.NgramPydanticModel):
         ]
         predictions.sort(key=lambda prediction: (-prediction.probability, prediction.token_id))
         return predictions[:top_k] if top_k > 0 else predictions
-
-    def query(
-        self,
-        *,
-        prompt: str = "",
-        max_tokens: int = 80,
-        top_k: int = 10,
-        decoding: ngram.DecodingMode = "sample",
-        temperature: float = 1.0,
-        seed: int | None = None,
-    ) -> BigramQueryResult:
-        prompt_token_ids = self.encode_prompt(prompt)
-        previous_id = prompt_token_ids[-1] if prompt_token_ids else self.bos_id
-        next_token_predictions = self.next_token_predictions(previous_id, top_k=top_k)
-        rng = ngram.seeded_rng(seed)
-        token_ids = list(prompt_token_ids)
-        generated_token_ids: list[int] = []
-
-        for _ in range(max_tokens):
-            next_id = ngram.select_next_token(
-                self.next_token_predictions(previous_id, top_k=0),
-                eos_id=self.eos_id,
-                decoding=decoding,
-                rng=rng,
-                temperature=temperature,
-            )
-            if next_id == self.eos_id:
-                break
-
-            generated_token_ids.append(next_id)
-            token_ids.append(next_id)
-            previous_id = next_id
-
-        prompt_text = self.processor.decode(prompt_token_ids)
-        generated_text = self.processor.decode(token_ids)
-        continuation_text = ngram.decode_continuation(
-            self.processor,
-            generated_text=generated_text,
-            prompt_text=prompt_text,
-            generated_token_ids=generated_token_ids,
-        )
-
-        return BigramQueryResult(
-            model_path=self.model_path,
-            tokenizer_model=self.tokenizer_model,
-            decoding=decoding,
-            bos_id=self.bos_id,
-            eos_id=self.eos_id,
-            unk_id=self.unk_id,
-            prompt=prompt,
-            prompt_token_ids=prompt_token_ids,
-            continuation_text=continuation_text,
-            generated_text=generated_text,
-            generated_token_ids=generated_token_ids,
-            token_ids=token_ids,
-            next_token_predictions=next_token_predictions,
-            text_normalization=self.text_normalization,
-        )
 
     def evaluate(
         self,
@@ -185,20 +109,17 @@ class BigramModel(ngram.NgramPydanticModel):
                     )
                     row_cache[previous_id] = row
 
-                if next_id == row.greedy_token_id:
-                    summary.correct_next_token_count += 1
-                if next_id in row.top_k_token_ids:
-                    summary.top_k_correct_next_token_count += 1
-
-                probability = self.transition_probability(
-                    next_id,
-                    row=row,
-                    candidate_id_set=candidate_id_set,
+                ngram.score_evaluation_transition(
+                    summary,
+                    actual_token_id=next_id,
+                    greedy_token_id=row.greedy_token_id,
+                    top_k_token_ids=row.top_k_token_ids,
+                    probability=self.transition_probability(
+                        next_id,
+                        row=row,
+                        candidate_id_set=candidate_id_set,
+                    ),
                 )
-                if probability <= 0:
-                    summary.zero_probability_count += 1
-                else:
-                    summary.negative_log_likelihood -= math.log(probability)
 
         return summary
 
@@ -264,27 +185,14 @@ def load_bigram_model(model_path: Path) -> BigramModel:
         data,
         model_path,
     )
-    pieces = ngram.load_pieces(data, processor, vocab_size)
-    transitions = {
-        int(previous_id): tuple(
-            (int(next_id), int(count))
-            for next_id, count in next_counts
-        )
-        for previous_id, next_counts in data["transitions"].items()
-    }
 
     return BigramModel(
         model_path=model_path,
         tokenizer_model=tokenizer_model,
         processor=processor,
-        vocab_size=vocab_size,
+        **ngram.sentencepiece_model_fields(data, processor, vocab_size),
         smoothing=float(data["smoothing"]),
-        bos_id=int(data["bos_id"]),
-        eos_id=int(data["eos_id"]),
-        unk_id=int(data["unk_id"]),
-        pieces=pieces,
-        transitions=transitions,
-        text_normalization=str(data.get("text_normalization", "none")),
+        transitions=ngram.parse_token_transitions(data, "transitions"),
     )
 
 
@@ -347,29 +255,11 @@ def train_bigram_model(
         "sequence_count": summary.sequence_count,
         "token_count": summary.token_count,
         "transition_count": summary.transition_count,
-        "transitions": {
-            str(previous_id): sorted(next_counts.items())
-            for previous_id, next_counts in sorted(transitions.items())
-        },
+        "transitions": ngram.token_transition_payload(transitions),
     }
     ngram.write_json_model_payload(output_path, model)
 
     return summary
-
-
-def train_from_options(
-    texts: Iterable[str],
-    options: ModelOptions,
-) -> BigramTrainingSummary:
-    stored_tokenizer_model = options.get("stored_tokenizer_model")
-    return train_bigram_model(
-        texts,
-        tokenizer_model=ngram.resolve_tokenizer_model(options),
-        output_path=ngram.resolve_output(options, model_suffix=MODEL_SUFFIX),
-        stored_tokenizer_model=Path(stored_tokenizer_model) if stored_tokenizer_model else None,
-        smoothing=options["smoothing"],
-        text_normalization=options["text_normalization"],
-    )
 
 
 def format_summary(summary: BigramTrainingSummary) -> list[tuple[str, str]]:
@@ -382,24 +272,12 @@ def format_summary(summary: BigramTrainingSummary) -> list[tuple[str, str]]:
     ]
 
 
-def format_evaluation(summary: BigramEvaluationSummary) -> list[tuple[str, str]]:
-    return [
-        *ngram.base_evaluation_items(summary),
-        *formatting.format_ngram_evaluation_metrics(summary),
-    ]
-
-
-def format_query(result: BigramQueryResult) -> list[str]:
-    return formatting.format_ngram_query(result)
-
-
 MODEL_DEFINITION = ngram.model_definition(
     name=MODEL_NAME,
     model_suffix=MODEL_SUFFIX,
     model_label="Bigram",
-    train=train_from_options,
+    train_model=train_bigram_model,
     summary_items=format_summary,
     load_model=load_bigram_model,
-    query_lines=format_query,
-    evaluation_items=format_evaluation,
+    training_option_names=("smoothing",),
 )

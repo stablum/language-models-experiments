@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import math
 import random
-from collections.abc import Iterable, Iterator, Sequence
+from collections import Counter, defaultdict
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Callable, Literal, TypeVar
 
@@ -58,6 +59,15 @@ class NgramQueryResult(NgramPydanticModel):
     text_normalization: str = "none"
 
 
+class NgramTrainingSummary(NgramPydanticModel):
+    output_path: Path
+    tokenizer_model: Path
+    vocab_size: int = 0
+    sequence_count: int = 0
+    token_count: int = 0
+    text_normalization: str = "none"
+
+
 class NgramEvaluationSummary(NgramPydanticModel):
     model_path: Path
     tokenizer_model: Path
@@ -102,6 +112,97 @@ class NgramEvaluationSummary(NgramPydanticModel):
         if math.isinf(average_nll):
             return math.inf
         return math.exp(average_nll)
+
+
+class BaseNgramModel(NgramPydanticModel):
+    model_path: Path
+    tokenizer_model: Path
+    processor: spm.SentencePieceProcessor
+    vocab_size: int
+    bos_id: int
+    eos_id: int
+    unk_id: int
+    pieces: tuple[str, ...]
+    text_normalization: str = "none"
+
+    def encode_prompt(self, prompt: str) -> list[int]:
+        return encode_prompt(
+            self.processor,
+            prompt,
+            text_normalization=self.text_normalization,
+        )
+
+    def context_for_tokens(self, token_ids: list[int]) -> Any:
+        raise NotImplementedError
+
+    def advance_context(self, context: Any, next_id: int) -> Any:
+        raise NotImplementedError
+
+    def next_token_predictions(
+        self,
+        context: Any,
+        *,
+        top_k: int,
+    ) -> list[NgramPrediction]:
+        raise NotImplementedError
+
+    def query(
+        self,
+        *,
+        prompt: str = "",
+        max_tokens: int = 80,
+        top_k: int = 10,
+        decoding: DecodingMode = "sample",
+        temperature: float = 1.0,
+        seed: int | None = None,
+    ) -> NgramQueryResult:
+        prompt_token_ids = self.encode_prompt(prompt)
+        context = self.context_for_tokens(prompt_token_ids)
+        next_token_predictions = self.next_token_predictions(context, top_k=top_k)
+        rng = seeded_rng(seed)
+        token_ids = list(prompt_token_ids)
+        generated_token_ids: list[int] = []
+
+        for _ in range(max_tokens):
+            next_id = select_next_token(
+                self.next_token_predictions(context, top_k=0),
+                eos_id=self.eos_id,
+                decoding=decoding,
+                rng=rng,
+                temperature=temperature,
+            )
+            if next_id == self.eos_id:
+                break
+
+            generated_token_ids.append(next_id)
+            token_ids.append(next_id)
+            context = self.advance_context(context, next_id)
+
+        prompt_text = self.processor.decode(prompt_token_ids)
+        generated_text = self.processor.decode(token_ids)
+        continuation_text = decode_continuation(
+            self.processor,
+            generated_text=generated_text,
+            prompt_text=prompt_text,
+            generated_token_ids=generated_token_ids,
+        )
+
+        return NgramQueryResult(
+            model_path=self.model_path,
+            tokenizer_model=self.tokenizer_model,
+            decoding=decoding,
+            bos_id=self.bos_id,
+            eos_id=self.eos_id,
+            unk_id=self.unk_id,
+            prompt=prompt,
+            prompt_token_ids=prompt_token_ids,
+            continuation_text=continuation_text,
+            generated_text=generated_text,
+            generated_token_ids=generated_token_ids,
+            token_ids=token_ids,
+            next_token_predictions=next_token_predictions,
+            text_normalization=self.text_normalization,
+        )
 
 
 QueryResult = TypeVar("QueryResult", bound=NgramQueryResult)
@@ -263,6 +364,21 @@ def sentencepiece_model_payload(
     }
 
 
+def sentencepiece_model_fields(
+    data: dict[str, object],
+    processor: spm.SentencePieceProcessor,
+    vocab_size: int,
+) -> dict[str, object]:
+    return {
+        "vocab_size": vocab_size,
+        "bos_id": int(data["bos_id"]),
+        "eos_id": int(data["eos_id"]),
+        "unk_id": int(data["unk_id"]),
+        "pieces": load_pieces(data, processor, vocab_size),
+        "text_normalization": str(data.get("text_normalization", "none")),
+    }
+
+
 def load_sentencepiece_from_payload(
     data: dict[str, object],
     model_path: Path,
@@ -318,18 +434,69 @@ def validate_model_path(options: ModelOptions, *, model_suffix: str, label: str)
         )
 
 
+def score_evaluation_transition(
+    summary: NgramEvaluationSummary,
+    *,
+    actual_token_id: int,
+    greedy_token_id: int,
+    top_k_token_ids: frozenset[int],
+    probability: float,
+) -> None:
+    if actual_token_id == greedy_token_id:
+        summary.correct_next_token_count += 1
+    if actual_token_id in top_k_token_ids:
+        summary.top_k_correct_next_token_count += 1
+
+    if probability <= 0:
+        summary.zero_probability_count += 1
+    else:
+        summary.negative_log_likelihood -= math.log(probability)
+
+
+def additive_smoothed_probability(
+    token_id: int,
+    *,
+    counts: Mapping[int, int],
+    total: int,
+    smoothing: float,
+    candidate_count: int,
+) -> float:
+    denominator = total + smoothing * candidate_count
+    if denominator <= 0:
+        return 0.0
+    return (counts.get(token_id, 0) + smoothing) / denominator
+
+
 def model_definition(
     *,
     name: str,
     model_suffix: str,
     model_label: str,
-    train: Callable[[Iterable[str], ModelOptions], TrainingSummary],
+    train_model: Callable[..., TrainingSummary],
     load_model: Callable[[Path], LoadedModel],
     summary_items: SummaryFormatter,
-    query_lines: QueryFormatter,
-    evaluation_items: SummaryFormatter,
+    training_option_names: Sequence[str] = (),
+    query_lines: QueryFormatter | None = None,
+    evaluation_items: SummaryFormatter | None = None,
     validate_training_options: ModelOptionValidator | None = None,
 ) -> ModelDefinition:
+    def train(texts: Iterable[str], options: ModelOptions) -> TrainingSummary:
+        stored_tokenizer_model = options.get("stored_tokenizer_model")
+        training_options = {
+            option_name: options[option_name]
+            for option_name in training_option_names
+        }
+        return train_model(
+            texts,
+            tokenizer_model=resolve_tokenizer_model(options),
+            output_path=resolve_output(options, model_suffix=model_suffix),
+            stored_tokenizer_model=(
+                Path(stored_tokenizer_model) if stored_tokenizer_model else None
+            ),
+            text_normalization=options["text_normalization"],
+            **training_options,
+        )
+
     def validate_options(options: ModelOptions) -> None:
         validate_tokenizer_model(options)
         if validate_training_options is not None:
@@ -360,10 +527,10 @@ def model_definition(
         summary_items=summary_items,
         query=query,
         validate_query_options=validate_query_options,
-        query_lines=query_lines,
+        query_lines=query_lines or formatting.format_ngram_query,
         evaluate=evaluate,
         validate_evaluation_options=validate_query_options,
-        evaluation_items=evaluation_items,
+        evaluation_items=evaluation_items or standard_evaluation_items,
     )
 
 
@@ -388,6 +555,35 @@ def base_evaluation_items(summary: NgramEvaluationSummary) -> list[tuple[str, st
         ("Tokenizer artifact file", formatting.artifact_filename(summary.tokenizer_model)),
         ("Text normalization", summary.text_normalization),
     ]
+
+
+def standard_evaluation_items(summary: NgramEvaluationSummary) -> list[tuple[str, str]]:
+    return [
+        *base_evaluation_items(summary),
+        *formatting.format_ngram_evaluation_metrics(summary),
+    ]
+
+
+def parse_token_transitions(
+    data: dict[str, object],
+    key: str,
+) -> dict[int, tuple[tuple[int, int], ...]]:
+    return {
+        int(previous_id): tuple(
+            (int(next_id), int(count))
+            for next_id, count in next_counts
+        )
+        for previous_id, next_counts in data[key].items()
+    }
+
+
+def token_transition_payload(
+    transitions: defaultdict[int, Counter[int]] | dict[int, Counter[int]],
+) -> dict[str, list[tuple[int, int]]]:
+    return {
+        str(previous_id): sorted(next_counts.items())
+        for previous_id, next_counts in sorted(transitions.items())
+    }
 
 
 def iter_sentencepiece_token_sequences(
