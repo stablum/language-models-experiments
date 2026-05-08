@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import datasets
+from src.corpora import loading
 
 
 DATASET_ID = "Helsinki-NLP/europarl"
@@ -25,15 +25,9 @@ def load_dataset(
     split: str | None = DEFAULT_SPLIT,
     streaming: bool = False,
 ) -> Any:
-    if split is None:
-        return datasets.load_dataset(
-            dataset_id,
-            DEFAULT_CONFIG,
-            streaming=streaming,
-        )
-    return datasets.load_dataset(
+    return loading.load_hf_dataset(
         dataset_id,
-        DEFAULT_CONFIG,
+        config=DEFAULT_CONFIG,
         split=split,
         streaming=streaming,
     )

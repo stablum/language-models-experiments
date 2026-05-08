@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import datasets
+from src.corpora import loading
 
 
 DATASET_ID = "roneneldan/TinyStories"
@@ -24,9 +24,7 @@ def load_dataset(
     split: str | None = DEFAULT_SPLIT,
     streaming: bool = False,
 ) -> Any:
-    if split is None:
-        return datasets.load_dataset(dataset_id, streaming=streaming)
-    return datasets.load_dataset(
+    return loading.load_hf_dataset(
         dataset_id,
         split=split,
         streaming=streaming,

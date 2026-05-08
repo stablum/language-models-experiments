@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from types import ModuleType
 from typing import Any
 
 from src.corpora import babylm, europarl, tinystories
@@ -23,34 +24,25 @@ class CorpusDefinition:
     split_note: str | None = None
 
 
+def _definition(name: str, module: ModuleType) -> CorpusDefinition:
+    return CorpusDefinition(
+        name=name,
+        dataset_id=module.DATASET_ID,
+        split=module.DEFAULT_SPLIT,
+        text_column=module.TEXT_COLUMN,
+        load=module.load_dataset,
+        available_splits=module.AVAILABLE_SPLITS,
+        split_note=module.SPLIT_NOTE,
+    )
+
+
 CORPORA = {
-    "babylm-2026-strict-small": CorpusDefinition(
-        name="babylm-2026-strict-small",
-        dataset_id=babylm.DATASET_ID,
-        split=babylm.DEFAULT_SPLIT,
-        text_column=babylm.TEXT_COLUMN,
-        load=babylm.load_dataset,
-        available_splits=babylm.AVAILABLE_SPLITS,
-        split_note=babylm.SPLIT_NOTE,
-    ),
-    "europarl": CorpusDefinition(
-        name="europarl",
-        dataset_id=europarl.DATASET_ID,
-        split=europarl.DEFAULT_SPLIT,
-        text_column=europarl.TEXT_COLUMN,
-        load=europarl.load_dataset,
-        available_splits=europarl.AVAILABLE_SPLITS,
-        split_note=europarl.SPLIT_NOTE,
-    ),
-    "tinystories": CorpusDefinition(
-        name="tinystories",
-        dataset_id=tinystories.DATASET_ID,
-        split=tinystories.DEFAULT_SPLIT,
-        text_column=tinystories.TEXT_COLUMN,
-        load=tinystories.load_dataset,
-        available_splits=tinystories.AVAILABLE_SPLITS,
-        split_note=tinystories.SPLIT_NOTE,
-    ),
+    name: _definition(name, module)
+    for name, module in (
+        ("babylm-2026-strict-small", babylm),
+        ("europarl", europarl),
+        ("tinystories", tinystories),
+    )
 }
 
 
