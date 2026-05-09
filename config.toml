@@ -70,7 +70,7 @@ character_coverage = 1.0
 hard_vocab_limit = true
 
 [train]
-model = "trigram"
+model = "trigram-good-turing"
 # Model training resolves the latest tokenizer-training run matching
 # this tokenizer model name and the configured corpus.
 tokenizer_model_name = "babylm-2026-strict-small-sentencepiece-1000"
