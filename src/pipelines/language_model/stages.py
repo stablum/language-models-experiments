@@ -574,14 +574,56 @@ def query_pipeline_step(
     stage = QUERY_STAGE
     _configure_step_clearml(clearml_config_file)
     _emit_pipeline_stage_title(stage)
+    clearml_run = _current_step_run(
+        clearml_output_uri=clearml_output_uri,
+        clearml_tags=clearml_tags,
+        stage=stage,
+    )
+    query_model_run(
+        clearml_run,
+        model_task_id=model_task_id,
+        model_path=None,
+        source_pipeline_controller_id=None,
+        model_name=model_name,
+        corpus=corpus,
+        prompt=prompt,
+        max_tokens=max_tokens,
+        top_k=top_k,
+        decoding=decoding,
+        temperature=temperature,
+        seed=seed,
+        command="src.cli.model_training",
+        stage=stage,
+    )
+    return _require_task_id(clearml_run)
+
+
+def query_model_run(
+    clearml_run: ClearMLRun,
+    *,
+    model_task_id: str | None,
+    model_path: Path | None,
+    source_pipeline_controller_id: str | None,
+    model_name: str,
+    corpus: str,
+    prompt: str,
+    max_tokens: int,
+    top_k: int,
+    decoding: str,
+    temperature: float,
+    seed: int | None,
+    command: str,
+    stage: str = QUERY_STAGE,
+) -> object:
+    """Query a trained model and store the standard query artifacts."""
     model_definition = model_registry.get_model(model_name)
     if model_definition.query is None:
         raise click.ClickException(f"Model does not support querying yet: {model_name}")
 
-    with temporary_staging_directory(prefix="lme-pipeline-query-") as staging_dir:
+    with temporary_staging_directory(prefix="lme-query-") as staging_dir:
         staged_model_path = stage_model_artifacts(
             model_task_id=model_task_id,
-            model_path=None,
+            model_path=model_path,
             staging_dir=staging_dir,
         )
         query_options = {
@@ -600,19 +642,15 @@ def query_pipeline_step(
             except ModelOptionError as error:
                 raise click.ClickException(str(error)) from error
 
-        clearml_run = _current_step_run(
-            clearml_output_uri=clearml_output_uri,
-            clearml_tags=clearml_tags,
-            stage=stage,
-        )
         clearml_run.connect_parameter_sections(
             {
                 "Run": {
-                    "command": "src.cli.model_training",
+                    "command": command,
                     "artifact_store": "clearml",
                 },
                 "Pipeline": {
                     "stage": stage,
+                    "source_pipeline_controller_id": source_pipeline_controller_id,
                     "model_task_id": model_task_id,
                 },
                 "Data": {
@@ -621,8 +659,9 @@ def query_pipeline_step(
                 "Model": {
                     "model": model_definition.name,
                     "model_task_id": model_task_id,
-                    "model_artifact": "trained-model-json",
-                    "tokenizer_artifact": "input-tokenizer-model",
+                    "model_path": model_path,
+                    "model_artifact": "trained-model-json" if model_task_id else None,
+                    "tokenizer_artifact": "input-tokenizer-model" if model_task_id else None,
                     "model_artifact_file": staged_model_path.name,
                 },
                 "Query": {
@@ -653,7 +692,7 @@ def query_pipeline_step(
             result.tokenizer_model,
             metadata={"model": model_definition.name, "corpus": corpus},
         )
-        return _require_task_id(clearml_run)
+        return result
 
 
 def _configure_step_clearml(clearml_config_file: str | None) -> None:

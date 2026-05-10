@@ -96,6 +96,15 @@ class TokenizerTrainingResolution:
     corpus: str
 
 
+@dataclass(frozen=True)
+class ModelTrainingResolution:
+    controller_id: str
+    model_task_id: str
+    model_name: str
+    tokenizer_model_name: str
+    corpus: str
+
+
 def configure_pipeline_control(
     task: object,
     *,
@@ -177,6 +186,97 @@ def resolve_tokenizer_training_task(
     )
 
 
+def resolve_model_training_task(
+    *,
+    pipeline_name: str,
+    pipeline_version: str | None,
+    clearml_project: str,
+    model_name: str,
+    tokenizer_model_name: str,
+    corpus: str,
+    pipeline_controller_id: str | None = None,
+) -> ModelTrainingResolution:
+    parameter_filters = {
+        "model": model_name,
+        "tokenizer_model_name": tokenizer_model_name,
+        "corpus": corpus,
+    }
+    candidates = _model_training_candidates(
+        pipeline_controller_id=pipeline_controller_id,
+        pipeline_name=pipeline_name,
+        pipeline_version=pipeline_version,
+        clearml_project=clearml_project,
+    )
+
+    reasons: list[str] = []
+    for candidate in candidates:
+        if not controller_parameters_match(candidate.id, parameter_filters):
+            reasons.append(f"{candidate.id}: model-training parameters do not match")
+            continue
+
+        stage_tasks = pipeline_stage_tasks(
+            candidate.id,
+            stage_names=MODEL_TRAINING_STAGES,
+        )
+        completed_model_tasks = [
+            task
+            for task in stage_tasks.get(MODEL_STAGE, ())
+            if task.status in COMPLETED_STATUSES
+        ]
+        if not completed_model_tasks:
+            reasons.append(f"{candidate.id}: no completed {MODEL_STAGE} stage task")
+            continue
+
+        return ModelTrainingResolution(
+            controller_id=candidate.id,
+            model_task_id=completed_model_tasks[0].id,
+            model_name=model_name,
+            tokenizer_model_name=tokenizer_model_name,
+            corpus=corpus,
+        )
+
+    detail = ""
+    if reasons:
+        detail = " Checked candidates: " + "; ".join(reasons[:5])
+    controller_hint = (
+        f" controller {pipeline_controller_id!r}"
+        if pipeline_controller_id is not None
+        else f" pipeline {pipeline_name!r}"
+    )
+    raise click.ClickException(
+        "Could not find a completed model-training run for "
+        f"model={model_name!r}, corpus={corpus!r}, and "
+        f"tokenizer_model_name={tokenizer_model_name!r} in{controller_hint}. "
+        "Run model training first, pass --model-task-id, or pass --model-path."
+        f"{detail}"
+    )
+
+
+def _model_training_candidates(
+    *,
+    pipeline_controller_id: str | None,
+    pipeline_name: str,
+    pipeline_version: str | None,
+    clearml_project: str,
+) -> tuple[ControllerCandidate, ...]:
+    if pipeline_controller_id is None:
+        return list_pipeline_controller_candidates(
+            pipeline_name=pipeline_name,
+            pipeline_version=pipeline_version,
+            clearml_project=clearml_project,
+        )
+
+    task = clearml_task(pipeline_controller_id)
+    return (
+        ControllerCandidate(
+            id=pipeline_controller_id,
+            name=str(getattr(task, "name", "")),
+            status=str(getattr(task, "status", "")),
+            last_update=getattr(task, "last_update", None),
+        ),
+    )
+
+
 def _task_has_artifact(task_id: str, artifact_name: str) -> bool:
     task = clearml_task(task_id)
     artifacts = getattr(task, "artifacts", {}) or {}
@@ -198,6 +298,7 @@ __all__ = (
     "MODEL_STAGE",
     "MODEL_TRAINING_STAGE_DEPENDENCIES",
     "MODEL_TRAINING_STAGES",
+    "ModelTrainingResolution",
     "PIPELINE_CONTROL_MODE",
     "PIPELINE_CONTROL_RUN_STAGE",
     "PIPELINE_CONTROL_RUN_UNTIL_STAGE",
@@ -234,6 +335,7 @@ __all__ = (
     "print_stage_task_ids",
     "project_version",
     "resolve_pipeline_controller_id",
+    "resolve_model_training_task",
     "resolve_tokenizer_training_task",
     "resume_pipeline_controller_stage",
     "stage_allowed_by_control",
