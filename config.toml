@@ -36,6 +36,12 @@ add_run_number = true
 # Leave source_split unset to merge all available source splits, or set it to a
 # source split name such as "train" to restrict the input rows before partitioning.
 
+[query-pipeline]
+# pipeline_version defaults to the project version in pyproject.toml.
+pipeline_local = true
+controller_queue = "services"
+add_run_number = true
+
 [optuna]
 # Optuna is disabled unless optuna_trials is greater than zero.
 # Search specs use:

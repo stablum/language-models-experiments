@@ -8,10 +8,21 @@ import click
 
 from src.cli import stage_resume
 from src.ml_core.cli.config import configured_command, load_defaults_from_sections
-from src.ml_core.cli.output import emit_stage_title
-from src.pipelines.language_model.definition import resolve_model_training_task
-from src.pipelines.language_model.model_training import MODEL_TRAINING_PIPELINE, QUERY_STAGE
-from src.pipelines.language_model.stages import query_model_run
+from src.pipelines.language_model.definition import (
+    assert_pipeline_finished_successfully,
+    build_pipeline_controller,
+    configure_pipeline_control,
+    connect_controller_experiment_parameters,
+    pipeline_options,
+    print_stage_task_ids,
+)
+from src.pipelines.language_model.model_training import MODEL_TRAINING_PIPELINE
+from src.pipelines.language_model.query import (
+    QUERY_PIPELINE,
+    QUERY_STAGE,
+    add_pipeline_steps,
+    resolve_model_training_task,
+)
 from src.corpora import registry as corpora_registry
 from src.models.core import registry as model_registry
 from src.ml_core.tracking import (
@@ -19,19 +30,22 @@ from src.ml_core.tracking import (
     clearml_options,
     clearml_settings,
     configure_clearml_config_file,
-    start_clearml_run,
 )
 
 
 MODEL_TRAINING_CONFIG_SECTION = "model-training"
+QUERY_PIPELINE_CONFIG_SECTION = "query-pipeline"
 
 
 def load_query_command_defaults(_config_section: str) -> dict[str, object]:
     defaults = stage_resume.load_stage_command_defaults("query")
-    pipeline_defaults = load_defaults_from_sections((MODEL_TRAINING_CONFIG_SECTION,))
-    for key in ("pipeline_name", "pipeline_version"):
-        if key in pipeline_defaults:
-            defaults[key] = pipeline_defaults[key]
+    defaults.update(load_defaults_from_sections((QUERY_PIPELINE_CONFIG_SECTION,)))
+
+    model_training_defaults = load_defaults_from_sections((MODEL_TRAINING_CONFIG_SECTION,))
+    if "pipeline_name" in model_training_defaults:
+        defaults["model_training_name"] = model_training_defaults["pipeline_name"]
+    if "pipeline_version" in model_training_defaults:
+        defaults["model_training_version"] = model_training_defaults["pipeline_version"]
     return defaults
 
 
@@ -39,10 +53,13 @@ def load_query_command_defaults(_config_section: str) -> dict[str, object]:
     "query",
     default_loader=load_query_command_defaults,
     context_settings={"help_option_names": ["-h", "--help"]},
-    help="Run a repeatable ClearML query task against a trained language model.",
+    help="Run a repeatable single-stage ClearML query pipeline.",
 )
+@pipeline_options(default_name=QUERY_PIPELINE.default_name)
 @click.option(
-    "--pipeline-controller-id",
+    "--model-training-controller-id",
+    "--source-pipeline-controller-id",
+    "model_training_controller_id",
     default=None,
     help=(
         "Existing model-training PipelineController task ID to query. "
@@ -50,7 +67,7 @@ def load_query_command_defaults(_config_section: str) -> dict[str, object]:
     ),
 )
 @click.option(
-    "--pipeline-version",
+    "--model-training-version",
     default=None,
     help=(
         "Model-training pipeline version to search when --model-task-id is omitted. "
@@ -58,7 +75,7 @@ def load_query_command_defaults(_config_section: str) -> dict[str, object]:
     ),
 )
 @click.option(
-    "--pipeline-name",
+    "--model-training-name",
     default=MODEL_TRAINING_PIPELINE.default_name,
     show_default=True,
     help="Model-training PipelineController name to search when --model-task-id is omitted.",
@@ -137,8 +154,15 @@ def load_query_command_defaults(_config_section: str) -> dict[str, object]:
 @clearml_options
 def main(
     pipeline_name: str,
-    pipeline_version: str | None,
-    pipeline_controller_id: str | None,
+    pipeline_version: str,
+    pipeline_local: bool,
+    controller_queue: str,
+    execution_queue: str | None,
+    wait: bool,
+    add_run_number: bool,
+    model_training_controller_id: str | None,
+    model_training_version: str | None,
+    model_training_name: str,
     model_name: str,
     tokenizer_model_name: str | None,
     corpus: str,
@@ -157,13 +181,22 @@ def main(
     clearml_output_uri: str | None,
     clearml_tags: tuple[str, ...],
 ) -> None:
+    if pipeline_local and not wait:
+        raise click.ClickException("--no-wait is only supported with --pipeline-queued.")
+    if model_path is not None and not pipeline_local:
+        raise click.ClickException(
+            "--model-path is only supported with --pipeline-local. "
+            "Use --model-task-id for queued query pipelines."
+        )
+
     model_definition = model_registry.get_model(model_name)
-    if model_definition.query is None or model_definition.query_lines is None:
+    if model_definition.query is None:
         raise click.ClickException(f"Model does not support querying yet: {model_name}")
 
+    resolved_pipeline_name = clearml_task_name or pipeline_name
     settings = clearml_settings(
         project_name=clearml_project,
-        task_name=clearml_task_name,
+        task_name=resolved_pipeline_name,
         config_file=clearml_config_file,
         connectivity_check=clearml_connectivity_check,
         output_uri=clearml_output_uri,
@@ -180,65 +213,109 @@ def main(
     ) = _resolve_query_model_source(
         model_task_id=model_task_id,
         model_path=model_path,
-        pipeline_controller_id=pipeline_controller_id,
-        pipeline_name=pipeline_name,
-        pipeline_version=pipeline_version,
+        model_training_controller_id=model_training_controller_id,
+        model_training_name=model_training_name,
+        model_training_version=model_training_version,
         clearml_project=settings.project_name,
         model_name=model_definition.name,
         tokenizer_model_name=tokenizer_model_name,
         corpus=corpus,
     )
 
-    emit_stage_title(1, 1, "Query")
-    with start_clearml_run(
-        clearml_settings(
-            project_name=settings.project_name,
-            task_name=settings.task_name,
-            config_file=resolved_config_file,
-            connectivity_check=False,
-            output_uri=settings.output_uri,
-            tags=settings.tags,
-        ),
-        default_task_name=f"query {model_definition.name} {corpus}",
-        task_type="inference",
-    ) as clearml_run:
-        result = query_model_run(
-            clearml_run,
-            model_task_id=resolved_model_task_id,
-            model_path=resolved_model_path,
-            source_pipeline_controller_id=source_controller_id,
-            model_name=model_definition.name,
-            corpus=corpus,
-            prompt=prompt,
-            max_tokens=max_tokens,
-            top_k=top_k,
-            decoding=decoding,
-            temperature=temperature,
-            seed=seed,
-            command="src.cli.query",
-            stage=QUERY_STAGE,
-        )
-        for line in model_definition.query_lines(result):
-            click.echo(line)
+    pipeline = build_pipeline_controller(
+        pipeline_name=resolved_pipeline_name,
+        pipeline_version=pipeline_version,
+        clearml_project=settings.project_name,
+        clearml_tags=settings.tags,
+        clearml_output_uri=settings.output_uri,
+        add_run_number=add_run_number,
+    )
+    configure_pipeline_control(
+        pipeline.task,
+        run_stage=None,
+        run_until_stage=None,
+        updated_by="query-pipeline-cli",
+    )
+    connect_controller_experiment_parameters(
+        pipeline.task,
+        {
+            "model": model_definition.name,
+            "corpus": corpus,
+            "tokenizer_model_name": tokenizer_model_name or "",
+            "model_training_name": model_training_name,
+            "model_training_version": model_training_version or "",
+            "source_pipeline_controller_id": source_controller_id or "",
+            "model_task_id": resolved_model_task_id or "",
+            "model_path": resolved_model_path or "",
+            "prompt": prompt,
+            "max_tokens": max_tokens,
+            "top_k": top_k,
+            "decoding": decoding,
+            "temperature": temperature,
+            "seed": seed,
+        },
+    )
+    add_pipeline_steps(
+        pipeline,
+        clearml_project=settings.project_name,
+        clearml_output_uri=settings.output_uri,
+        clearml_tags=settings.tags,
+        clearml_config_file=resolved_config_file if pipeline_local else None,
+        execution_queue=None if pipeline_local else execution_queue,
+        source_pipeline_controller_id=source_controller_id,
+        model_task_id=resolved_model_task_id,
+        model_path=resolved_model_path,
+        model_name=model_definition.name,
+        corpus=corpus,
+        prompt=prompt,
+        max_tokens=max_tokens,
+        top_k=top_k,
+        decoding=decoding,
+        temperature=temperature,
+        seed=seed,
+    )
 
-        if clearml_run.task_id is not None:
-            click.echo(f"ClearML query task ID: {clearml_run.task_id}")
-        if clearml_run.task_url:
-            click.echo(f"ClearML query URL: {clearml_run.task_url}")
-
+    click.echo(f"ClearML query pipeline: {settings.project_name}/{resolved_pipeline_name}")
+    click.echo(f"Pipeline version: {pipeline_version}")
     if source_controller_id is not None:
         click.echo(f"Source pipeline controller task ID: {source_controller_id}")
     if resolved_model_task_id is not None:
         click.echo(f"Source model stage task ID: {resolved_model_task_id}")
+    if resolved_model_path is not None:
+        click.echo(f"Source model path: {resolved_model_path}")
+    click.echo(f"Pipeline controller task ID: {pipeline.task.id}")
+    task_url = pipeline.task.get_output_log_web_page()
+    if task_url:
+        click.echo(f"Pipeline controller URL: {task_url}")
+    click.echo(f"Stage tasks: {QUERY_STAGE}")
+
+    if pipeline_local:
+        click.echo("Execution mode: local ClearML PipelineController")
+        pipeline.start_locally(run_pipeline_steps_locally=True)
+    else:
+        click.echo(f"Execution mode: queued controller on {controller_queue}")
+        if execution_queue is not None:
+            click.echo(f"Step execution queue: {execution_queue}")
+        pipeline.start(queue=controller_queue, wait=wait)
+
+    click.echo("ClearML query pipeline submitted.")
+    if wait:
+        assert_pipeline_finished_successfully(pipeline)
+        print_stage_task_ids(
+            pipeline.task.id,
+            QUERY_PIPELINE.stages,
+            stage_names=QUERY_PIPELINE.stages,
+        )
+        click.echo("ClearML query pipeline run completed.")
 
 
 def _resolve_query_model_source(
     *,
     model_task_id: str | None,
     model_path: Path | None,
-    pipeline_controller_id: str | None,
-    pipeline_name: str,
-    pipeline_version: str | None,
+    model_training_controller_id: str | None,
+    model_training_name: str,
+    model_training_version: str | None,
     clearml_project: str,
     model_name: str,
     tokenizer_model_name: str | None,
@@ -247,20 +324,20 @@ def _resolve_query_model_source(
     if model_task_id is not None and model_path is not None:
         raise click.ClickException("Pass either --model-task-id or --model-path, not both.")
     if model_task_id is not None or model_path is not None:
-        return model_task_id, model_path, None
+        return model_task_id, model_path, model_training_controller_id
 
     resolved_tokenizer_model_name = stage_resume.require_tokenizer_model_name(
         tokenizer_model_name,
         action="Query",
     )
     resolution = resolve_model_training_task(
-        pipeline_name=pipeline_name,
-        pipeline_version=pipeline_version,
+        pipeline_name=model_training_name,
+        pipeline_version=model_training_version,
         clearml_project=clearml_project,
         model_name=model_name,
         tokenizer_model_name=resolved_tokenizer_model_name,
         corpus=corpus,
-        pipeline_controller_id=pipeline_controller_id,
+        pipeline_controller_id=model_training_controller_id,
     )
     click.echo(f"Resolved model pipeline controller task ID: {resolution.controller_id}")
     click.echo(f"Resolved model stage task ID: {resolution.model_task_id}")

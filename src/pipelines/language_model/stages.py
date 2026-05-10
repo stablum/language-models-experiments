@@ -557,7 +557,9 @@ def evaluate_pipeline_step(
 
 def query_pipeline_step(
     *,
-    model_task_id: str,
+    model_task_id: str | None,
+    model_path: str | Path | None = None,
+    source_pipeline_controller_id: str | None = None,
     model_name: str,
     corpus: str,
     prompt: str,
@@ -566,6 +568,7 @@ def query_pipeline_step(
     decoding: str,
     temperature: float,
     seed: int | None,
+    command: str = "src.cli.model_training",
     clearml_output_uri: str | None = None,
     clearml_tags: str | list[str] | tuple[str, ...] | None = None,
     clearml_config_file: str | None = None,
@@ -579,11 +582,11 @@ def query_pipeline_step(
         clearml_tags=clearml_tags,
         stage=stage,
     )
-    query_model_run(
+    result = query_model_run(
         clearml_run,
         model_task_id=model_task_id,
-        model_path=None,
-        source_pipeline_controller_id=None,
+        model_path=Path(model_path) if model_path is not None else None,
+        source_pipeline_controller_id=source_pipeline_controller_id,
         model_name=model_name,
         corpus=corpus,
         prompt=prompt,
@@ -592,9 +595,13 @@ def query_pipeline_step(
         decoding=decoding,
         temperature=temperature,
         seed=seed,
-        command="src.cli.model_training",
+        command=command,
         stage=stage,
     )
+    model_definition = model_registry.get_model(model_name)
+    if model_definition.query_lines is not None:
+        for line in model_definition.query_lines(result):
+            click.echo(line)
     return _require_task_id(clearml_run)
 
 
