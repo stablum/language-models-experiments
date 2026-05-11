@@ -595,7 +595,7 @@ def base_training_summary_items(
     artifact_label: str,
 ) -> list[tuple[str, str]]:
     return [
-        ("Tokenizer artifact file", formatting.artifact_filename(summary.tokenizer_model)),
+        ("Tokenizer model file", formatting.artifact_filename(summary.tokenizer_model)),
         (artifact_label, formatting.artifact_filename(summary.output_path)),
         ("Text normalization", summary.text_normalization),
         ("Vocabulary size", f"{summary.vocab_size:,}"),
@@ -606,8 +606,8 @@ def base_training_summary_items(
 
 def base_evaluation_items(summary: NgramEvaluationSummary) -> list[tuple[str, str]]:
     return [
-        ("Model artifact file", formatting.artifact_filename(summary.model_path)),
-        ("Tokenizer artifact file", formatting.artifact_filename(summary.tokenizer_model)),
+        ("Model file", formatting.artifact_filename(summary.model_path)),
+        ("Tokenizer model file", formatting.artifact_filename(summary.tokenizer_model)),
         ("Text normalization", summary.text_normalization),
     ]
 

@@ -197,7 +197,7 @@ def format_summary(summary: TrigramTrainingSummary) -> list[tuple[str, str]]:
     return [
         *trigrams.base_training_summary_items(
             summary=summary,
-            artifact_label="Trigram model artifact file",
+            artifact_label="Trigram model file",
         ),
         (
             "Interpolation weights",

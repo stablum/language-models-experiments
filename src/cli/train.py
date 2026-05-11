@@ -189,7 +189,7 @@ def main(
     resolved_source_split = source_split if source_split is not None else corpus_definition.split
     if tokenizer_task_id is not None or tokenizer_model is not None:
         raise click.ClickException(
-            "Model training now resolves tokenizer artifacts from tokenizer-training runs. "
+            "Model training now resolves tokenizer models from tokenizer-training runs. "
             "Set --tokenizer-model-name instead of passing --tokenizer-task-id or "
             "--tokenizer-model."
         )

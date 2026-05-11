@@ -56,6 +56,7 @@ def add_pipeline_steps(
     clearml_config_file: Path | None,
     execution_queue: str | None,
     tokenizer_task_id: str,
+    tokenizer_model_name: str,
     model_name: str,
     corpus: str,
     dataset_id: str,
@@ -107,6 +108,7 @@ def add_pipeline_steps(
         function=train_model_stage_entry,
         function_kwargs={
             "tokenizer_task_id": tokenizer_task_id,
+            "tokenizer_model_name": tokenizer_model_name,
             "model_name": _pipeline_parameter_ref("model_name"),
             "corpus": corpus,
             "dataset_id": dataset_id,

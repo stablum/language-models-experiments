@@ -64,7 +64,7 @@ src/pipelines/language_model/model_training.py      model-training DAG definitio
 src/pipelines/language_model/definition.py          shared stage names and controller lookup
 src/pipelines/language_model/stages.py          importable train/evaluate/query stage functions
 src/pipelines/language_model/stage_entries.py   ClearML function-step entry wrappers
-src/pipelines/language_model/artifacts.py       stage artifact and metric payload helpers
+src/pipelines/language_model/artifacts.py       model staging and metric payload helpers
 src/pipelines/language_model/optuna.py          Optuna trial metric helpers
 ```
 
@@ -88,7 +88,7 @@ $env:LME_CONFIG_FILE = "config.smoke.toml"
 uv run python -m src.cli.model_training
 ```
 
-Use `model = "bigram"` in `[train]` to choose the trained model type; evaluation, query, and model training inherit that model by default. Use `tokenizer_model_name` in `[train]` to choose which reusable tokenizer artifact model training consumes. Keys may be written as `snake_case` or `kebab-case`; `model` maps to the CLI `--model` option. Keep `[model-training]`, `[tokenizer-training]`, and `[query-pipeline]` for orchestration settings such as queues, run numbering, and pipeline names.
+Use `model = "bigram"` in `[train]` to choose the trained model type; evaluation, query, and model training inherit that model by default. Use `tokenizer_model_name` in `[train]` to choose which reusable tokenizer model record model training consumes. Keys may be written as `snake_case` or `kebab-case`; `model` maps to the CLI `--model` option. Keep `[model-training]`, `[tokenizer-training]`, and `[query-pipeline]` for orchestration settings such as queues, run numbering, and pipeline names.
 
 Python CLI output lines are prepended with a local timestamp and per-line delta in `[YYYY-MM-DD HH:MM:SS] [+0.237s]` format. ClearML also captures Python stdout/stderr for each task. Long-running commands print numbered stage titles such as `Stage 1/3 - Model training:` and `Stage 1/1 - Tokenizer training:`. Stage titles are bold cyan, timestamps are gray, delta times are yellow, error lines are red, and warning lines are yellow. Set `NO_COLOR=1` or `LME_COLOR=never` to disable ANSI colors. Native library stdout/stderr writes bypass timestamping by default to avoid pipe deadlocks in C/C++ extensions such as SentencePiece; set `LME_CAPTURE_NATIVE_OUTPUT=1` only when you explicitly want the old fd-level capture behavior.
 
@@ -142,7 +142,7 @@ Train or refresh the reusable SentencePiece tokenizer first:
 uv run python -m src.cli.tokenizer_training --streaming
 ```
 
-Then run language-model training, evaluation, and a final query. The model-training pipeline resolves the latest completed tokenizer-training run that matches the configured `corpus` and `tokenizer_model_name`, then downloads the tokenizer model artifact from that tokenizer stage task through ClearML.
+Then run language-model training, evaluation, and a final query. The model-training pipeline resolves the latest completed tokenizer-training run that matches the configured `corpus` and `tokenizer_model_name`, then downloads the tokenizer from that stage task's ClearML output model.
 
 ```powershell
 uv run python -m src.cli.model_training --model bigram --streaming
@@ -187,19 +187,20 @@ By default, the controller and step tasks execute locally through ClearML Pipeli
 uv run python -m src.cli.model_training --pipeline-queued --controller-queue services --execution-queue default
 ```
 
-The controller task monitors the main stage artifacts, and the stage tasks store the canonical artifacts:
+The controller task monitors the main non-model artifacts, and the stage tasks store model files as ClearML Models:
 
 ```text
-train_tokenizer artifact: sentencepiece-model
+train_tokenizer model: tokenizer .model file
 train_tokenizer artifact: sentencepiece-vocabulary
-train_model artifact: input-tokenizer-model
-train_model artifact: trained-model-json
+train_tokenizer artifact: data-split-plan-json
+train_model input model: tokenizer .model file
+train_model output model: trained model JSON
 train_model artifact: data-split-plan-json
 evaluate artifact: evaluation-summary
 query artifact: query-result
 ```
 
-The `train_tokenizer` stage task is resolved from tokenizer training by `corpus` plus `tokenizer_model_name`. Among matching tokenizer-training controller runs, the newest completed run with a completed `train_tokenizer` stage and a `sentencepiece-model` artifact wins. The `train_model` stage task ID is the canonical model artifact producer for evaluation and for repeatable query pipelines.
+The `train_tokenizer` stage task is resolved from tokenizer training by `corpus` plus `tokenizer_model_name`. Among matching tokenizer-training controller runs, the newest completed run with a completed `train_tokenizer` stage and a matching output model wins. The `train_model` stage task ID is the canonical model producer for evaluation and for repeatable query pipelines; downstream stages retrieve its ClearML output model and linked tokenizer input model.
 
 Use `--training-limit` and `--evaluation-limit` when those stages should use different row counts. These limits are applied after partitioning, so they do not create overlapping train/validation slices. Use `--source-split` only when you want to restrict the source rows before partitioning; leave it unset to merge all source splits. Use `--evaluation-partition` to choose which reusable project partition is evaluated. Use `--query-prompt`, `--query-max-tokens`, `--query-decoding`, `--query-temperature`, and `--query-seed` to control the mandatory final query.
 
@@ -214,7 +215,7 @@ uv run python -m src.cli.tokenizer_training --streaming --vocab-size 1000 --max-
 The tokenizer-training pipeline stores generated tokenizer files in ClearML and prints both the controller task ID and the tokenizer stage task ID. Downstream model training resolves the tokenizer by `corpus` and `tokenizer_model_name`.
 
 ```text
-ClearML artifact: sentencepiece-model
+ClearML model: sentencepiece-model
 ClearML artifact: sentencepiece-vocabulary
 ClearML artifact: data-split-plan-json
 ```
@@ -229,11 +230,11 @@ Train a very simple autoregressive token bigram model from the SentencePiece tok
 uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
 ```
 
-The command stores the trained language model and tokenizer input in ClearML and prints the model-training task ID.
+The command stores the trained language model as a ClearML output model, links the tokenizer as a ClearML input model, and prints the model-training task ID.
 
 ```text
-ClearML artifact: trained-model-json
-ClearML artifact: input-tokenizer-model
+ClearML output model: trained-model-json
+ClearML input model: tokenizer model
 ClearML artifact: data-split-plan-json
 ```
 
@@ -376,7 +377,7 @@ To add another model, add its code under `src/models/` and expose a module-level
 
 ## ClearML
 
-ClearML is required for experiment tracking and durable artifact storage. Start a local ClearML server:
+ClearML is required for experiment tracking, model storage, and durable artifact storage. Start a local ClearML server:
 
 ```powershell
 docker compose -f docker-compose.clearml.yml up -d
@@ -435,7 +436,7 @@ uv run python -m src.cli.model_training --run-until-stage train_model --model bi
 uv run python -m src.cli.model_training --pipeline-queued --no-wait --run-stage evaluate --model bigram --streaming
 ```
 
-The pipeline, stage, and query CLIs connect options as grouped ClearML hyperparameter sections, report final metrics, upload useful artifacts, and register trained tokenizer/model files. Pipeline stage identity comes from the controller task plus child task names and `parent` links, not custom stage tags. Evaluation metrics in ClearML are partition-prefixed, and split plans are uploaded as `data-split-plan-json`. Use `--clearml-project`, `--pipeline-name`, `--tokenizer-training-name`, `--model-training-name`, `--pipeline-version`, `--clearml-config-file`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the pipeline runs.
+The pipeline, stage, and query CLIs connect options as grouped ClearML hyperparameter sections, report final metrics, upload useful non-model artifacts, and register trained tokenizer/model files as ClearML Models. Pipeline stage identity comes from the controller task plus child task names and `parent` links, not custom stage tags. Evaluation metrics in ClearML are partition-prefixed, and split plans are uploaded as `data-split-plan-json`. Use `--clearml-project`, `--pipeline-name`, `--tokenizer-training-name`, `--model-training-name`, `--pipeline-version`, `--clearml-config-file`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the pipeline runs.
 
 ### ClearML Smoke Test
 
@@ -456,7 +457,7 @@ Expected result:
 The ClearML tokenizer-training and model-training controller task IDs are printed in the terminal.
 The ClearML UI shows completed tokenizer-training and model-training controllers tagged smoke.
 The tokenizer-training pipeline has a train_tokenizer stage task; the model-training pipeline has train_model, evaluate, and query stage tasks.
-The stage tasks have grouped hyperparameter sections, tokenizer/model/evaluation/query scalar metrics, tokenizer artifacts, a data split plan artifact, a trained model JSON artifact, evaluation summary artifacts, and query result artifacts. Additional `src.cli.query` runs create separate query PipelineController runs with their own query parameters and `query-result` artifacts.
+The stage tasks have grouped hyperparameter sections, tokenizer/model/evaluation/query scalar metrics, tokenizer and language-model records on the Models page, data split plan artifacts, evaluation summary artifacts, and query result artifacts. Additional `src.cli.query` runs create separate query PipelineController runs with their own query parameters and `query-result` artifacts.
 The Models page contains registered model records for the tokenizer and n-gram model files.
 The uploaded files are also visible under .clearml/fileserver/.
 ```

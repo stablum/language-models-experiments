@@ -17,7 +17,7 @@ from src.pipelines.language_model.artifacts import (
     evaluation_payload,
     query_metrics,
     query_payload,
-    stage_model_artifacts,
+    stage_model_files,
     stage_tokenizer_model,
     training_summary_metrics,
 )
@@ -27,6 +27,7 @@ from src.corpora import splits as corpus_splits
 from src.corpora import text as corpus_text
 from src.ml_core.data.splits import (
     PROJECT_PARTITIONS,
+    SPLIT_PLAN_ARTIFACT,
     TRAIN_PARTITION,
     attach_split_plan_to_json_model,
     count_partition_rows,
@@ -164,11 +165,6 @@ def train_tokenizer_step(
             metadata={"corpus": corpus, "stage": stage},
         )
         clearml_run.upload_artifact(
-            "sentencepiece-model",
-            model_path,
-            metadata={"corpus": corpus, "vocab_size": vocab_size},
-        )
-        clearml_run.upload_artifact(
             "sentencepiece-vocabulary",
             vocab_path,
             metadata={"corpus": corpus, "vocab_size": vocab_size},
@@ -186,6 +182,7 @@ def train_tokenizer_step(
 def train_model_pipeline_step(
     *,
     tokenizer_task_id: str,
+    tokenizer_model_name: str | None = None,
     model_name: str,
     corpus: str,
     dataset_id: str,
@@ -210,10 +207,17 @@ def train_model_pipeline_step(
     model_definition = model_registry.get_model(model_name)
 
     with temporary_staging_directory(prefix="lme-pipeline-model-") as staging_dir:
+        clearml_run = _current_step_run(
+            clearml_output_uri=clearml_output_uri,
+            clearml_tags=clearml_tags,
+            stage=stage,
+        )
         staged_tokenizer_model = stage_tokenizer_model(
             tokenizer_task_id=tokenizer_task_id,
+            tokenizer_model_name=tokenizer_model_name,
             tokenizer_model=None,
             staging_dir=staging_dir,
+            clearml_run=clearml_run,
         )
         inherited_plan = inherited_split_plan_from_task(
             task_id=tokenizer_task_id,
@@ -251,11 +255,6 @@ def train_model_pipeline_step(
         except ModelOptionError as error:
             raise click.ClickException(str(error)) from error
 
-        clearml_run = _current_step_run(
-            clearml_output_uri=clearml_output_uri,
-            clearml_tags=clearml_tags,
-            stage=stage,
-        )
         clearml_run.connect_parameter_sections(
             {
                 "Run": {
@@ -282,12 +281,12 @@ def train_model_pipeline_step(
                 },
                 "Tokenizer": {
                     "tokenizer_task_id": tokenizer_task_id,
-                    "tokenizer_artifact": "sentencepiece-model",
-                    "tokenizer_artifact_file": staged_tokenizer_model.name,
+                    "tokenizer_model_name": tokenizer_model_name,
+                    "tokenizer_model_file": staged_tokenizer_model.name,
                 },
                 **split_plan_parameter_sections(split_plan),
-                "Artifacts": {
-                    "output_artifact_file": output_path.name,
+                "Outputs": {
+                    "model_file": output_path.name,
                 },
             }
         )
@@ -310,16 +309,6 @@ def train_model_pipeline_step(
             staging_dir=staging_dir,
             plan=split_plan,
             metadata={"model": model_definition.name, "corpus": corpus, "stage": stage},
-        )
-        clearml_run.upload_artifact(
-            "input-tokenizer-model",
-            summary.tokenizer_model,
-            metadata={"model": model_definition.name, "corpus": corpus},
-        )
-        clearml_run.upload_artifact(
-            "trained-model-json",
-            summary.output_path,
-            metadata={"model": model_definition.name, "corpus": corpus},
         )
         clearml_run.register_model(
             name=summary.output_path.stem,
@@ -368,13 +357,20 @@ def evaluate_pipeline_step(
         click.echo(f"Evaluation row limit: first {limit:,} selected rows")
 
     with temporary_staging_directory(prefix="lme-pipeline-evaluate-") as staging_dir:
-        click.echo(f"Staging model artifacts from ClearML task {model_task_id}...")
-        staged_model_path = stage_model_artifacts(
+        clearml_run = _current_step_run(
+            clearml_output_uri=clearml_output_uri,
+            clearml_tags=clearml_tags,
+            stage=stage,
+        )
+        click.echo(f"Staging model files from ClearML task {model_task_id}...")
+        staged_model_path = stage_model_files(
             model_task_id=model_task_id,
             model_path=None,
             staging_dir=staging_dir,
+            clearml_run=clearml_run,
+            output_model_name=f"{corpus}-sentencepiece-{model_definition.name}",
         )
-        click.echo(f"Staged model artifact: {staged_model_path.name}")
+        click.echo(f"Staged model file: {staged_model_path.name}")
         inherited_plan = read_model_split_plan(staged_model_path)
         if inherited_plan is not None:
             dataset_id = inherited_plan.dataset_id
@@ -406,11 +402,6 @@ def evaluate_pipeline_step(
             f"source_split={source_split_label(source_split)}, text_column={text_column}"
         )
 
-        clearml_run = _current_step_run(
-            clearml_output_uri=clearml_output_uri,
-            clearml_tags=clearml_tags,
-            stage=stage,
-        )
         clearml_run.connect_parameter_sections(
             {
                 "Run": {
@@ -434,9 +425,7 @@ def evaluate_pipeline_step(
                 "Model": {
                     "model": model_definition.name,
                     "model_task_id": model_task_id,
-                    "model_artifact": "trained-model-json",
-                    "tokenizer_artifact": "input-tokenizer-model",
-                    "model_artifact_file": staged_model_path.name,
+                    "model_file": staged_model_path.name,
                 },
                 "Evaluation": {
                     "top_k": top_k,
@@ -541,16 +530,6 @@ def evaluate_pipeline_step(
                 "split_id": split_plan.split_id,
             },
         )
-        clearml_run.upload_artifact(
-            "evaluated-model",
-            primary_summary.model_path,
-            metadata={"model": model_definition.name, "corpus": corpus},
-        )
-        clearml_run.upload_artifact(
-            "tokenizer-model",
-            primary_summary.tokenizer_model,
-            metadata={"model": model_definition.name, "corpus": corpus},
-        )
         click.echo("Evaluation artifacts uploaded.")
         return _require_task_id(clearml_run)
 
@@ -628,10 +607,12 @@ def query_model_run(
         raise click.ClickException(f"Model does not support querying yet: {model_name}")
 
     with temporary_staging_directory(prefix="lme-query-") as staging_dir:
-        staged_model_path = stage_model_artifacts(
+        staged_model_path = stage_model_files(
             model_task_id=model_task_id,
             model_path=model_path,
             staging_dir=staging_dir,
+            clearml_run=clearml_run,
+            output_model_name=f"{corpus}-sentencepiece-{model_definition.name}",
         )
         query_options = {
             "corpus": corpus,
@@ -667,9 +648,7 @@ def query_model_run(
                     "model": model_definition.name,
                     "model_task_id": model_task_id,
                     "model_path": model_path,
-                    "model_artifact": "trained-model-json" if model_task_id else None,
-                    "tokenizer_artifact": "input-tokenizer-model" if model_task_id else None,
-                    "model_artifact_file": staged_model_path.name,
+                    "model_file": staged_model_path.name,
                 },
                 "Query": {
                     "prompt": prompt,
@@ -687,16 +666,6 @@ def query_model_run(
         clearml_run.upload_artifact(
             "query-result",
             query_payload(result),
-            metadata={"model": model_definition.name, "corpus": corpus},
-        )
-        clearml_run.upload_artifact(
-            "queried-model",
-            result.model_path,
-            metadata={"model": model_definition.name, "corpus": corpus},
-        )
-        clearml_run.upload_artifact(
-            "tokenizer-model",
-            result.tokenizer_model,
             metadata={"model": model_definition.name, "corpus": corpus},
         )
         return result
@@ -770,13 +739,11 @@ PIPELINE_STEP_HELPERS = (
 def pipeline_artifact_monitors() -> dict[str, list[str | tuple[str, str]]]:
     return {
         TOKENIZER_STAGE: [
-            "sentencepiece-model",
             "sentencepiece-vocabulary",
+            SPLIT_PLAN_ARTIFACT,
         ],
         MODEL_STAGE: [
-            "input-tokenizer-model",
-            "trained-model-json",
-            "data-split-plan-json",
+            SPLIT_PLAN_ARTIFACT,
         ],
         EVALUATION_STAGE: [
             "evaluation-summary",

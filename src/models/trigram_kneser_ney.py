@@ -216,7 +216,7 @@ def format_summary(
     return [
         *trigrams.base_training_summary_items(
             summary=summary,
-            artifact_label="Interpolated Kneser-Ney trigram model artifact file",
+            artifact_label="Interpolated Kneser-Ney trigram model file",
         ),
         ("Continuation unigrams", f"{summary.continuation_unigram_count:,}"),
         ("Continuation bigram types", f"{summary.continuation_bigram_type_count:,}"),

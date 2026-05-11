@@ -266,7 +266,7 @@ def format_summary(summary: BigramTrainingSummary) -> list[tuple[str, str]]:
     return [
         *ngram.base_training_summary_items(
             summary=summary,
-            artifact_label="Bigram model artifact file",
+            artifact_label="Bigram model file",
         ),
         ("Transitions", f"{summary.transition_count:,}"),
     ]

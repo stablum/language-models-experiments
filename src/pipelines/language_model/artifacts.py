@@ -1,4 +1,4 @@
-"""Shared helpers for importable ClearML pipeline stage functions."""
+"""Shared model staging and payload helpers for ClearML pipeline stages."""
 
 from __future__ import annotations
 
@@ -10,7 +10,11 @@ from pathlib import Path
 import click
 
 from src.ml_core.data.splits import partitioned_metric_names
-from src.ml_core.tracking import download_task_artifact
+from src.ml_core.tracking import (
+    clearml_task_parameter,
+    download_task_output_model,
+    maybe_download_task_input_model,
+)
 
 
 STAGED_TOKENIZER_MODEL_NAME = "input-tokenizer.model"
@@ -19,8 +23,10 @@ STAGED_TOKENIZER_MODEL_NAME = "input-tokenizer.model"
 def stage_tokenizer_model(
     *,
     tokenizer_task_id: str | None,
-    tokenizer_model: Path | None,
+    tokenizer_model_name: str | None = None,
+    tokenizer_model: Path | None = None,
     staging_dir: Path,
+    clearml_run: object | None = None,
 ) -> Path:
     validate_tokenizer_source(
         tokenizer_task_id=tokenizer_task_id,
@@ -28,16 +34,17 @@ def stage_tokenizer_model(
     )
 
     if tokenizer_task_id is not None:
-        return download_task_artifact(
+        return download_task_output_model(
             task_id=tokenizer_task_id,
-            artifact_name="sentencepiece-model",
             destination_dir=staging_dir,
             filename=STAGED_TOKENIZER_MODEL_NAME,
+            model_name=tokenizer_model_name,
+            connect_to_task=getattr(clearml_run, "task", None),
         )
 
     if tokenizer_model is None:
         raise click.ClickException(
-            "Language model training requires a tokenizer artifact source."
+            "Language model training requires a tokenizer model source."
         )
 
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -59,35 +66,56 @@ def validate_tokenizer_source(
 
     if tokenizer_task_id is None and tokenizer_model is None:
         raise click.ClickException(
-            "Language model training now resolves tokenizer artifacts from tokenizer-training runs. "
+            "Language model training now resolves tokenizer models from tokenizer-training runs. "
             "Set --tokenizer-model-name on model training."
         )
 
 
-def stage_model_artifacts(
+def stage_model_files(
     *,
     model_task_id: str | None,
     model_path: Path | None,
     staging_dir: Path,
+    clearml_run: object | None = None,
+    output_model_name: str | None = None,
 ) -> Path:
     validate_model_source(model_task_id=model_task_id, model_path=model_path)
 
     if model_task_id is not None:
-        staged_model_path = download_task_artifact(
+        staged_model_path = download_task_output_model(
             task_id=model_task_id,
-            artifact_name="trained-model-json",
             destination_dir=staging_dir,
+            filename=stored_model_filename(output_model_name),
+            model_name=output_model_name,
+            connect_to_task=getattr(clearml_run, "task", None),
         )
-        download_task_artifact(
+        tokenizer_filename = stored_tokenizer_filename(staged_model_path)
+        staged_tokenizer_path = maybe_download_task_input_model(
             task_id=model_task_id,
-            artifact_name="input-tokenizer-model",
             destination_dir=staging_dir,
-            filename=stored_tokenizer_filename(staged_model_path),
+            filename=tokenizer_filename,
+            connect_to_task=getattr(clearml_run, "task", None),
         )
+        if staged_tokenizer_path is None:
+            tokenizer_task_id = clearml_task_parameter(
+                model_task_id,
+                "Pipeline/tokenizer_task_id",
+            )
+            if tokenizer_task_id is None:
+                raise click.ClickException(
+                    f"ClearML model task {model_task_id} has no linked input tokenizer model "
+                    "and no Pipeline/tokenizer_task_id parameter."
+                )
+            download_task_output_model(
+                task_id=tokenizer_task_id,
+                destination_dir=staging_dir,
+                filename=tokenizer_filename,
+                connect_to_task=getattr(clearml_run, "task", None),
+            )
         return staged_model_path
 
     if model_path is None:
-        raise click.ClickException("Model artifact source is required.")
+        raise click.ClickException("Model source is required.")
     return model_path
 
 
@@ -168,8 +196,8 @@ def evaluation_metrics_for_partition(
 
 def evaluation_payload(summary: object) -> dict[str, object]:
     return {
-        "model_artifact_file": artifact_file(getattr(summary, "model_path", None)),
-        "tokenizer_artifact_file": artifact_file(getattr(summary, "tokenizer_model", None)),
+        "model_file": artifact_file(getattr(summary, "model_path", None)),
+        "tokenizer_model_file": artifact_file(getattr(summary, "tokenizer_model", None)),
         "text_normalization": getattr(summary, "text_normalization", None),
         **evaluation_metrics(summary),
     }
@@ -189,8 +217,8 @@ def query_metrics(result: object) -> dict[str, object]:
 
 def query_payload(result: object) -> dict[str, object]:
     return {
-        "model_artifact_file": artifact_file(getattr(result, "model_path", None)),
-        "tokenizer_artifact_file": artifact_file(getattr(result, "tokenizer_model", None)),
+        "model_file": artifact_file(getattr(result, "model_path", None)),
+        "tokenizer_model_file": artifact_file(getattr(result, "tokenizer_model", None)),
         "decoding": getattr(result, "decoding", None),
         "text_normalization": getattr(result, "text_normalization", None),
         "prompt": getattr(result, "prompt", None),
@@ -229,3 +257,10 @@ def stored_tokenizer_filename(model_path: Path) -> str | None:
     if tokenizer_model is None:
         return None
     return Path(str(tokenizer_model)).name
+
+
+def stored_model_filename(output_model_name: str | None) -> str | None:
+    if output_model_name is None:
+        return None
+    output_path = Path(output_model_name)
+    return output_path.name if output_path.suffix else f"{output_path.name}.json"

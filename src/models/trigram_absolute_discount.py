@@ -144,7 +144,7 @@ def format_summary(
     return [
         *trigrams.base_training_summary_items(
             summary=summary,
-            artifact_label="Absolute-discount trigram model artifact file",
+            artifact_label="Absolute-discount trigram model file",
         ),
         trigrams.discount_item(summary),
     ]

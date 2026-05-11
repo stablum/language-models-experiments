@@ -482,7 +482,7 @@ def format_summary(summary: trigrams.TrigramTrainingSummary) -> list[tuple[str, 
     return [
         *trigrams.base_training_summary_items(
             summary=summary,
-            artifact_label="Good-Turing trigram model artifact file",
+            artifact_label="Good-Turing trigram model file",
         ),
         ("Smoothing", "Good-Turing"),
     ]

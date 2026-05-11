@@ -105,7 +105,7 @@ def load_tokenizer_training_command_defaults(_config_section: str) -> dict[str, 
 @click.option(
     "--artifact-name",
     default=None,
-    help="Base name for the tokenizer artifacts stored in ClearML.",
+    help="Base name for the tokenizer model and vocabulary outputs stored in ClearML.",
 )
 @click.option(
     "--model-type",

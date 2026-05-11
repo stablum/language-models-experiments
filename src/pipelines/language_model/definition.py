@@ -49,7 +49,7 @@ from src.ml_core.pipeline import (
     validate_stage_selection,
     wait_for_controller_completion,
 )
-from src.ml_core.tracking import clearml_task
+from src.ml_core.tracking import clearml_task, task_has_output_model
 
 
 DEFAULT_MODEL_TRAINING_NAME = "model-training"
@@ -81,7 +81,6 @@ MODEL_TRAINING_STAGE_DEPENDENCIES = {
 QUERY_STAGE_DEPENDENCIES = {
     QUERY_STAGE: (),
 }
-TOKENIZER_MODEL_ARTIFACT = "sentencepiece-model"
 
 stage_gate_callback = make_stage_gate_callback(ALL_PIPELINE_STAGES)
 
@@ -167,7 +166,7 @@ def resolve_tokenizer_training_task(
             continue
 
         for stage_task in completed_tokenizer_tasks:
-            if _task_has_artifact(stage_task.id, TOKENIZER_MODEL_ARTIFACT):
+            if task_has_output_model(stage_task.id, tokenizer_model_name):
                 return TokenizerTrainingResolution(
                     controller_id=candidate.id,
                     tokenizer_task_id=stage_task.id,
@@ -176,7 +175,7 @@ def resolve_tokenizer_training_task(
                 )
         reasons.append(
             f"{candidate.id}: completed {TOKENIZER_STAGE} task has no "
-            f"{TOKENIZER_MODEL_ARTIFACT!r} artifact"
+            f"{tokenizer_model_name!r} output model"
         )
 
     detail = ""
@@ -214,6 +213,7 @@ def resolve_model_training_task(
     )
 
     reasons: list[str] = []
+    output_model_name = f"{corpus}-sentencepiece-{model_name}"
     for candidate in candidates:
         if not controller_parameters_match(candidate.id, parameter_filters):
             reasons.append(f"{candidate.id}: model-training parameters do not match")
@@ -232,12 +232,18 @@ def resolve_model_training_task(
             reasons.append(f"{candidate.id}: no completed {MODEL_STAGE} stage task")
             continue
 
-        return ModelTrainingResolution(
-            controller_id=candidate.id,
-            model_task_id=completed_model_tasks[0].id,
-            model_name=model_name,
-            tokenizer_model_name=tokenizer_model_name,
-            corpus=corpus,
+        for stage_task in completed_model_tasks:
+            if task_has_output_model(stage_task.id, output_model_name):
+                return ModelTrainingResolution(
+                    controller_id=candidate.id,
+                    model_task_id=stage_task.id,
+                    model_name=model_name,
+                    tokenizer_model_name=tokenizer_model_name,
+                    corpus=corpus,
+                )
+        reasons.append(
+            f"{candidate.id}: completed {MODEL_STAGE} task has no "
+            f"{output_model_name!r} output model"
         )
 
     detail = ""
@@ -282,12 +288,6 @@ def _model_training_candidates(
     )
 
 
-def _task_has_artifact(task_id: str, artifact_name: str) -> bool:
-    task = clearml_task(task_id)
-    artifacts = getattr(task, "artifacts", {}) or {}
-    return artifact_name in artifacts
-
-
 __all__ = (
     "ACTIVE_STATUSES",
     "ALL_PIPELINE_STAGE_DEPENDENCIES",
@@ -321,7 +321,6 @@ __all__ = (
     "StageEligibility",
     "StageTask",
     "TERMINAL_STATUSES",
-    "TOKENIZER_MODEL_ARTIFACT",
     "TOKENIZER_STAGE",
     "TOKENIZER_TRAINING_STAGE_DEPENDENCIES",
     "TOKENIZER_TRAINING_STAGES",

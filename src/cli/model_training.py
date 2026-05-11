@@ -327,7 +327,7 @@ def _mapped_config_values(
     "--tokenizer-training-name",
     default=DEFAULT_TOKENIZER_TRAINING_NAME,
     show_default=True,
-    help="ClearML tokenizer-training pipeline name to search for reusable tokenizer artifacts.",
+    help="ClearML tokenizer-training pipeline name to search for reusable tokenizer models.",
 )
 @click.option(
     "--corpus",
@@ -1224,6 +1224,7 @@ def _run_model_training_pipeline(
         clearml_config_file=resolved_config_file if pipeline_local else None,
         execution_queue=None if pipeline_local else execution_queue,
         tokenizer_task_id=tokenizer_resolution.tokenizer_task_id,
+        tokenizer_model_name=resolved_tokenizer_model_name,
         model_name=model_definition.name,
         corpus=corpus,
         dataset_id=resolved_dataset_id,

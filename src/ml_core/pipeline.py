@@ -705,12 +705,6 @@ def _get_clearml_task(task_id: str) -> object:
     return Task.get_task(task_id=task_id)
 
 
-def _task_has_artifact(task_id: str, artifact_name: str) -> bool:
-    task = _get_clearml_task(task_id)
-    artifacts = getattr(task, "artifacts", {}) or {}
-    return artifact_name in artifacts
-
-
 def _enqueue_pipeline_controller(controller_id: str, queue_name: str) -> None:
     try:
         from clearml.automation import PipelineController

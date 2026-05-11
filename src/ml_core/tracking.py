@@ -420,16 +420,177 @@ def maybe_download_task_artifact(
     )
 
 
+def task_has_output_model(task_id: str, model_name: str | None = None) -> bool:
+    return task_model(
+        task_id=task_id,
+        model_role="output",
+        model_name=model_name,
+        required=False,
+    ) is not None
+
+
+def download_task_output_model(
+    *,
+    task_id: str,
+    destination_dir: Path,
+    filename: str | None = None,
+    model_name: str | None = None,
+    connect_to_task: Any | None = None,
+) -> Path:
+    model = task_model(
+        task_id=task_id,
+        model_role="output",
+        model_name=model_name,
+        required=True,
+    )
+    if connect_to_task is not None:
+        connect_input_model(connect_to_task, model)
+    return download_clearml_model(
+        task_id=task_id,
+        model=model,
+        destination_dir=destination_dir,
+        filename=filename,
+    )
+
+
+def maybe_download_task_input_model(
+    *,
+    task_id: str,
+    destination_dir: Path,
+    filename: str | None = None,
+    model_name: str | None = None,
+    connect_to_task: Any | None = None,
+) -> Path | None:
+    model = task_model(
+        task_id=task_id,
+        model_role="input",
+        model_name=model_name,
+        required=False,
+    )
+    if model is None:
+        return None
+    if connect_to_task is not None:
+        connect_input_model(connect_to_task, model)
+    return download_clearml_model(
+        task_id=task_id,
+        model=model,
+        destination_dir=destination_dir,
+        filename=filename,
+    )
+
+
 def clearml_task(task_id: str) -> Any:
     try:
         from clearml import Task
     except ImportError as error:
         raise click.ClickException(
-            "ClearML artifact download requires the clearml Python package. "
+            "ClearML task access requires the clearml Python package. "
             "Run `uv sync` before using this command."
         ) from error
 
     return Task.get_task(task_id=task_id)
+
+
+def clearml_task_parameter(task_id: str, parameter_name: str) -> str | None:
+    task = clearml_task(task_id)
+    get_parameters = getattr(task, "get_parameters", None)
+    if not callable(get_parameters):
+        return None
+    parameters = get_parameters(cast=False) or {}
+    value = parameters.get(parameter_name)
+    return str(value) if value not in (None, "") else None
+
+
+def task_model(
+    *,
+    task_id: str,
+    model_role: str,
+    model_name: str | None = None,
+    required: bool,
+) -> Any | None:
+    task = clearml_task(task_id)
+    models = task_models(task, model_role)
+    if model_name is not None:
+        for model in models:
+            if str(getattr(model, "name", "")) == model_name:
+                return model
+        if not required:
+            return None
+        available = ", ".join(model_label(model) for model in models) or "none"
+        raise click.ClickException(
+            f"ClearML task {task_id} has no {model_role} model named {model_name!r}. "
+            f"Available {model_role} models: {available}."
+        )
+
+    if len(models) == 1:
+        return models[0]
+    if not models:
+        if not required:
+            return None
+        raise click.ClickException(
+            f"ClearML task {task_id} has no {model_role} models."
+        )
+    if not required:
+        return None
+
+    available = ", ".join(model_label(model) for model in models)
+    raise click.ClickException(
+        f"ClearML task {task_id} has multiple {model_role} models. "
+        f"Pass a model name. Available {model_role} models: {available}."
+    )
+
+
+def task_models(task: Any, model_role: str) -> list[Any]:
+    get_models = getattr(task, "get_models", None)
+    models = get_models() if callable(get_models) else getattr(task, "models", {})
+    role_models = models.get(model_role, ()) if models is not None else ()
+    return list(role_models or ())
+
+
+def connect_input_model(task: Any, model: Any) -> None:
+    try:
+        from clearml import InputModel
+    except ImportError as error:
+        raise click.ClickException(
+            "ClearML model tracking requires the clearml Python package. "
+            "Run `uv sync` before using this command."
+        ) from error
+
+    model_id = str(getattr(model, "id", "") or "")
+    if not model_id:
+        return
+    task.connect(InputModel(model_id=model_id), ignore_remote_overrides=True)
+
+
+def download_clearml_model(
+    *,
+    task_id: str,
+    model: Any,
+    destination_dir: Path,
+    filename: str | None = None,
+) -> Path:
+    model_id = str(getattr(model, "id", "") or "")
+    if not model_id:
+        raise click.ClickException(
+            f"ClearML task {task_id} returned a model without an ID: {model!r}"
+        )
+
+    with clearml_artifact_download_lock(task_id=model_id, artifact_name="model"):
+        local_copy = model.get_local_copy(raise_on_error=True)
+        return stage_downloaded_clearml_file(
+            local_copy=local_copy,
+            label=f"ClearML model {model_label(model)} from task {task_id}",
+            destination_dir=destination_dir,
+            filename=filename,
+        )
+
+
+def model_label(model: Any) -> str:
+    model_name = str(getattr(model, "name", "") or "")
+    model_id = str(getattr(model, "id", "") or "")
+    if model_name and model_id:
+        return f"{model_name} ({model_id})"
+    return model_name or model_id or repr(model)
 
 
 def download_clearml_artifact(
@@ -442,32 +603,42 @@ def download_clearml_artifact(
 ) -> Path:
     with clearml_artifact_download_lock(task_id=task_id, artifact_name=artifact_name):
         local_copy = artifact.get_local_copy()
-        if local_copy is None:
-            raise click.ClickException(
-                f"Could not download ClearML artifact {artifact_name!r} from task {task_id}."
-            )
+        return stage_downloaded_clearml_file(
+            local_copy=local_copy,
+            label=f"ClearML artifact {artifact_name!r} from task {task_id}",
+            destination_dir=destination_dir,
+            filename=filename,
+        )
 
-        source = Path(local_copy)
-        if not source.exists():
-            raise click.ClickException(
-                f"Downloaded ClearML artifact path does not exist: {source}"
-            )
-        if source.is_dir():
-            raise click.ClickException(
-                f"ClearML artifact {artifact_name!r} from task {task_id} is a directory; "
-                "this CLI expects a single file artifact."
-            )
 
-        destination_dir.mkdir(parents=True, exist_ok=True)
-        destination = destination_dir / (filename or source.name)
-        if source.resolve() != destination.resolve():
-            try:
-                shutil.copy2(source, destination)
-            except FileNotFoundError as error:
-                raise click.ClickException(
-                    f"Downloaded ClearML artifact disappeared before it could be staged: {source}"
-                ) from error
-        return destination
+def stage_downloaded_clearml_file(
+    *,
+    local_copy: str | None,
+    label: str,
+    destination_dir: Path,
+    filename: str | None,
+) -> Path:
+    if local_copy is None:
+        raise click.ClickException(f"Could not download {label}.")
+
+    source = Path(local_copy)
+    if not source.exists():
+        raise click.ClickException(f"Downloaded {label} path does not exist: {source}")
+    if source.is_dir():
+        raise click.ClickException(
+            f"{label} is a directory; this CLI expects a single file."
+        )
+
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination = destination_dir / (filename or source.name)
+    if source.resolve() != destination.resolve():
+        try:
+            shutil.copy2(source, destination)
+        except FileNotFoundError as error:
+            raise click.ClickException(
+                f"Downloaded {label} disappeared before it could be staged: {source}"
+            ) from error
+    return destination
 
 
 @contextmanager

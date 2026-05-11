@@ -40,8 +40,8 @@ def format_ngram_query(result: Any) -> list[str]:
         else "Sampled continuation:"
     )
     lines = [
-        f"Model artifact file: {artifact_filename(result.model_path)}",
-        f"Tokenizer artifact file: {artifact_filename(result.tokenizer_model)}",
+        f"Model file: {artifact_filename(result.model_path)}",
+        f"Tokenizer model file: {artifact_filename(result.tokenizer_model)}",
         f"Text normalization: {result.text_normalization}",
         f"Decoding: {result.decoding}",
         f"Prompt tokens: {len(result.prompt_token_ids):,}",
