@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 
 import click
@@ -239,12 +239,18 @@ def query_payload(result: object) -> dict[str, object]:
     }
 
 
-def query_debug_sample(result: object, *, lines: Iterable[str] = ()) -> str:
-    rendered_lines = [line.rstrip() for line in lines]
-    if rendered_lines:
-        rendered_lines.extend(("", "JSON payload:"))
-    rendered_lines.append(json.dumps(query_payload(result), indent=2, ensure_ascii=True))
-    return "\n".join(rendered_lines).rstrip() + "\n"
+def query_debug_sample(result: object) -> str:
+    prompt = getattr(result, "prompt", "") or "(empty)"
+    continuation = getattr(result, "continuation_text", "") or "(empty)"
+    generated_text = getattr(result, "generated_text", "") or "(empty)"
+    return (
+        "Prompt:\n"
+        f"{prompt}\n\n"
+        "Continuation:\n"
+        f"{continuation}\n\n"
+        "Generated text:\n"
+        f"{generated_text}\n"
+    )
 
 
 def artifact_file(path: object) -> str | None:

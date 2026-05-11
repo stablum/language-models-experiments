@@ -198,7 +198,7 @@ train_model output model: trained model JSON
 train_model artifact: data-split-plan-json
 evaluate artifact: evaluation-summary
 query artifact: query-result
-query debug sample: Query / result text file
+query debug sample: Query / result generated-text sample
 ```
 
 The `train_tokenizer` stage task is resolved from tokenizer training by `corpus` plus `tokenizer_model_name`. Among matching tokenizer-training controller runs, the newest completed run with a completed `train_tokenizer` stage and a matching output model wins. The `train_model` stage task ID is the canonical model producer for evaluation and for repeatable query pipelines; downstream stages retrieve its ClearML output model and linked tokenizer input model.
@@ -300,7 +300,7 @@ uv run python -m src.cli.query --model bigram --prompt "Once upon" --temperature
 uv run python -m src.cli.query --model bigram --prompt "Once upon" --temperature 1.2 --seed 3
 ```
 
-Use `--model-training-controller-id` to query a specific model-training run, `--model-task-id` to query a specific completed `train_model` task, or `--model-path` for a local trained model JSON. The query command normalizes prompts with the mode stored in the model file. It also prints the most likely next tokens for the prompt, with special tokens shown as labels such as `[EOS]`. ClearML stores the structured query payload as the `query-result` artifact and the readable query output as a `Query` / `result` Debug Samples text file. The bigram model conditions on the last prompt token; the trigram models condition on the last two prompt tokens. `--decoding most-probable` chooses the highest-probability next token at each step.
+Use `--model-training-controller-id` to query a specific model-training run, `--model-task-id` to query a specific completed `train_model` task, or `--model-path` for a local trained model JSON. The query command normalizes prompts with the mode stored in the model file. It also prints the most likely next tokens for the prompt, with special tokens shown as labels such as `[EOS]`. ClearML stores the structured query payload as the `query-result` artifact and the generated prompt/continuation text as a `Query` / `result` Debug Samples text file. The bigram model conditions on the last prompt token; the trigram models condition on the last two prompt tokens. `--decoding most-probable` chooses the highest-probability next token at each step.
 
 The model-training pipeline also runs evaluation on the configured partition:
 
@@ -437,7 +437,7 @@ uv run python -m src.cli.model_training --run-until-stage train_model --model bi
 uv run python -m src.cli.model_training --pipeline-queued --no-wait --run-stage evaluate --model bigram --streaming
 ```
 
-The pipeline, stage, and query CLIs connect options as grouped ClearML hyperparameter sections, report final metrics, upload useful non-model artifacts, and register trained tokenizer/model files as ClearML Models. Pipeline stage identity comes from the controller task plus child task names and `parent` links, not custom stage tags. Evaluation metrics in ClearML are partition-prefixed, split plans are uploaded as `data-split-plan-json`, and query stages publish the human-readable result under Debug Samples. Use `--clearml-project`, `--pipeline-name`, `--tokenizer-training-name`, `--model-training-name`, `--pipeline-version`, `--clearml-config-file`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the pipeline runs.
+The pipeline, stage, and query CLIs connect options as grouped ClearML hyperparameter sections, report final metrics, upload useful non-model artifacts, and register trained tokenizer/model files as ClearML Models. Pipeline stage identity comes from the controller task plus child task names and `parent` links, not custom stage tags. Evaluation metrics in ClearML are partition-prefixed, split plans are uploaded as `data-split-plan-json`, and query stages publish generated-text samples under Debug Samples. Use `--clearml-project`, `--pipeline-name`, `--tokenizer-training-name`, `--model-training-name`, `--pipeline-version`, `--clearml-config-file`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the pipeline runs.
 
 ### ClearML Smoke Test
 
@@ -458,7 +458,7 @@ Expected result:
 The ClearML tokenizer-training and model-training controller task IDs are printed in the terminal.
 The ClearML UI shows completed tokenizer-training and model-training controllers tagged smoke.
 The tokenizer-training pipeline has a train_tokenizer stage task; the model-training pipeline has train_model, evaluate, and query stage tasks.
-The stage tasks have grouped hyperparameter sections, tokenizer/model/evaluation/query scalar metrics, tokenizer and language-model records on the Models page, data split plan artifacts, evaluation summary artifacts, query result artifacts, and query Debug Samples. Additional `src.cli.query` runs create separate query PipelineController runs with their own query parameters, `query-result` artifacts, and Debug Samples entries.
+The stage tasks have grouped hyperparameter sections, tokenizer/model/evaluation/query scalar metrics, tokenizer and language-model records on the Models page, data split plan artifacts, evaluation summary artifacts, query result artifacts, and query generated-text Debug Samples. Additional `src.cli.query` runs create separate query PipelineController runs with their own query parameters, `query-result` artifacts, and Debug Samples entries.
 The Models page contains registered model records for the tokenizer and n-gram model files.
 The uploaded files are also visible under .clearml/fileserver/.
 ```

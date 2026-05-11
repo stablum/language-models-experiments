@@ -663,11 +663,10 @@ def query_model_run(
 
         result = model_definition.query(query_options)
         clearml_run.log_metrics("Query", query_metrics(result))
-        query_lines = _query_lines(model_definition, result)
         clearml_run.report_debug_sample(
             title="Query",
             series="result",
-            contents=query_debug_sample(result, lines=query_lines),
+            contents=query_debug_sample(result),
             file_extension="txt",
         )
         clearml_run.upload_artifact(
