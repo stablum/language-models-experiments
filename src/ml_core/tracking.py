@@ -182,6 +182,28 @@ class ClearMLRun:
                 value=numeric_value,
             )
 
+    def report_debug_sample(
+        self,
+        *,
+        title: str,
+        series: str,
+        contents: str,
+        file_extension: str,
+        iteration: int = 0,
+        max_history: int = -1,
+    ) -> None:
+        if self.task is None:
+            return
+
+        self.task.get_logger().report_media(
+            title=title,
+            series=series,
+            iteration=iteration,
+            stream=contents,
+            file_extension=file_extension,
+            max_history=max_history,
+        )
+
     def upload_artifact(
         self,
         name: str,

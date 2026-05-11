@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 import click
@@ -237,6 +237,14 @@ def query_payload(result: object) -> dict[str, object]:
             for prediction in getattr(result, "next_token_predictions", [])
         ],
     }
+
+
+def query_debug_sample(result: object, *, lines: Iterable[str] = ()) -> str:
+    rendered_lines = [line.rstrip() for line in lines]
+    if rendered_lines:
+        rendered_lines.extend(("", "JSON payload:"))
+    rendered_lines.append(json.dumps(query_payload(result), indent=2, ensure_ascii=True))
+    return "\n".join(rendered_lines).rstrip() + "\n"
 
 
 def artifact_file(path: object) -> str | None:

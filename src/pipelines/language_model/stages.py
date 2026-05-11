@@ -15,6 +15,7 @@ from src.ml_core.cli.output import emit_stage_title, iter_with_progress
 from src.pipelines.language_model.artifacts import (
     evaluation_metrics_for_partition,
     evaluation_payload,
+    query_debug_sample,
     query_metrics,
     query_payload,
     stage_model_files,
@@ -578,9 +579,8 @@ def query_pipeline_step(
         stage=stage,
     )
     model_definition = model_registry.get_model(model_name)
-    if model_definition.query_lines is not None:
-        for line in model_definition.query_lines(result):
-            click.echo(line)
+    for line in _query_lines(model_definition, result):
+        click.echo(line)
     return _require_task_id(clearml_run)
 
 
@@ -663,12 +663,24 @@ def query_model_run(
 
         result = model_definition.query(query_options)
         clearml_run.log_metrics("Query", query_metrics(result))
+        query_lines = _query_lines(model_definition, result)
+        clearml_run.report_debug_sample(
+            title="Query",
+            series="result",
+            contents=query_debug_sample(result, lines=query_lines),
+            file_extension="txt",
+        )
         clearml_run.upload_artifact(
             "query-result",
             query_payload(result),
             metadata={"model": model_definition.name, "corpus": corpus},
         )
         return result
+
+
+def _query_lines(model_definition: object, result: object) -> tuple[str, ...]:
+    query_lines = getattr(model_definition, "query_lines", None)
+    return tuple(query_lines(result)) if query_lines is not None else ()
 
 
 def _configure_step_clearml(clearml_config_file: str | None) -> None:
