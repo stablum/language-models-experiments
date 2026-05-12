@@ -8,18 +8,13 @@ import click
 
 from src.cli import stage_resume
 from src.ml_core import pipeline as core_pipeline
-from src.ml_core.cli.config import configured_command, load_defaults_from_sections
+from src.ml_core import tracking
+from src.ml_core.cli import config as cli_config
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import model_training as model_pipeline
 from src.pipelines.language_model import query as query_pipeline
 from src.corpora import registry as corpora_registry
 from src.models.core import registry as model_registry
-from src.ml_core.tracking import (
-    assert_clearml_endpoints_reachable,
-    clearml_options,
-    clearml_settings,
-    configure_clearml_config_file,
-)
 
 
 MODEL_TRAINING_CONFIG_SECTION = "model-training"
@@ -28,9 +23,13 @@ QUERY_PIPELINE_CONFIG_SECTION = "query-pipeline"
 
 def load_query_command_defaults(_config_section: str) -> dict[str, object]:
     defaults = stage_resume.load_stage_command_defaults("query")
-    defaults.update(load_defaults_from_sections((QUERY_PIPELINE_CONFIG_SECTION,)))
+    defaults.update(
+        cli_config.load_defaults_from_sections((QUERY_PIPELINE_CONFIG_SECTION,))
+    )
 
-    model_training_defaults = load_defaults_from_sections((MODEL_TRAINING_CONFIG_SECTION,))
+    model_training_defaults = cli_config.load_defaults_from_sections(
+        (MODEL_TRAINING_CONFIG_SECTION,)
+    )
     if "pipeline_name" in model_training_defaults:
         defaults["model_training_name"] = model_training_defaults["pipeline_name"]
     if "pipeline_version" in model_training_defaults:
@@ -38,7 +37,7 @@ def load_query_command_defaults(_config_section: str) -> dict[str, object]:
     return defaults
 
 
-@configured_command(
+@cli_config.configured_command(
     "query",
     default_loader=load_query_command_defaults,
     context_settings={"help_option_names": ["-h", "--help"]},
@@ -142,7 +141,7 @@ def load_query_command_defaults(_config_section: str) -> dict[str, object]:
     default=None,
     help="Random seed for reproducible sampling.",
 )
-@clearml_options
+@tracking.clearml_options
 def main(
     pipeline_name: str,
     pipeline_version: str,
@@ -185,7 +184,7 @@ def main(
         raise click.ClickException(f"Model does not support querying yet: {model_name}")
 
     resolved_pipeline_name = clearml_task_name or pipeline_name
-    settings = clearml_settings(
+    settings = tracking.clearml_settings(
         project_name=clearml_project,
         task_name=resolved_pipeline_name,
         config_file=clearml_config_file,
@@ -193,9 +192,12 @@ def main(
         output_uri=clearml_output_uri,
         tags=clearml_tags,
     )
-    resolved_config_file = configure_clearml_config_file(settings.config_file)
+    resolved_config_file = tracking.configure_clearml_config_file(settings.config_file)
     if settings.connectivity_check:
-        assert_clearml_endpoints_reachable(resolved_config_file, settings.output_uri)
+        tracking.assert_clearml_endpoints_reachable(
+            resolved_config_file,
+            settings.output_uri,
+        )
 
     (
         resolved_model_task_id,

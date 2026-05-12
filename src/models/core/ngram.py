@@ -14,14 +14,7 @@ import pydantic
 import sentencepiece as spm
 
 from src.corpora import normalization
-from src.ml_core.models.definition import (
-    ModelDefinition,
-    ModelOptionError,
-    ModelOptionValidator,
-    ModelOptions,
-    QueryFormatter,
-    SummaryFormatter,
-)
+from src.ml_core.models import definition as model_def
 from src.models.core import formatting
 
 
@@ -425,19 +418,19 @@ def default_ngram_output(corpus: str, model_suffix: str) -> Path:
     return Path("artifacts", "models", f"{corpus}-sentencepiece-{model_suffix}.json")
 
 
-def resolve_tokenizer_model(options: ModelOptions) -> Path:
+def resolve_tokenizer_model(options: model_def.ModelOptions) -> Path:
     tokenizer_model = options.get("tokenizer_model")
     if tokenizer_model:
         return Path(tokenizer_model)
     return default_tokenizer_model(str(options["corpus"]))
 
 
-def resolve_output(options: ModelOptions, *, model_suffix: str) -> Path:
+def resolve_output(options: model_def.ModelOptions, *, model_suffix: str) -> Path:
     output = options.get("output")
     return Path(output) if output else default_ngram_output(str(options["corpus"]), model_suffix)
 
 
-def resolve_model(options: ModelOptions, *, model_suffix: str) -> Path:
+def resolve_model(options: model_def.ModelOptions, *, model_suffix: str) -> Path:
     model_path = options.get("model_path")
     return Path(model_path) if model_path else default_ngram_output(
         str(options["corpus"]),
@@ -445,19 +438,24 @@ def resolve_model(options: ModelOptions, *, model_suffix: str) -> Path:
     )
 
 
-def validate_tokenizer_model(options: ModelOptions) -> None:
+def validate_tokenizer_model(options: model_def.ModelOptions) -> None:
     tokenizer_model = resolve_tokenizer_model(options)
     if not tokenizer_model.exists():
-        raise ModelOptionError(
+        raise model_def.ModelOptionError(
             f"Tokenizer model not found: {tokenizer_model}. "
             "Train it first with src.cli.tokenizer_training."
         )
 
 
-def validate_model_path(options: ModelOptions, *, model_suffix: str, label: str) -> None:
+def validate_model_path(
+    options: model_def.ModelOptions,
+    *,
+    model_suffix: str,
+    label: str,
+) -> None:
     model_path = resolve_model(options, model_suffix=model_suffix)
     if not model_path.exists():
-        raise ModelOptionError(
+        raise model_def.ModelOptionError(
             f"{label} model not found: {model_path}. "
             "Train it first with src.cli.train."
         )
@@ -526,16 +524,19 @@ def model_definition(
     module_name: str,
     train_model: Callable[..., TrainingSummary],
     load_model: Callable[[Path], LoadedModel],
-    summary_items: SummaryFormatter,
+    summary_items: model_def.SummaryFormatter,
     training_option_names: Sequence[str] = (),
-    query_lines: QueryFormatter | None = None,
-    evaluation_items: SummaryFormatter | None = None,
-    validate_training_options: ModelOptionValidator | None = None,
-) -> ModelDefinition:
+    query_lines: model_def.QueryFormatter | None = None,
+    evaluation_items: model_def.SummaryFormatter | None = None,
+    validate_training_options: model_def.ModelOptionValidator | None = None,
+) -> model_def.ModelDefinition:
     name = model_name_from_module(module_name)
     model_label = model_label_from_name(name)
 
-    def train(texts: Iterable[str], options: ModelOptions) -> TrainingSummary:
+    def train(
+        texts: Iterable[str],
+        options: model_def.ModelOptions,
+    ) -> TrainingSummary:
         stored_tokenizer_model = options.get("stored_tokenizer_model")
         training_options = {
             option_name: options[option_name]
@@ -552,15 +553,15 @@ def model_definition(
             **training_options,
         )
 
-    def validate_options(options: ModelOptions) -> None:
+    def validate_options(options: model_def.ModelOptions) -> None:
         validate_tokenizer_model(options)
         if validate_training_options is not None:
             validate_training_options(options)
 
-    def validate_query_options(options: ModelOptions) -> None:
+    def validate_query_options(options: model_def.ModelOptions) -> None:
         validate_model_path(options, model_suffix=name, label=model_label)
 
-    def query(options: ModelOptions) -> QueryResult:
+    def query(options: model_def.ModelOptions) -> QueryResult:
         model = load_model(resolve_model(options, model_suffix=name))
         return model.query(
             prompt=options["prompt"],
@@ -571,11 +572,14 @@ def model_definition(
             seed=options["seed"],
         )
 
-    def evaluate(texts: Iterable[str], options: ModelOptions) -> EvaluationSummary:
+    def evaluate(
+        texts: Iterable[str],
+        options: model_def.ModelOptions,
+    ) -> EvaluationSummary:
         model = load_model(resolve_model(options, model_suffix=name))
         return model.evaluate(texts, top_k=options["top_k"])
 
-    return ModelDefinition(
+    return model_def.ModelDefinition(
         name=name,
         train=train,
         validate_options=validate_options,

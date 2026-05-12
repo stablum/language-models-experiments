@@ -1,33 +1,28 @@
 """Small function-step wrappers used by ClearML PipelineController."""
 
+from __future__ import annotations
+
+
+def _run_stage_entry(step_fn_name: str, **kwargs: object) -> str:
+    from src.ml_core.cli import output as cli_output
+    from src.pipelines.language_model import stages
+
+    with cli_output.timestamped_cli_output():
+        step_fn = getattr(stages, step_fn_name)
+        return step_fn(**kwargs)
+
 
 def train_tokenizer_stage_entry(**kwargs: object) -> str:
-    from src.ml_core.cli.output import timestamped_cli_output
-    from src.pipelines.language_model.stages import train_tokenizer_step
-
-    with timestamped_cli_output():
-        return train_tokenizer_step(**kwargs)
+    return _run_stage_entry("train_tokenizer_step", **kwargs)
 
 
 def train_model_stage_entry(**kwargs: object) -> str:
-    from src.ml_core.cli.output import timestamped_cli_output
-    from src.pipelines.language_model.stages import train_model_pipeline_step
-
-    with timestamped_cli_output():
-        return train_model_pipeline_step(**kwargs)
+    return _run_stage_entry("train_model_pipeline_step", **kwargs)
 
 
 def evaluate_stage_entry(**kwargs: object) -> str:
-    from src.ml_core.cli.output import timestamped_cli_output
-    from src.pipelines.language_model.stages import evaluate_pipeline_step
-
-    with timestamped_cli_output():
-        return evaluate_pipeline_step(**kwargs)
+    return _run_stage_entry("evaluate_pipeline_step", **kwargs)
 
 
 def query_stage_entry(**kwargs: object) -> str:
-    from src.ml_core.cli.output import timestamped_cli_output
-    from src.pipelines.language_model.stages import query_pipeline_step
-
-    with timestamped_cli_output():
-        return query_pipeline_step(**kwargs)
+    return _run_stage_entry("query_pipeline_step", **kwargs)

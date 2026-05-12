@@ -9,26 +9,16 @@ from typing import Any
 import click
 
 from src.ml_core import pipeline as core_pipeline
-from src.ml_core.cli.config import configured_command, load_defaults_from_sections
+from src.ml_core import tracking
+from src.ml_core.cli import config as cli_config
+from src.ml_core.data import splits as data_splits
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import model_options as lm_model_options
 from src.pipelines.language_model import model_training as model_pipeline
 from src.pipelines.language_model import optuna as lm_optuna
 from src.corpora import normalization
 from src.corpora import registry as corpora_registry
-from src.ml_core.data.splits import (
-    DEFAULT_SPLIT_SEED,
-    DEFAULT_TRAIN_RATIO,
-    PROJECT_PARTITIONS,
-    VALIDATION_PARTITION,
-)
 from src.models.core import registry as model_registry
-from src.ml_core.tracking import (
-    assert_clearml_endpoints_reachable,
-    clearml_options,
-    clearml_settings,
-    configure_clearml_config_file,
-)
 
 
 MODEL_TRAINING_CONFIG_SECTION = "model-training"
@@ -148,12 +138,14 @@ def _parameter_is_explicit(ctx: click.Context | None, parameter_name: str) -> bo
 
 
 def load_model_training_command_defaults(_config_section: str) -> dict[str, object]:
-    defaults = load_defaults_from_sections(("defaults", "clearml"))
-    train_defaults = load_defaults_from_sections((TRAIN_CONFIG_SECTION,))
-    evaluate_defaults = load_defaults_from_sections((EVALUATE_CONFIG_SECTION,))
-    query_defaults = load_defaults_from_sections((QUERY_CONFIG_SECTION,))
-    optuna_defaults = load_defaults_from_sections((OPTUNA_CONFIG_SECTION,))
-    pipeline_defaults = load_defaults_from_sections((MODEL_TRAINING_CONFIG_SECTION,))
+    defaults = cli_config.load_defaults_from_sections(("defaults", "clearml"))
+    train_defaults = cli_config.load_defaults_from_sections((TRAIN_CONFIG_SECTION,))
+    evaluate_defaults = cli_config.load_defaults_from_sections((EVALUATE_CONFIG_SECTION,))
+    query_defaults = cli_config.load_defaults_from_sections((QUERY_CONFIG_SECTION,))
+    optuna_defaults = cli_config.load_defaults_from_sections((OPTUNA_CONFIG_SECTION,))
+    pipeline_defaults = cli_config.load_defaults_from_sections(
+        (MODEL_TRAINING_CONFIG_SECTION,)
+    )
 
     defaults.update(
         _consistent_config_values(
@@ -260,7 +252,7 @@ def _mapped_config_values(
     }
 
 
-@configured_command(
+@cli_config.configured_command(
     "model-training",
     default_loader=load_model_training_command_defaults,
     context_settings={"help_option_names": ["-h", "--help"]},
@@ -325,22 +317,22 @@ def _mapped_config_values(
 @click.option(
     "--train-ratio",
     type=click.FloatRange(min=0.0, max=1.0, min_open=True, max_open=True),
-    default=DEFAULT_TRAIN_RATIO,
+    default=data_splits.DEFAULT_TRAIN_RATIO,
     show_default=True,
     help="Fraction of merged source rows assigned to the reusable training partition.",
 )
 @click.option(
     "--split-seed",
     type=int,
-    default=DEFAULT_SPLIT_SEED,
+    default=data_splits.DEFAULT_SPLIT_SEED,
     show_default=True,
     help="Seed for the reusable deterministic train/validation partition.",
 )
 @click.option(
     "--evaluation-partition",
     "--evaluation-split",
-    type=click.Choice(PROJECT_PARTITIONS),
-    default=VALIDATION_PARTITION,
+    type=click.Choice(data_splits.PROJECT_PARTITIONS),
+    default=data_splits.VALIDATION_PARTITION,
     show_default=True,
     help=(
         "Primary project partition for unpartitioned summary metrics and Optuna "
@@ -513,7 +505,7 @@ def _mapped_config_values(
     default=None,
     help="Optional maximum wall-clock time for the Optuna study.",
 )
-@clearml_options
+@tracking.clearml_options
 def main(
     pipeline_name: str,
     pipeline_version: str,
@@ -568,10 +560,12 @@ def main(
     clearml_tags: tuple[str, ...],
 ) -> None:
     ctx = click.get_current_context(silent=True)
-    pipeline_defaults = load_defaults_from_sections((MODEL_TRAINING_CONFIG_SECTION,))
-    train_defaults = load_defaults_from_sections((TRAIN_CONFIG_SECTION,))
-    evaluate_defaults = load_defaults_from_sections((EVALUATE_CONFIG_SECTION,))
-    query_defaults = load_defaults_from_sections((QUERY_CONFIG_SECTION,))
+    pipeline_defaults = cli_config.load_defaults_from_sections(
+        (MODEL_TRAINING_CONFIG_SECTION,)
+    )
+    train_defaults = cli_config.load_defaults_from_sections((TRAIN_CONFIG_SECTION,))
+    evaluate_defaults = cli_config.load_defaults_from_sections((EVALUATE_CONFIG_SECTION,))
+    query_defaults = cli_config.load_defaults_from_sections((QUERY_CONFIG_SECTION,))
 
     corpus = _resolve_consistent_stage_default(
         ctx,
@@ -1152,7 +1146,7 @@ def _run_model_training_pipeline(
     if model_definition.query is None or model_definition.query_lines is None:
         raise click.ClickException(f"Model does not support querying yet: {model_name}")
 
-    settings = clearml_settings(
+    settings = tracking.clearml_settings(
         project_name=clearml_project,
         task_name=resolved_pipeline_name,
         config_file=clearml_config_file,
@@ -1160,9 +1154,12 @@ def _run_model_training_pipeline(
         output_uri=clearml_output_uri,
         tags=clearml_tags,
     )
-    resolved_config_file = configure_clearml_config_file(settings.config_file)
+    resolved_config_file = tracking.configure_clearml_config_file(settings.config_file)
     if settings.connectivity_check:
-        assert_clearml_endpoints_reachable(resolved_config_file, settings.output_uri)
+        tracking.assert_clearml_endpoints_reachable(
+            resolved_config_file,
+            settings.output_uri,
+        )
 
     tokenizer_resolution = lm_def.resolve_tokenizer_training_task(
         tokenizer_training_name=tokenizer_training_name,

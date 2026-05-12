@@ -8,17 +8,17 @@ from pathlib import Path
 import click
 
 from src.ml_core import pipeline as core_pipeline
-from src.ml_core.cli.config import load_defaults_from_sections
+from src.ml_core.cli import config as cli_config
 from src.pipelines.language_model import model_training as model_pipeline
 
 
 def load_stage_command_defaults(stage_section: str) -> dict[str, object]:
-    defaults = load_defaults_from_sections(("defaults", "clearml"))
-    train_defaults = load_defaults_from_sections(("train",))
+    defaults = cli_config.load_defaults_from_sections(("defaults", "clearml"))
+    train_defaults = cli_config.load_defaults_from_sections(("train",))
     for key in ("model_name", "tokenizer_model_name"):
         if key in train_defaults:
             defaults[key] = train_defaults[key]
-    defaults.update(load_defaults_from_sections((stage_section,)))
+    defaults.update(cli_config.load_defaults_from_sections((stage_section,)))
     return defaults
 
 

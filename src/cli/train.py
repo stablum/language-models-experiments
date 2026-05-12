@@ -8,20 +8,17 @@ import click
 
 from src.cli import stage_resume
 from src.ml_core import pipeline as core_pipeline
-from src.ml_core.cli.config import configured_command
+from src.ml_core import tracking
+from src.ml_core.cli import config as cli_config
+from src.ml_core.data import splits as data_splits
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import model_training as model_pipeline
 from src.corpora import normalization
 from src.corpora import registry as corpora_registry
-from src.ml_core.data.splits import (
-    DEFAULT_SPLIT_SEED,
-    DEFAULT_TRAIN_RATIO,
-)
 from src.models.core import registry as model_registry
-from src.ml_core.tracking import clearml_options
 
 
-@configured_command(
+@cli_config.configured_command(
     "train",
     context_settings={"help_option_names": ["-h", "--help"]},
     help="Train a registered language model from a registered corpus.",
@@ -78,14 +75,14 @@ from src.ml_core.tracking import clearml_options
 @click.option(
     "--train-ratio",
     type=click.FloatRange(min=0.0, max=1.0, min_open=True, max_open=True),
-    default=DEFAULT_TRAIN_RATIO,
+    default=data_splits.DEFAULT_TRAIN_RATIO,
     show_default=True,
     help="Fraction of merged source rows assigned to the reusable training partition.",
 )
 @click.option(
     "--split-seed",
     type=int,
-    default=DEFAULT_SPLIT_SEED,
+    default=data_splits.DEFAULT_SPLIT_SEED,
     show_default=True,
     help="Seed for the reusable deterministic train/validation partition.",
 )
@@ -142,7 +139,7 @@ from src.ml_core.tracking import clearml_options
     show_default=True,
     help="Text normalization applied before model training.",
 )
-@clearml_options
+@tracking.clearml_options
 def main(
     pipeline_name: str,
     pipeline_version: str,

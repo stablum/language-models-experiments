@@ -8,15 +8,8 @@ from typing import Any
 import click
 
 from src.corpora import registry as corpora_registry
-from src.ml_core.data.splits import (
-    DataSplitPlan,
-    SPLIT_PLAN_ARTIFACT,
-    build_data_split_plan,
-    read_split_plan,
-    split_plan_clearml_parameters,
-    write_split_plan,
-)
-from src.ml_core.tracking import maybe_download_task_artifact
+from src.ml_core import tracking
+from src.ml_core.data import splits as data_splits
 
 
 EXPLICIT_PARAMETER_SOURCES = (
@@ -34,7 +27,7 @@ def resolve_from_plan(
     *,
     parameter_name: str,
     value: Any,
-    inherited_plan: DataSplitPlan | None,
+    inherited_plan: data_splits.DataSplitPlan | None,
     inherited_attribute: str,
 ) -> Any:
     if explicit_parameter(ctx, parameter_name) or inherited_plan is None:
@@ -50,13 +43,13 @@ def build_cli_split_plan(
     source_split: str | None,
     train_ratio: float,
     split_seed: int,
-) -> DataSplitPlan:
+) -> data_splits.DataSplitPlan:
     source_splits = (
         (source_split,)
         if source_split is not None
         else corpus_definition.available_splits
     )
-    return build_data_split_plan(
+    return data_splits.build_data_split_plan(
         corpus=corpus,
         dataset_id=dataset_id,
         source_split=source_split,
@@ -66,20 +59,23 @@ def build_cli_split_plan(
     )
 
 
-def write_split_plan_artifact(staging_dir: Path, plan: DataSplitPlan) -> Path:
-    return write_split_plan(staging_dir / "data-split-plan.json", plan)
+def write_split_plan_artifact(
+    staging_dir: Path,
+    plan: data_splits.DataSplitPlan,
+) -> Path:
+    return data_splits.write_split_plan(staging_dir / "data-split-plan.json", plan)
 
 
 def upload_split_plan_artifact(
     clearml_run: Any,
     *,
     staging_dir: Path,
-    plan: DataSplitPlan,
+    plan: data_splits.DataSplitPlan,
     metadata: dict[str, object] | None = None,
 ) -> Path:
     path = write_split_plan_artifact(staging_dir, plan)
     clearml_run.upload_artifact(
-        SPLIT_PLAN_ARTIFACT,
+        data_splits.SPLIT_PLAN_ARTIFACT,
         path,
         metadata={
             **(metadata or {}),
@@ -94,21 +90,23 @@ def inherited_split_plan_from_task(
     *,
     task_id: str | None,
     staging_dir: Path,
-) -> DataSplitPlan | None:
+) -> data_splits.DataSplitPlan | None:
     if task_id is None:
         return None
 
-    path = maybe_download_task_artifact(
+    path = tracking.maybe_download_task_artifact(
         task_id=task_id,
-        artifact_name=SPLIT_PLAN_ARTIFACT,
+        artifact_name=data_splits.SPLIT_PLAN_ARTIFACT,
         destination_dir=staging_dir,
     )
     if path is None:
         return None
-    return read_split_plan(path)
+    return data_splits.read_split_plan(path)
 
 
-def split_plan_parameter_sections(plan: DataSplitPlan) -> dict[str, dict[str, object]]:
+def split_plan_parameter_sections(
+    plan: data_splits.DataSplitPlan,
+) -> dict[str, dict[str, object]]:
     return {
-        "Data split": split_plan_clearml_parameters(plan),
+        "Data split": data_splits.split_plan_clearml_parameters(plan),
     }

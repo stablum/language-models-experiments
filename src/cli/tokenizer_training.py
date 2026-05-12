@@ -7,31 +7,25 @@ from pathlib import Path
 import click
 
 from src.ml_core import pipeline as core_pipeline
-from src.ml_core.cli.config import configured_command, load_defaults_from_sections
+from src.ml_core import tracking
+from src.ml_core.cli import config as cli_config
+from src.ml_core.data import splits as data_splits
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import tokenizer_training as tokenizer_pipeline
 from src.corpora import normalization
 from src.corpora import registry as corpora_registry
-from src.ml_core.data.splits import (
-    DEFAULT_SPLIT_SEED,
-    DEFAULT_TRAIN_RATIO,
-)
-from src.ml_core.tracking import (
-    assert_clearml_endpoints_reachable,
-    clearml_options,
-    clearml_settings,
-    configure_clearml_config_file,
-)
 
 
 TOKENIZER_TRAINING_CONFIG_SECTION = "tokenizer-training"
 
 
 def load_tokenizer_training_command_defaults(_config_section: str) -> dict[str, object]:
-    return load_defaults_from_sections(("defaults", "clearml", TOKENIZER_TRAINING_CONFIG_SECTION))
+    return cli_config.load_defaults_from_sections(
+        ("defaults", "clearml", TOKENIZER_TRAINING_CONFIG_SECTION)
+    )
 
 
-@configured_command(
+@cli_config.configured_command(
     "tokenizer-training",
     default_loader=load_tokenizer_training_command_defaults,
     context_settings={"help_option_names": ["-h", "--help"]},
@@ -74,14 +68,14 @@ def load_tokenizer_training_command_defaults(_config_section: str) -> dict[str, 
 @click.option(
     "--train-ratio",
     type=click.FloatRange(min=0.0, max=1.0, min_open=True, max_open=True),
-    default=DEFAULT_TRAIN_RATIO,
+    default=data_splits.DEFAULT_TRAIN_RATIO,
     show_default=True,
     help="Fraction of merged source rows assigned to the reusable training partition.",
 )
 @click.option(
     "--split-seed",
     type=int,
-    default=DEFAULT_SPLIT_SEED,
+    default=data_splits.DEFAULT_SPLIT_SEED,
     show_default=True,
     help="Seed for the reusable deterministic train/validation partition.",
 )
@@ -130,7 +124,7 @@ def load_tokenizer_training_command_defaults(_config_section: str) -> dict[str, 
     show_default=True,
     help="Text normalization applied before tokenizer training.",
 )
-@clearml_options
+@tracking.clearml_options
 def main(
     pipeline_name: str,
     pipeline_version: str,
@@ -203,7 +197,7 @@ def main(
         )
         return
 
-    settings = clearml_settings(
+    settings = tracking.clearml_settings(
         project_name=clearml_project,
         task_name=resolved_pipeline_name,
         config_file=clearml_config_file,
@@ -211,9 +205,12 @@ def main(
         output_uri=clearml_output_uri,
         tags=clearml_tags,
     )
-    resolved_config_file = configure_clearml_config_file(settings.config_file)
+    resolved_config_file = tracking.configure_clearml_config_file(settings.config_file)
     if settings.connectivity_check:
-        assert_clearml_endpoints_reachable(resolved_config_file, settings.output_uri)
+        tracking.assert_clearml_endpoints_reachable(
+            resolved_config_file,
+            settings.output_uri,
+        )
 
     pipeline = core_pipeline.build_pipeline_controller(
         pipeline_name=resolved_pipeline_name,

@@ -27,7 +27,7 @@ Copy-Item clearml.local.conf.example clearml.conf
 
 ```text
 src/
-  cli/          Command-line entry points and old compatibility shims
+  cli/          Command-line entry points
   corpora/      Dataset loading, registry, and corpus text helpers
   ml_core/      Reusable ML experiment infrastructure
   models/       Small language model training utilities
@@ -39,12 +39,11 @@ config.toml     Repo-local CLI defaults
 
 ## Reusable ML Core
 
-Language-model-specific code now lives in `src/corpora/`, `src/models/`,
+Language-model-specific code lives in `src/corpora/`, `src/models/`,
 `src/pipelines/`, and `src/tokenizers/`. `src/cli/` is reserved for Click
-entrypoints plus thin compatibility shims for older import paths. Shared
-experiment infrastructure lives in `src/ml_core/` so it can be reused by
-non-language-model ML projects without bringing along tokenizer, prompt,
-corpus, or next-token assumptions.
+entrypoints. Shared experiment infrastructure lives in `src/ml_core/` so it can
+be reused by non-language-model ML projects without bringing along tokenizer,
+prompt, corpus, or next-token assumptions.
 
 Reusable pieces include:
 
@@ -68,10 +67,9 @@ src/pipelines/language_model/artifacts.py       model staging and metric payload
 src/pipelines/language_model/optuna.py          Optuna trial metric helpers
 ```
 
-The old language-model module paths remain as thin compatibility layers where
-they existed before, but new shared infrastructure should be added under
-`src/ml_core/`. Keep domain-specific adapters, artifact names, metrics, and CLI
-vocabulary in the language-model layer.
+Shared infrastructure should be added under `src/ml_core/`. Keep
+domain-specific adapters, artifact names, metrics, and CLI vocabulary in the
+language-model layer.
 
 ## CLI Defaults
 

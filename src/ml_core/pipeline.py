@@ -12,11 +12,7 @@ from typing import Any
 
 import click
 
-from src.ml_core.tracking import (
-    assert_clearml_endpoints_reachable,
-    clearml_settings,
-    configure_clearml_config_file,
-)
+from src.ml_core import tracking
 
 
 DEFAULT_PIPELINE_NAME = "pipeline"
@@ -338,7 +334,7 @@ def resume_pipeline_controller_stage(
 ) -> str:
     resolved_stage_dependencies = stage_dependencies or {stage_name: ()}
     resolved_stage_names = tuple(stage_names or resolved_stage_dependencies)
-    settings = clearml_settings(
+    settings = tracking.clearml_settings(
         project_name=clearml_project,
         task_name=clearml_task_name,
         config_file=clearml_config_file,
@@ -346,9 +342,12 @@ def resume_pipeline_controller_stage(
         output_uri=clearml_output_uri,
         tags=clearml_tags,
     )
-    resolved_config_file = configure_clearml_config_file(settings.config_file)
+    resolved_config_file = tracking.configure_clearml_config_file(settings.config_file)
     if settings.connectivity_check:
-        assert_clearml_endpoints_reachable(resolved_config_file, settings.output_uri)
+        tracking.assert_clearml_endpoints_reachable(
+            resolved_config_file,
+            settings.output_uri,
+        )
 
     resolved_pipeline_name = settings.task_name or pipeline_name
     resolved_controller_id = pipeline_controller_id or resolve_pipeline_controller_id(

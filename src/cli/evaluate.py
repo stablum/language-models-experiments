@@ -8,25 +8,20 @@ import click
 
 from src.cli import stage_resume
 from src.ml_core import pipeline as core_pipeline
-from src.ml_core.cli.config import configured_command
+from src.ml_core import tracking
+from src.ml_core.cli import config as cli_config
+from src.ml_core.data import splits as data_splits
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import model_training as model_pipeline
-from src.ml_core.data.splits import (
-    DEFAULT_SPLIT_SEED,
-    DEFAULT_TRAIN_RATIO,
-    PROJECT_PARTITIONS,
-    VALIDATION_PARTITION,
-)
 from src.corpora import registry as corpora_registry
 from src.models.core import registry as model_registry
-from src.ml_core.tracking import clearml_options
 
 
 def load_evaluate_command_defaults(_config_section: str) -> dict[str, object]:
     return stage_resume.load_stage_command_defaults("evaluate")
 
 
-@configured_command(
+@cli_config.configured_command(
     "evaluate",
     default_loader=load_evaluate_command_defaults,
     context_settings={"help_option_names": ["-h", "--help"]},
@@ -84,22 +79,22 @@ def load_evaluate_command_defaults(_config_section: str) -> dict[str, object]:
 @click.option(
     "--train-ratio",
     type=click.FloatRange(min=0.0, max=1.0, min_open=True, max_open=True),
-    default=DEFAULT_TRAIN_RATIO,
+    default=data_splits.DEFAULT_TRAIN_RATIO,
     show_default=True,
     help="Fraction of merged source rows assigned to the reusable training partition.",
 )
 @click.option(
     "--split-seed",
     type=int,
-    default=DEFAULT_SPLIT_SEED,
+    default=data_splits.DEFAULT_SPLIT_SEED,
     show_default=True,
     help="Seed for the reusable deterministic train/validation partition.",
 )
 @click.option(
     "--evaluation-partition",
     "--evaluation-split",
-    type=click.Choice(PROJECT_PARTITIONS),
-    default=VALIDATION_PARTITION,
+    type=click.Choice(data_splits.PROJECT_PARTITIONS),
+    default=data_splits.VALIDATION_PARTITION,
     show_default=True,
     help=(
         "Primary project partition for unpartitioned summary metrics and Optuna "
@@ -124,7 +119,7 @@ def load_evaluate_command_defaults(_config_section: str) -> dict[str, object]:
     show_default=True,
     help="K value for top-k next-token accuracy.",
 )
-@clearml_options
+@tracking.clearml_options
 def main(
     pipeline_name: str,
     pipeline_version: str,

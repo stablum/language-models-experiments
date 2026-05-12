@@ -11,9 +11,9 @@ from typing import Any, Literal
 
 import click
 
-from src.ml_core.cli.config import normalize_key
 from src.ml_core import pipeline as core_pipeline
 from src.ml_core import tracking
+from src.ml_core.cli import config as cli_config
 from src.pipelines.language_model import definition as lm_def
 from src.models.core import registry as model_registry
 
@@ -276,7 +276,7 @@ def _parse_search_spec(raw_value: str) -> SearchSpec:
             "or name=categorical:value1,value2."
         )
     raw_name, raw_expression = raw_value.split("=", maxsplit=1)
-    parameter_name = normalize_key(raw_name.strip())
+    parameter_name = cli_config.normalize_key(raw_name.strip())
     if parameter_name not in SEARCH_PARAMETERS:
         supported = ", ".join(sorted(SEARCH_PARAMETERS))
         raise click.ClickException(

@@ -9,9 +9,9 @@ from typing import ClassVar
 import sentencepiece as spm
 
 from src.corpora import normalization
+from src.ml_core.models import definition as model_def
 from src.models.core import formatting, ngram
 from src.models.core import trigrams
-from src.ml_core.models.definition import ModelOptionError, ModelOptions
 
 
 _SCHEMA_TYPE = "interpolated_trigram"
@@ -182,7 +182,7 @@ def train_trigram_model(
     return summary
 
 
-def validate_interpolation_options(options: ModelOptions) -> None:
+def validate_interpolation_options(options: model_def.ModelOptions) -> None:
     try:
         normalize_interpolation_weights(
             unigram_weight=options["unigram_weight"],
@@ -190,7 +190,7 @@ def validate_interpolation_options(options: ModelOptions) -> None:
             trigram_weight=options["trigram_weight"],
         )
     except ValueError as error:
-        raise ModelOptionError(str(error)) from error
+        raise model_def.ModelOptionError(str(error)) from error
 
 
 def format_summary(summary: TrigramTrainingSummary) -> list[tuple[str, str]]:

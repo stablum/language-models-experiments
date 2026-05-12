@@ -5,12 +5,12 @@ from __future__ import annotations
 import importlib
 import pkgutil
 
-from src.ml_core.models.definition import ModelDefinition
+from src.ml_core.models import definition as model_def
 import src.models as model_pkg
 
 
-def iter_model_definitions() -> tuple[ModelDefinition, ...]:
-    definitions: list[ModelDefinition] = []
+def iter_model_definitions() -> tuple[model_def.ModelDefinition, ...]:
+    definitions: list[model_def.ModelDefinition] = []
     module_infos = sorted(
         pkgutil.iter_modules(model_pkg.__path__),
         key=lambda module_info: module_info.name,

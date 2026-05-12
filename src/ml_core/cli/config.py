@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 import click
 
-from src.ml_core.cli.output import timestamped_cli_output
+from src.ml_core.cli import output as cli_output
 
 
 CONFIG_ENVVAR = "LME_CONFIG_FILE"
@@ -70,7 +70,7 @@ class ConfigurableCommand(click.Command):
         return ctx
 
     def main(self, *args: Any, **kwargs: Any) -> Any:
-        with timestamped_cli_output():
+        with cli_output.timestamped_cli_output():
             return super().main(*args, **kwargs)
 
 

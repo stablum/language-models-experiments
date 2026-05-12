@@ -6,26 +6,17 @@ from pathlib import Path
 
 import click
 
-from src.ml_core.data.split_artifacts import build_cli_split_plan
 from src.corpora import normalization
 from src.corpora import registry as corpora_registry
 from src.corpora import stats as corpus_stats
-from src.ml_core.cli.config import configured_command
-from src.ml_core.cli.output import stage_title
-from src.ml_core.data.splits import (
-    DEFAULT_SPLIT_SEED,
-    DEFAULT_TRAIN_RATIO,
-    iter_merged_source_rows,
-    source_split_label,
-)
-from src.ml_core.tracking import (
-    clearml_options,
-    clearml_settings,
-    start_clearml_run,
-)
+from src.ml_core import tracking
+from src.ml_core.cli import config as cli_config
+from src.ml_core.cli import output as cli_output
+from src.ml_core.data import split_artifacts
+from src.ml_core.data import splits as data_splits
 
 
-@configured_command(
+@cli_config.configured_command(
     "corpus_stats",
     context_settings={"help_option_names": ["-h", "--help"]},
     help=(
@@ -84,7 +75,7 @@ from src.ml_core.tracking import (
     show_default=True,
     help="Text normalization applied before computing stats.",
 )
-@clearml_options
+@tracking.clearml_options
 def main(
     corpus: str,
     dataset_id: str | None,
@@ -106,18 +97,18 @@ def main(
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
     resolved_source_split = source_split if source_split is not None else corpus_definition.split
     resolved_text_column = text_column or corpus_definition.text_column
-    split_plan = build_cli_split_plan(
+    split_plan = split_artifacts.build_cli_split_plan(
         corpus_definition,
         corpus=corpus,
         dataset_id=resolved_dataset_id,
         source_split=resolved_source_split,
-        train_ratio=DEFAULT_TRAIN_RATIO,
-        split_seed=DEFAULT_SPLIT_SEED,
+        train_ratio=data_splits.DEFAULT_TRAIN_RATIO,
+        split_seed=data_splits.DEFAULT_SPLIT_SEED,
     )
 
-    click.echo(stage_title(1, 1, "Corpus stats"), color=True)
-    with start_clearml_run(
-        clearml_settings(
+    click.echo(cli_output.stage_title(1, 1, "Corpus stats"), color=True)
+    with tracking.start_clearml_run(
+        tracking.clearml_settings(
             project_name=clearml_project,
             task_name=clearml_task_name,
             config_file=clearml_config_file,
@@ -137,7 +128,7 @@ def main(
                 "Data": {
                     "corpus": corpus,
                     "dataset_id": resolved_dataset_id,
-                    "source_split": source_split_label(resolved_source_split),
+                    "source_split": data_splits.source_split_label(resolved_source_split),
                     "text_column": resolved_text_column,
                     "streaming": streaming,
                     "limit": limit,
@@ -157,7 +148,10 @@ def main(
         )
         rows = (
             row
-            for _, _, row in iter_merged_source_rows(dataset, plan=split_plan)
+            for _, _, row in data_splits.iter_merged_source_rows(
+                dataset,
+                plan=split_plan,
+            )
         )
 
         stats = corpus_stats.scan_text_column(
@@ -175,13 +169,13 @@ def main(
             corpus_stats_payload(stats),
             metadata={
                 "corpus": corpus,
-                "source_split": source_split_label(resolved_source_split),
+                "source_split": data_splits.source_split_label(resolved_source_split),
             },
         )
 
     corpus_stats.print_corpus_report(
         dataset_label=resolved_dataset_id,
-        split=source_split_label(resolved_source_split),
+        split=data_splits.source_split_label(resolved_source_split),
         mode="streaming" if streaming else "download/cache",
         limit=limit,
         reported_rows=getattr(dataset, "num_rows", None),
