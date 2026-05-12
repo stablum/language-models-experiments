@@ -2,25 +2,23 @@
 
 from __future__ import annotations
 
-import dataclasses
 from pathlib import Path
 
 import click
 
 from src.cli import model_training_defaults as mt_defaults
 from src.cli import model_training_runs
-from src.ml_core import pipeline as core_pipeline
+from src.ml_core import cfg as core_cfg
 from src.ml_core.cli import config as cli_config
+from src.corpora import registry as corpora_registry
 from src.models.core import registry as model_registry
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import model_options as lm_model_options
 from src.pipelines.language_model import model_training as model_pipeline
 from src.pipelines.language_model import optuna as lm_optuna
-from src.corpora import registry as corpora_registry
 
 
-@dataclasses.dataclass(frozen=True)
-class CliArgs:
+class CliArgs(core_cfg.BaseCfg):
     """Raw Click arguments for the model-training command."""
 
     pipeline_name: str
@@ -187,7 +185,9 @@ def run(args: CliArgs) -> None:
         pipeline_defaults=pipeline_defaults,
         stage_defaults=evaluate_defaults,
     )
-    model_hyperparameters = lm_model_options.model_hyperparameters_from(vars(args))
+    model_hyperparameters = lm_model_options.model_hyperparameters_from(
+        args.model_dump()
+    )
     model_hyperparameters = {
         name: mt_defaults.resolve_stage_default(
             ctx,
@@ -276,8 +276,16 @@ def run(args: CliArgs) -> None:
         stage_defaults=evaluate_defaults,
         global_limit=args.limit,
     )
-    optuna_search_specs = lm_optuna.parse_optuna_search_specs(args.optuna_search)
-    optuna_enabled = args.optuna_trials > 0 or bool(optuna_search_specs)
+    optuna_cfg = model_training_runs.OptunaCfg(
+        trials=args.optuna_trials,
+        search_specs=lm_optuna.parse_optuna_search_specs(args.optuna_search),
+        metric=args.optuna_metric,
+        direction=args.optuna_direction,
+        study_name=args.optuna_study_name,
+        storage=args.optuna_storage,
+        load_if_exists=args.optuna_load_if_exists,
+        timeout_seconds=args.optuna_timeout_seconds,
+    )
 
     corpus_definition = corpora_registry.get_corpus(str(corpus))
     model_definition = model_registry.get_model(str(model_name))
@@ -288,7 +296,6 @@ def run(args: CliArgs) -> None:
     if args.pipeline_local and not args.wait:
         raise click.ClickException("--no-wait is only supported with --pipeline-queued.")
 
-    resolved_pipeline_name = args.clearml_task_name or args.pipeline_name
     resolved_dataset_id = str(dataset_id or corpus_definition.dataset_id)
     resolved_source_split = source_split if source_split is not None else corpus_definition.split
     resolved_text_column = str(text_column or corpus_definition.text_column)
@@ -303,10 +310,61 @@ def run(args: CliArgs) -> None:
         raise click.ClickException("--run-stage and --run-until-stage are mutually exclusive.")
     if args.pipeline_controller_id is not None and args.run_stage is None:
         raise click.ClickException("--pipeline-controller-id must be used with --run-stage.")
-    if optuna_enabled:
+    run_spec = model_training_runs.RunSpec(
+        pipeline=model_training_runs.PipelineRunCfg(
+            name=args.pipeline_name,
+            version=args.pipeline_version,
+            local=args.pipeline_local,
+            controller_queue=args.controller_queue,
+            execution_queue=args.execution_queue,
+            wait=args.wait,
+            add_run_number=args.add_run_number,
+            run_until_stage=args.run_until_stage,
+        ),
+        clearml=model_training_runs.ClearmlCfg(
+            project=args.clearml_project,
+            task_name=args.clearml_task_name,
+            config_file=args.clearml_config_file,
+            connectivity_check=args.clearml_connectivity_check,
+            output_uri=args.clearml_output_uri,
+            tags=args.clearml_tags,
+        ),
+        tokenizer_training_name=args.tokenizer_training_name,
+        tokenizer_model_name=resolved_tokenizer_model_name,
+        model=model_pipeline.ModelCfg(
+            name=model_definition.name,
+            hyperparameters=model_hyperparameters,
+            limit=resolved_training_limit,
+            text_normalization=str(text_normalization),
+        ),
+        data=model_pipeline.DataCfg(
+            corpus=str(corpus),
+            dataset_id=resolved_dataset_id,
+            source_split=resolved_source_split,
+            text_column=resolved_text_column,
+            streaming=bool(streaming),
+            train_ratio=float(train_ratio),
+            split_seed=int(split_seed),
+        ),
+        evaluation=model_pipeline.EvaluationCfg(
+            partition=str(evaluation_partition),
+            limit=resolved_evaluation_limit,
+            top_k=int(top_k),
+        ),
+        query=model_pipeline.QueryCfg(
+            prompt=str(query_prompt),
+            max_tokens=int(query_max_tokens),
+            top_k=int(query_top_k),
+            decoding=str(query_decoding),
+            temperature=float(query_temperature),
+            seed=int(query_seed) if query_seed is not None else None,
+        ),
+    )
+
+    if optuna_cfg.enabled:
         if args.optuna_trials <= 0:
             raise click.ClickException("--optuna-trials must be greater than zero when --optuna-search is set.")
-        if not optuna_search_specs:
+        if not optuna_cfg.search_specs:
             raise click.ClickException("--optuna-trials requires at least one --optuna-search spec.")
         if (
             args.run_stage is not None
@@ -322,120 +380,21 @@ def run(args: CliArgs) -> None:
                 "Optuna requires --wait so each trial can read its evaluation objective metric."
             )
 
-    parameter_filters = {
-        "model": model_definition.name,
-        "corpus": str(corpus),
-        "tokenizer_model_name": resolved_tokenizer_model_name,
-        "dataset_id": resolved_dataset_id,
-        "source_split": resolved_source_split or "",
-        "evaluation_partition": evaluation_partition,
-    }
     if args.run_stage is not None or args.pipeline_controller_id is not None:
         if args.pipeline_local:
             raise click.ClickException(
                 "Existing PipelineController runs are resumed by re-enqueueing the controller task. "
                 "Use --pipeline-queued when passing --run-stage or --pipeline-controller-id."
             )
-        core_pipeline.resume_pipeline_controller_stage(
+        model_training_runs.resume_model_training_stage(
+            run_spec,
             stage_name=args.run_stage or lm_def.MODEL_STAGE,
             pipeline_controller_id=args.pipeline_controller_id,
-            pipeline_name=resolved_pipeline_name,
-            pipeline_version=args.pipeline_version,
-            controller_queue=args.controller_queue,
-            wait=args.wait,
-            clearml_project=args.clearml_project,
-            clearml_task_name=args.clearml_task_name,
-            clearml_config_file=args.clearml_config_file,
-            clearml_connectivity_check=args.clearml_connectivity_check,
-            clearml_output_uri=args.clearml_output_uri,
-            clearml_tags=args.clearml_tags,
-            parameter_filters=parameter_filters,
-            stage_dependencies=model_pipeline.MODEL_TRAINING_PIPELINE.stage_dependencies,
-            stage_names=model_pipeline.MODEL_TRAINING_PIPELINE.stages,
         )
         return
 
-    if optuna_enabled:
-        model_training_runs.run_optuna_model_training(
-            optuna_trials=args.optuna_trials,
-            optuna_search_specs=optuna_search_specs,
-            optuna_metric=args.optuna_metric,
-            optuna_direction=args.optuna_direction,
-            optuna_study_name=args.optuna_study_name,
-            optuna_storage=args.optuna_storage,
-            optuna_load_if_exists=args.optuna_load_if_exists,
-            optuna_timeout_seconds=args.optuna_timeout_seconds,
-            resolved_pipeline_name=resolved_pipeline_name,
-            pipeline_version=args.pipeline_version,
-            pipeline_local=args.pipeline_local,
-            controller_queue=args.controller_queue,
-            execution_queue=args.execution_queue,
-            wait=args.wait,
-            add_run_number=args.add_run_number,
-            tokenizer_training_name=args.tokenizer_training_name,
-            model_name=model_definition.name,
-            corpus=str(corpus),
-            resolved_tokenizer_model_name=resolved_tokenizer_model_name,
-            resolved_dataset_id=resolved_dataset_id,
-            resolved_source_split=resolved_source_split,
-            resolved_text_column=resolved_text_column,
-            streaming=bool(streaming),
-            train_ratio=float(train_ratio),
-            split_seed=int(split_seed),
-            evaluation_partition=str(evaluation_partition),
-            training_limit=resolved_training_limit,
-            evaluation_limit=resolved_evaluation_limit,
-            model_hyperparameters=model_hyperparameters,
-            top_k=int(top_k),
-            query_prompt=str(query_prompt),
-            query_max_tokens=int(query_max_tokens),
-            query_top_k=int(query_top_k),
-            query_decoding=str(query_decoding),
-            query_temperature=float(query_temperature),
-            query_seed=int(query_seed) if query_seed is not None else None,
-            text_normalization=str(text_normalization),
-            clearml_project=args.clearml_project,
-            clearml_config_file=args.clearml_config_file,
-            clearml_connectivity_check=args.clearml_connectivity_check,
-            clearml_output_uri=args.clearml_output_uri,
-            clearml_tags=args.clearml_tags,
-        )
+    if optuna_cfg.enabled:
+        model_training_runs.run_optuna_model_training(optuna_cfg, run_spec)
         return
 
-    model_training_runs.run_model_training_pipeline(
-        resolved_pipeline_name=resolved_pipeline_name,
-        pipeline_version=args.pipeline_version,
-        pipeline_local=args.pipeline_local,
-        controller_queue=args.controller_queue,
-        execution_queue=args.execution_queue,
-        wait=args.wait,
-        add_run_number=args.add_run_number,
-        run_until_stage=args.run_until_stage,
-        tokenizer_training_name=args.tokenizer_training_name,
-        model_name=model_definition.name,
-        corpus=str(corpus),
-        resolved_tokenizer_model_name=resolved_tokenizer_model_name,
-        resolved_dataset_id=resolved_dataset_id,
-        resolved_source_split=resolved_source_split,
-        resolved_text_column=resolved_text_column,
-        streaming=bool(streaming),
-        train_ratio=float(train_ratio),
-        split_seed=int(split_seed),
-        evaluation_partition=str(evaluation_partition),
-        training_limit=resolved_training_limit,
-        evaluation_limit=resolved_evaluation_limit,
-        model_hyperparameters=model_hyperparameters,
-        top_k=int(top_k),
-        query_prompt=str(query_prompt),
-        query_max_tokens=int(query_max_tokens),
-        query_top_k=int(query_top_k),
-        query_decoding=str(query_decoding),
-        query_temperature=float(query_temperature),
-        query_seed=int(query_seed) if query_seed is not None else None,
-        text_normalization=str(text_normalization),
-        clearml_project=args.clearml_project,
-        clearml_config_file=args.clearml_config_file,
-        clearml_connectivity_check=args.clearml_connectivity_check,
-        clearml_output_uri=args.clearml_output_uri,
-        clearml_tags=args.clearml_tags,
-    )
+    model_training_runs.run_model_training_pipeline(run_spec)
