@@ -7,3 +7,5 @@ artifacts/
 lme-portable-test-*/
 __pycache__/
 *.py[cod]
+*.bck
+*.old

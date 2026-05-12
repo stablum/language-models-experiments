@@ -7,9 +7,9 @@ from pathlib import Path
 
 import click
 
+from src.ml_core import pipeline as core_pipeline
 from src.ml_core.cli.config import load_defaults_from_sections
-from src.pipelines.language_model.definition import resume_pipeline_controller_stage
-from src.pipelines.language_model.model_training import MODEL_TRAINING_PIPELINE
+from src.pipelines.language_model import model_training as model_pipeline
 
 
 def load_stage_command_defaults(stage_section: str) -> dict[str, object]:
@@ -68,7 +68,7 @@ def resume_model_training_stage(
     clearml_tags: tuple[str, ...],
     parameter_filters: Mapping[str, object],
 ) -> None:
-    resume_pipeline_controller_stage(
+    core_pipeline.resume_pipeline_controller_stage(
         stage_name=stage_name,
         pipeline_controller_id=pipeline_controller_id,
         pipeline_name=pipeline_name,
@@ -82,6 +82,8 @@ def resume_model_training_stage(
         clearml_output_uri=clearml_output_uri,
         clearml_tags=clearml_tags,
         parameter_filters=parameter_filters,
-        stage_dependencies=MODEL_TRAINING_PIPELINE.stage_dependencies,
-        stage_names=MODEL_TRAINING_PIPELINE.stages,
+        stage_dependencies=(
+            model_pipeline.MODEL_TRAINING_PIPELINE.stage_dependencies
+        ),
+        stage_names=model_pipeline.MODEL_TRAINING_PIPELINE.stages,
     )

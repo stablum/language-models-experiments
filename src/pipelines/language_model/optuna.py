@@ -12,14 +12,10 @@ from typing import Any, Literal
 import click
 
 from src.ml_core.cli.config import normalize_key
-from src.pipelines.language_model.definition import (
-    COMPLETED_STATUSES,
-    EVALUATION_STAGE,
-    MODEL_TRAINING_STAGES,
-    pipeline_stage_tasks,
-)
+from src.ml_core import pipeline as core_pipeline
+from src.ml_core import tracking
+from src.pipelines.language_model import definition as lm_def
 from src.models.core import registry as model_registry
-from src.ml_core.tracking import clearml_task
 
 
 OPTUNA_EVALUATION_ARTIFACT = "evaluation-summary"
@@ -148,24 +144,25 @@ def load_objective_metric(
 
 
 def latest_completed_evaluation_task_id(controller_id: str) -> str:
-    stage_tasks = pipeline_stage_tasks(
+    stage_tasks = core_pipeline.pipeline_stage_tasks(
         controller_id,
-        stage_names=MODEL_TRAINING_STAGES,
+        stage_names=lm_def.MODEL_TRAINING_STAGES,
     )
     completed_evaluations = [
         task
-        for task in stage_tasks.get(EVALUATION_STAGE, ())
-        if task.status in COMPLETED_STATUSES
+        for task in stage_tasks.get(lm_def.EVALUATION_STAGE, ())
+        if task.status in core_pipeline.COMPLETED_STATUSES
     ]
     if not completed_evaluations:
         raise click.ClickException(
-            f"Pipeline controller {controller_id} has no completed {EVALUATION_STAGE!r} stage task."
+            f"Pipeline controller {controller_id} has no completed "
+            f"{lm_def.EVALUATION_STAGE!r} stage task."
         )
     return completed_evaluations[0].id
 
 
 def evaluation_summary_payload(evaluation_task_id: str) -> Mapping[str, object]:
-    task = clearml_task(evaluation_task_id)
+    task = tracking.clearml_task(evaluation_task_id)
     artifacts = getattr(task, "artifacts", {}) or {}
     artifact = artifacts.get(OPTUNA_EVALUATION_ARTIFACT)
     if artifact is None:
@@ -211,7 +208,7 @@ def reported_scalar_metric(
     metric_name: str,
     evaluation_partition: str,
 ) -> float | None:
-    task = clearml_task(evaluation_task_id)
+    task = tracking.clearml_task(evaluation_task_id)
     get_scalars = getattr(task, "get_reported_scalars", None)
     if not callable(get_scalars):
         return None

@@ -9,12 +9,6 @@ from src.pipelines.language_model import stage_entries
 from src.pipelines.language_model import step_config
 
 
-DEFAULT_QUERY_NAME = lm_def.DEFAULT_QUERY_NAME
-QUERY_STAGE = lm_def.QUERY_STAGE
-QUERY_STAGE_DEPENDENCIES = lm_def.QUERY_STAGE_DEPENDENCIES
-QUERY_STAGES = lm_def.QUERY_STAGES
-resolve_model_training_task = lm_def.resolve_model_training_task
-
 QUERY_PIPELINE = lm_def.PipelineDefinition(
     default_name=lm_def.DEFAULT_QUERY_NAME,
     stages=lm_def.QUERY_STAGES,
@@ -72,11 +66,6 @@ def add_pipeline_steps(
 
 
 __all__ = (
-    "DEFAULT_QUERY_NAME",
     "QUERY_PIPELINE",
-    "QUERY_STAGE",
-    "QUERY_STAGE_DEPENDENCIES",
-    "QUERY_STAGES",
     "add_pipeline_steps",
-    "resolve_model_training_task",
 )

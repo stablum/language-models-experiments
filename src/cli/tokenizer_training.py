@@ -6,22 +6,10 @@ from pathlib import Path
 
 import click
 
+from src.ml_core import pipeline as core_pipeline
 from src.ml_core.cli.config import configured_command, load_defaults_from_sections
-from src.pipelines.language_model.definition import (
-    assert_pipeline_finished_successfully,
-    build_pipeline_controller,
-    configure_pipeline_control,
-    connect_controller_experiment_parameters,
-    pipeline_options,
-    pipeline_resume_option,
-    print_stage_task_ids,
-    resume_pipeline_controller_stage,
-)
-from src.pipelines.language_model.tokenizer_training import (
-    TOKENIZER_STAGE,
-    TOKENIZER_TRAINING_PIPELINE,
-    add_pipeline_steps,
-)
+from src.pipelines.language_model import definition as lm_def
+from src.pipelines.language_model import tokenizer_training as tokenizer_pipeline
 from src.corpora import normalization
 from src.corpora import registry as corpora_registry
 from src.ml_core.data.splits import (
@@ -49,8 +37,10 @@ def load_tokenizer_training_command_defaults(_config_section: str) -> dict[str, 
     context_settings={"help_option_names": ["-h", "--help"]},
     help="Run reusable SentencePiece tokenizer training as a ClearML Pipeline DAG.",
 )
-@pipeline_resume_option
-@pipeline_options(default_name=TOKENIZER_TRAINING_PIPELINE.default_name)
+@core_pipeline.pipeline_resume_option
+@core_pipeline.pipeline_options(
+    default_name=tokenizer_pipeline.TOKENIZER_TRAINING_PIPELINE.default_name
+)
 @click.option(
     "--corpus",
     type=click.Choice(corpora_registry.corpus_names()),
@@ -192,8 +182,8 @@ def main(
                 "Existing PipelineController runs are resumed by re-enqueueing the controller task. "
                 "Use --pipeline-queued with --pipeline-controller-id."
             )
-        resume_pipeline_controller_stage(
-            stage_name=TOKENIZER_STAGE,
+        core_pipeline.resume_pipeline_controller_stage(
+            stage_name=lm_def.TOKENIZER_STAGE,
             pipeline_controller_id=pipeline_controller_id,
             pipeline_name=resolved_pipeline_name,
             pipeline_version=pipeline_version,
@@ -206,8 +196,10 @@ def main(
             clearml_output_uri=clearml_output_uri,
             clearml_tags=clearml_tags,
             parameter_filters=parameter_filters,
-            stage_dependencies=TOKENIZER_TRAINING_PIPELINE.stage_dependencies,
-            stage_names=TOKENIZER_TRAINING_PIPELINE.stages,
+            stage_dependencies=(
+                tokenizer_pipeline.TOKENIZER_TRAINING_PIPELINE.stage_dependencies
+            ),
+            stage_names=tokenizer_pipeline.TOKENIZER_TRAINING_PIPELINE.stages,
         )
         return
 
@@ -223,7 +215,7 @@ def main(
     if settings.connectivity_check:
         assert_clearml_endpoints_reachable(resolved_config_file, settings.output_uri)
 
-    pipeline = build_pipeline_controller(
+    pipeline = core_pipeline.build_pipeline_controller(
         pipeline_name=resolved_pipeline_name,
         pipeline_version=pipeline_version,
         clearml_project=settings.project_name,
@@ -231,13 +223,13 @@ def main(
         clearml_output_uri=settings.output_uri,
         add_run_number=add_run_number,
     )
-    configure_pipeline_control(
+    lm_def.configure_pipeline_control(
         pipeline.task,
         run_stage=None,
         run_until_stage=None,
         updated_by="tokenizer-pipeline-cli",
     )
-    connect_controller_experiment_parameters(
+    core_pipeline.connect_controller_experiment_parameters(
         pipeline.task,
         {
             "corpus": corpus,
@@ -250,7 +242,7 @@ def main(
             "text_normalization": text_normalization,
         },
     )
-    add_pipeline_steps(
+    tokenizer_pipeline.add_pipeline_steps(
         pipeline,
         clearml_project=settings.project_name,
         clearml_output_uri=settings.output_uri,
@@ -281,7 +273,7 @@ def main(
     task_url = pipeline.task.get_output_log_web_page()
     if task_url:
         click.echo(f"Pipeline controller URL: {task_url}")
-    click.echo(f"Stage tasks: {TOKENIZER_STAGE}")
+    click.echo(f"Stage tasks: {lm_def.TOKENIZER_STAGE}")
 
     if pipeline_local:
         click.echo("Execution mode: local ClearML PipelineController")
@@ -294,11 +286,11 @@ def main(
 
     click.echo("ClearML tokenizer-training pipeline submitted.")
     if wait:
-        assert_pipeline_finished_successfully(pipeline)
-        print_stage_task_ids(
+        core_pipeline.assert_pipeline_finished_successfully(pipeline)
+        core_pipeline.print_stage_task_ids(
             pipeline.task.id,
-            TOKENIZER_TRAINING_PIPELINE.stages,
-            stage_names=TOKENIZER_TRAINING_PIPELINE.stages,
+            tokenizer_pipeline.TOKENIZER_TRAINING_PIPELINE.stages,
+            stage_names=tokenizer_pipeline.TOKENIZER_TRAINING_PIPELINE.stages,
         )
         click.echo("ClearML tokenizer-training pipeline run completed.")
 

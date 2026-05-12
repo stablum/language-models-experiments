@@ -9,11 +9,6 @@ from src.pipelines.language_model import step_config
 from src.pipelines.language_model.stage_entries import train_tokenizer_stage_entry
 
 
-DEFAULT_TOKENIZER_TRAINING_NAME = lm_def.DEFAULT_TOKENIZER_TRAINING_NAME
-TOKENIZER_STAGE = lm_def.TOKENIZER_STAGE
-TOKENIZER_TRAINING_STAGE_DEPENDENCIES = lm_def.TOKENIZER_TRAINING_STAGE_DEPENDENCIES
-TOKENIZER_TRAINING_STAGES = lm_def.TOKENIZER_TRAINING_STAGES
-
 TOKENIZER_TRAINING_PIPELINE = lm_def.PipelineDefinition(
     default_name=lm_def.DEFAULT_TOKENIZER_TRAINING_NAME,
     stages=lm_def.TOKENIZER_TRAINING_STAGES,
@@ -78,10 +73,6 @@ def add_pipeline_steps(
 
 
 __all__ = (
-    "DEFAULT_TOKENIZER_TRAINING_NAME",
-    "TOKENIZER_STAGE",
     "TOKENIZER_TRAINING_PIPELINE",
-    "TOKENIZER_TRAINING_STAGE_DEPENDENCIES",
-    "TOKENIZER_TRAINING_STAGES",
     "add_pipeline_steps",
 )

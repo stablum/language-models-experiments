@@ -11,15 +11,6 @@ from src.pipelines.language_model import stage_entries
 from src.pipelines.language_model import step_config
 
 
-DEFAULT_MODEL_TRAINING_NAME = lm_def.DEFAULT_MODEL_TRAINING_NAME
-DEFAULT_TOKENIZER_TRAINING_NAME = lm_def.DEFAULT_TOKENIZER_TRAINING_NAME
-EVALUATION_STAGE = lm_def.EVALUATION_STAGE
-MODEL_STAGE = lm_def.MODEL_STAGE
-MODEL_TRAINING_STAGE_DEPENDENCIES = lm_def.MODEL_TRAINING_STAGE_DEPENDENCIES
-MODEL_TRAINING_STAGES = lm_def.MODEL_TRAINING_STAGES
-QUERY_STAGE = lm_def.QUERY_STAGE
-resolve_tokenizer_training_task = lm_def.resolve_tokenizer_training_task
-
 MODEL_TRAINING_PIPELINE = lm_def.PipelineDefinition(
     default_name=lm_def.DEFAULT_MODEL_TRAINING_NAME,
     stages=lm_def.MODEL_TRAINING_STAGES,
@@ -170,14 +161,6 @@ def _pipeline_parameter_refs(names: tuple[str, ...]) -> dict[str, str]:
 
 
 __all__ = (
-    "DEFAULT_MODEL_TRAINING_NAME",
-    "DEFAULT_TOKENIZER_TRAINING_NAME",
-    "EVALUATION_STAGE",
-    "MODEL_STAGE",
     "MODEL_TRAINING_PIPELINE",
-    "MODEL_TRAINING_STAGE_DEPENDENCIES",
-    "MODEL_TRAINING_STAGES",
-    "QUERY_STAGE",
     "add_pipeline_steps",
-    "resolve_tokenizer_training_task",
 )

@@ -8,39 +8,12 @@ from typing import Any
 
 import click
 
+from src.ml_core import pipeline as core_pipeline
 from src.ml_core.cli.config import configured_command, load_defaults_from_sections
-from src.pipelines.language_model.definition import (
-    assert_pipeline_finished_successfully,
-    build_pipeline_controller,
-    configure_pipeline_control,
-    connect_controller_experiment_parameters,
-    pipeline_options,
-    pipeline_resume_option,
-    print_stage_task_ids,
-    resume_pipeline_controller_stage,
-)
-from src.pipelines.language_model.model_training import (
-    DEFAULT_TOKENIZER_TRAINING_NAME,
-    EVALUATION_STAGE,
-    MODEL_STAGE,
-    MODEL_TRAINING_PIPELINE,
-    QUERY_STAGE,
-    add_pipeline_steps,
-    resolve_tokenizer_training_task,
-)
-from src.pipelines.language_model.model_options import (
-    MODEL_HYPERPARAMETER_NAMES,
-    model_hyperparameters_from,
-)
-from src.pipelines.language_model.optuna import (
-    DEFAULT_OPTUNA_DIRECTION,
-    DEFAULT_OPTUNA_METRIC,
-    SearchSpec,
-    describe_search_space,
-    load_objective_metric,
-    parse_optuna_search_specs,
-    sample_trial_parameters,
-)
+from src.pipelines.language_model import definition as lm_def
+from src.pipelines.language_model import model_options as lm_model_options
+from src.pipelines.language_model import model_training as model_pipeline
+from src.pipelines.language_model import optuna as lm_optuna
 from src.corpora import normalization
 from src.corpora import registry as corpora_registry
 from src.ml_core.data.splits import (
@@ -293,10 +266,10 @@ def _mapped_config_values(
     context_settings={"help_option_names": ["-h", "--help"]},
     help="Run model training, evaluation, and query as a ClearML Pipeline DAG.",
 )
-@pipeline_resume_option
+@core_pipeline.pipeline_resume_option
 @click.option(
     "--run-stage",
-    type=click.Choice(MODEL_TRAINING_PIPELINE.stages),
+    type=click.Choice(model_pipeline.MODEL_TRAINING_PIPELINE.stages),
     default=None,
     help=(
         "Resume an existing controller and run only this stage. "
@@ -305,11 +278,13 @@ def _mapped_config_values(
 )
 @click.option(
     "--run-until-stage",
-    type=click.Choice(MODEL_TRAINING_PIPELINE.stages),
+    type=click.Choice(model_pipeline.MODEL_TRAINING_PIPELINE.stages),
     default=None,
     help="Create a new controller run and stop after this stage has run.",
 )
-@pipeline_options(default_name=MODEL_TRAINING_PIPELINE.default_name)
+@core_pipeline.pipeline_options(
+    default_name=model_pipeline.MODEL_TRAINING_PIPELINE.default_name
+)
 @click.option(
     "--model",
     "model_name",
@@ -325,7 +300,7 @@ def _mapped_config_values(
 )
 @click.option(
     "--tokenizer-training-name",
-    default=DEFAULT_TOKENIZER_TRAINING_NAME,
+    default=lm_def.DEFAULT_TOKENIZER_TRAINING_NAME,
     show_default=True,
     help="ClearML tokenizer-training pipeline name to search for reusable tokenizer models.",
 )
@@ -505,14 +480,14 @@ def _mapped_config_values(
 )
 @click.option(
     "--optuna-metric",
-    default=DEFAULT_OPTUNA_METRIC,
+    default=lm_optuna.DEFAULT_OPTUNA_METRIC,
     show_default=True,
     help="Evaluation summary metric used as the Optuna objective.",
 )
 @click.option(
     "--optuna-direction",
     type=click.Choice(("minimize", "maximize")),
-    default=DEFAULT_OPTUNA_DIRECTION,
+    default=lm_optuna.DEFAULT_OPTUNA_DIRECTION,
     show_default=True,
     help="Whether Optuna should minimize or maximize the objective metric.",
 )
@@ -694,7 +669,7 @@ def main(
         pipeline_defaults=pipeline_defaults,
         stage_defaults=evaluate_defaults,
     )
-    model_hyperparameters = model_hyperparameters_from(locals())
+    model_hyperparameters = lm_model_options.model_hyperparameters_from(locals())
     model_hyperparameters = {
         name: _resolve_stage_default(
             ctx,
@@ -703,7 +678,7 @@ def main(
             pipeline_defaults=pipeline_defaults,
             stage_defaults=train_defaults,
         )
-        for name in MODEL_HYPERPARAMETER_NAMES
+        for name in lm_model_options.MODEL_HYPERPARAMETER_NAMES
     }
     top_k = _resolve_stage_default(
         ctx,
@@ -783,7 +758,7 @@ def main(
         stage_defaults=evaluate_defaults,
         global_limit=limit,
     )
-    optuna_search_specs = parse_optuna_search_specs(optuna_search)
+    optuna_search_specs = lm_optuna.parse_optuna_search_specs(optuna_search)
     optuna_enabled = optuna_trials > 0 or bool(optuna_search_specs)
 
     corpus_definition = corpora_registry.get_corpus(corpus)
@@ -839,8 +814,8 @@ def main(
                 "Existing PipelineController runs are resumed by re-enqueueing the controller task. "
                 "Use --pipeline-queued when passing --run-stage or --pipeline-controller-id."
             )
-        resume_pipeline_controller_stage(
-            stage_name=run_stage or MODEL_STAGE,
+        core_pipeline.resume_pipeline_controller_stage(
+            stage_name=run_stage or lm_def.MODEL_STAGE,
             pipeline_controller_id=pipeline_controller_id,
             pipeline_name=resolved_pipeline_name,
             pipeline_version=pipeline_version,
@@ -853,8 +828,10 @@ def main(
             clearml_output_uri=clearml_output_uri,
             clearml_tags=clearml_tags,
             parameter_filters=parameter_filters,
-            stage_dependencies=MODEL_TRAINING_PIPELINE.stage_dependencies,
-            stage_names=MODEL_TRAINING_PIPELINE.stages,
+            stage_dependencies=(
+                model_pipeline.MODEL_TRAINING_PIPELINE.stage_dependencies
+            ),
+            stage_names=model_pipeline.MODEL_TRAINING_PIPELINE.stages,
         )
         return
 
@@ -947,7 +924,7 @@ def main(
 def _run_optuna_model_training(
     *,
     optuna_trials: int,
-    optuna_search_specs: Sequence[SearchSpec],
+    optuna_search_specs: Sequence[lm_optuna.SearchSpec],
     optuna_metric: str,
     optuna_direction: str,
     optuna_study_name: str | None,
@@ -1006,11 +983,16 @@ def _run_optuna_model_training(
     click.echo(f"Optuna study: {study.study_name}")
     click.echo(f"Optuna direction: {optuna_direction}")
     click.echo(f"Optuna objective metric: {optuna_metric}")
-    click.echo(f"Optuna search space: {describe_search_space(optuna_search_specs)}")
+    click.echo(
+        f"Optuna search space: {lm_optuna.describe_search_space(optuna_search_specs)}"
+    )
     click.echo(f"Optuna trials: {optuna_trials}")
 
     def objective(trial: Any) -> float:
-        sampled_parameters = sample_trial_parameters(trial, optuna_search_specs)
+        sampled_parameters = lm_optuna.sample_trial_parameters(
+            trial,
+            optuna_search_specs,
+        )
         trial_values = {
             "model_name": model_name,
             **model_hyperparameters,
@@ -1061,7 +1043,9 @@ def _run_optuna_model_training(
             evaluation_partition=evaluation_partition,
             training_limit=training_limit,
             evaluation_limit=evaluation_limit,
-            model_hyperparameters=model_hyperparameters_from(trial_values),
+            model_hyperparameters=lm_model_options.model_hyperparameters_from(
+                trial_values
+            ),
             top_k=int(trial_values["top_k"]),
             query_prompt=query_prompt,
             query_max_tokens=int(trial_values["query_max_tokens"]),
@@ -1090,7 +1074,7 @@ def _run_optuna_model_training(
                 },
             },
         )
-        objective_value = load_objective_metric(
+        objective_value = lm_optuna.load_objective_metric(
             controller_id=controller_id,
             metric_name=optuna_metric,
             evaluation_partition=evaluation_partition,
@@ -1180,14 +1164,14 @@ def _run_model_training_pipeline(
     if settings.connectivity_check:
         assert_clearml_endpoints_reachable(resolved_config_file, settings.output_uri)
 
-    tokenizer_resolution = resolve_tokenizer_training_task(
+    tokenizer_resolution = lm_def.resolve_tokenizer_training_task(
         tokenizer_training_name=tokenizer_training_name,
         clearml_project=settings.project_name,
         corpus=corpus,
         tokenizer_model_name=resolved_tokenizer_model_name,
     )
 
-    pipeline = build_pipeline_controller(
+    pipeline = core_pipeline.build_pipeline_controller(
         pipeline_name=resolved_pipeline_name,
         pipeline_version=pipeline_version,
         clearml_project=settings.project_name,
@@ -1195,7 +1179,7 @@ def _run_model_training_pipeline(
         clearml_output_uri=settings.output_uri,
         add_run_number=add_run_number,
     )
-    configure_pipeline_control(
+    lm_def.configure_pipeline_control(
         pipeline.task,
         run_stage=None,
         run_until_stage=run_until_stage,
@@ -1215,8 +1199,11 @@ def _run_model_training_pipeline(
     }
     if extra_controller_parameters:
         controller_parameters.update(extra_controller_parameters)
-    connect_controller_experiment_parameters(pipeline.task, controller_parameters)
-    add_pipeline_steps(
+    core_pipeline.connect_controller_experiment_parameters(
+        pipeline.task,
+        controller_parameters,
+    )
+    model_pipeline.add_pipeline_steps(
         pipeline,
         clearml_project=settings.project_name,
         clearml_output_uri=settings.output_uri,
@@ -1258,7 +1245,10 @@ def _run_model_training_pipeline(
         click.echo(f"Pipeline controller URL: {task_url}")
     if run_until_stage is not None:
         click.echo(f"Run until stage: {run_until_stage}")
-    click.echo(f"Stage tasks: {MODEL_STAGE}, {EVALUATION_STAGE}, {QUERY_STAGE}")
+    click.echo(
+        "Stage tasks: "
+        f"{lm_def.MODEL_STAGE}, {lm_def.EVALUATION_STAGE}, {lm_def.QUERY_STAGE}"
+    )
 
     if pipeline_local:
         click.echo("Execution mode: local ClearML PipelineController")
@@ -1271,11 +1261,11 @@ def _run_model_training_pipeline(
 
     click.echo("ClearML pipeline submitted.")
     if wait:
-        assert_pipeline_finished_successfully(pipeline)
-        print_stage_task_ids(
+        core_pipeline.assert_pipeline_finished_successfully(pipeline)
+        core_pipeline.print_stage_task_ids(
             pipeline.task.id,
-            MODEL_TRAINING_PIPELINE.stages,
-            stage_names=MODEL_TRAINING_PIPELINE.stages,
+            model_pipeline.MODEL_TRAINING_PIPELINE.stages,
+            stage_names=model_pipeline.MODEL_TRAINING_PIPELINE.stages,
         )
         click.echo("ClearML pipeline run completed.")
     return str(pipeline.task.id)

@@ -7,22 +7,11 @@ from pathlib import Path
 import click
 
 from src.cli import stage_resume
+from src.ml_core import pipeline as core_pipeline
 from src.ml_core.cli.config import configured_command, load_defaults_from_sections
-from src.pipelines.language_model.definition import (
-    assert_pipeline_finished_successfully,
-    build_pipeline_controller,
-    configure_pipeline_control,
-    connect_controller_experiment_parameters,
-    pipeline_options,
-    print_stage_task_ids,
-)
-from src.pipelines.language_model.model_training import MODEL_TRAINING_PIPELINE
-from src.pipelines.language_model.query import (
-    QUERY_PIPELINE,
-    QUERY_STAGE,
-    add_pipeline_steps,
-    resolve_model_training_task,
-)
+from src.pipelines.language_model import definition as lm_def
+from src.pipelines.language_model import model_training as model_pipeline
+from src.pipelines.language_model import query as query_pipeline
 from src.corpora import registry as corpora_registry
 from src.models.core import registry as model_registry
 from src.ml_core.tracking import (
@@ -55,7 +44,9 @@ def load_query_command_defaults(_config_section: str) -> dict[str, object]:
     context_settings={"help_option_names": ["-h", "--help"]},
     help="Run a repeatable single-stage ClearML query pipeline.",
 )
-@pipeline_options(default_name=QUERY_PIPELINE.default_name)
+@core_pipeline.pipeline_options(
+    default_name=query_pipeline.QUERY_PIPELINE.default_name
+)
 @click.option(
     "--model-training-controller-id",
     "--source-pipeline-controller-id",
@@ -76,7 +67,7 @@ def load_query_command_defaults(_config_section: str) -> dict[str, object]:
 )
 @click.option(
     "--model-training-name",
-    default=MODEL_TRAINING_PIPELINE.default_name,
+    default=model_pipeline.MODEL_TRAINING_PIPELINE.default_name,
     show_default=True,
     help="Model-training PipelineController name to search when --model-task-id is omitted.",
 )
@@ -222,7 +213,7 @@ def main(
         corpus=corpus,
     )
 
-    pipeline = build_pipeline_controller(
+    pipeline = core_pipeline.build_pipeline_controller(
         pipeline_name=resolved_pipeline_name,
         pipeline_version=pipeline_version,
         clearml_project=settings.project_name,
@@ -230,13 +221,13 @@ def main(
         clearml_output_uri=settings.output_uri,
         add_run_number=add_run_number,
     )
-    configure_pipeline_control(
+    lm_def.configure_pipeline_control(
         pipeline.task,
         run_stage=None,
         run_until_stage=None,
         updated_by="query-pipeline-cli",
     )
-    connect_controller_experiment_parameters(
+    core_pipeline.connect_controller_experiment_parameters(
         pipeline.task,
         {
             "model": model_definition.name,
@@ -255,7 +246,7 @@ def main(
             "seed": seed,
         },
     )
-    add_pipeline_steps(
+    query_pipeline.add_pipeline_steps(
         pipeline,
         clearml_project=settings.project_name,
         clearml_output_uri=settings.output_uri,
@@ -287,7 +278,7 @@ def main(
     task_url = pipeline.task.get_output_log_web_page()
     if task_url:
         click.echo(f"Pipeline controller URL: {task_url}")
-    click.echo(f"Stage tasks: {QUERY_STAGE}")
+    click.echo(f"Stage tasks: {lm_def.QUERY_STAGE}")
 
     if pipeline_local:
         click.echo("Execution mode: local ClearML PipelineController")
@@ -300,11 +291,11 @@ def main(
 
     click.echo("ClearML query pipeline submitted.")
     if wait:
-        assert_pipeline_finished_successfully(pipeline)
-        print_stage_task_ids(
+        core_pipeline.assert_pipeline_finished_successfully(pipeline)
+        core_pipeline.print_stage_task_ids(
             pipeline.task.id,
-            QUERY_PIPELINE.stages,
-            stage_names=QUERY_PIPELINE.stages,
+            query_pipeline.QUERY_PIPELINE.stages,
+            stage_names=query_pipeline.QUERY_PIPELINE.stages,
         )
         click.echo("ClearML query pipeline run completed.")
 
@@ -330,7 +321,7 @@ def _resolve_query_model_source(
         tokenizer_model_name,
         action="Query",
     )
-    resolution = resolve_model_training_task(
+    resolution = lm_def.resolve_model_training_task(
         pipeline_name=model_training_name,
         pipeline_version=model_training_version,
         clearml_project=clearml_project,

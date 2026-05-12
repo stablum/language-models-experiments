@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from src.ml_core import pipeline as core_pipeline
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import monitors as lm_monitors
 
@@ -58,7 +59,7 @@ class StepCfg:
         return {
             "project_name": self.project_name,
             "execution_queue": self.queue,
-            "output_uri": lm_def.output_uri_value(self.output_uri),
+            "output_uri": core_pipeline.output_uri_value(self.output_uri),
             "auto_connect_frameworks": False,
             "auto_connect_arg_parser": False,
             "pre_execute_callback": lm_def.stage_gate_callback,

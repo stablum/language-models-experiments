@@ -7,12 +7,10 @@ from pathlib import Path
 import click
 
 from src.cli import stage_resume
+from src.ml_core import pipeline as core_pipeline
 from src.ml_core.cli.config import configured_command
-from src.pipelines.language_model.definition import (
-    pipeline_options,
-    pipeline_resume_option,
-)
-from src.pipelines.language_model.model_training import MODEL_STAGE, MODEL_TRAINING_PIPELINE
+from src.pipelines.language_model import definition as lm_def
+from src.pipelines.language_model import model_training as model_pipeline
 from src.corpora import normalization
 from src.corpora import registry as corpora_registry
 from src.ml_core.data.splits import (
@@ -28,9 +26,9 @@ from src.ml_core.tracking import clearml_options
     context_settings={"help_option_names": ["-h", "--help"]},
     help="Train a registered language model from a registered corpus.",
 )
-@pipeline_resume_option
-@pipeline_options(
-    default_name=MODEL_TRAINING_PIPELINE.default_name,
+@core_pipeline.pipeline_resume_option
+@core_pipeline.pipeline_options(
+    default_name=model_pipeline.MODEL_TRAINING_PIPELINE.default_name,
     default_local=False,
     default_wait=False,
 )
@@ -195,7 +193,7 @@ def main(
         )
     stage_resume.reject_pipeline_local(pipeline_local)
     stage_resume.resume_model_training_stage(
-        stage_name=MODEL_STAGE,
+        stage_name=lm_def.MODEL_STAGE,
         pipeline_name=pipeline_name,
         pipeline_version=pipeline_version,
         controller_queue=controller_queue,
