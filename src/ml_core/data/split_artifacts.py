@@ -8,7 +8,7 @@ from typing import Any
 import click
 
 from src.corpora import registry as corpora_registry
-from src.ml_core import tracking
+from src.ml_core import clearml_tasks
 from src.ml_core.data import splits as data_splits
 
 
@@ -94,7 +94,7 @@ def inherited_split_plan_from_task(
     if task_id is None:
         return None
 
-    path = tracking.maybe_download_task_artifact(
+    path = clearml_tasks.maybe_download_task_artifact(
         task_id=task_id,
         artifact_name=data_splits.SPLIT_PLAN_ARTIFACT,
         destination_dir=staging_dir,

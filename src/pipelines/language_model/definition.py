@@ -7,8 +7,9 @@ from collections.abc import Mapping
 import click
 
 from src.ml_core import cfg as core_cfg
+from src.ml_core import clearml_tasks
 from src.ml_core import pipeline as core_pipeline
-from src.ml_core import tracking
+from src.ml_core import pipeline_tasks
 
 
 DEFAULT_MODEL_TRAINING_NAME = "model-training"
@@ -117,7 +118,7 @@ def resolve_tokenizer_training_task(
     corpus: str,
     tokenizer_model_name: str,
 ) -> TokenizerTrainingResolution:
-    candidates = core_pipeline.list_pipeline_controller_candidates(
+    candidates = pipeline_tasks.list_pipeline_controller_candidates(
         pipeline_name=tokenizer_training_name,
         pipeline_version=None,
         clearml_project=clearml_project,
@@ -128,31 +129,31 @@ def resolve_tokenizer_training_task(
     }
     reasons: list[str] = []
     for candidate in candidates:
-        if candidate.status not in core_pipeline.COMPLETED_STATUSES:
+        if candidate.status not in pipeline_tasks.COMPLETED_STATUSES:
             reasons.append(f"{candidate.id}: controller status is {candidate.status}")
             continue
-        if not core_pipeline.controller_parameters_match(
+        if not pipeline_tasks.controller_parameters_match(
             candidate.id,
             parameter_filters,
         ):
             reasons.append(f"{candidate.id}: tokenizer parameters do not match")
             continue
 
-        stage_tasks = core_pipeline.pipeline_stage_tasks(
+        stage_tasks = pipeline_tasks.pipeline_stage_tasks(
             candidate.id,
             stage_names=TOKENIZER_TRAINING_STAGES,
         )
         completed_tokenizer_tasks = [
             task
             for task in stage_tasks.get(TOKENIZER_STAGE, ())
-            if task.status in core_pipeline.COMPLETED_STATUSES
+            if task.status in pipeline_tasks.COMPLETED_STATUSES
         ]
         if not completed_tokenizer_tasks:
             reasons.append(f"{candidate.id}: no completed {TOKENIZER_STAGE} stage task")
             continue
 
         for stage_task in completed_tokenizer_tasks:
-            if tracking.task_has_output_model(stage_task.id, tokenizer_model_name):
+            if clearml_tasks.task_has_output_model(stage_task.id, tokenizer_model_name):
                 return TokenizerTrainingResolution(
                     controller_id=candidate.id,
                     tokenizer_task_id=stage_task.id,
@@ -204,28 +205,28 @@ def resolve_model_training_task(
         model_name=model_name,
     )
     for candidate in candidates:
-        if not core_pipeline.controller_parameters_match(
+        if not pipeline_tasks.controller_parameters_match(
             candidate.id,
             parameter_filters,
         ):
             reasons.append(f"{candidate.id}: model-training parameters do not match")
             continue
 
-        stage_tasks = core_pipeline.pipeline_stage_tasks(
+        stage_tasks = pipeline_tasks.pipeline_stage_tasks(
             candidate.id,
             stage_names=MODEL_TRAINING_STAGES,
         )
         completed_model_tasks = [
             task
             for task in stage_tasks.get(MODEL_STAGE, ())
-            if task.status in core_pipeline.COMPLETED_STATUSES
+            if task.status in pipeline_tasks.COMPLETED_STATUSES
         ]
         if not completed_model_tasks:
             reasons.append(f"{candidate.id}: no completed {MODEL_STAGE} stage task")
             continue
 
         for stage_task in completed_model_tasks:
-            if tracking.task_has_output_model(stage_task.id, output_model_name):
+            if clearml_tasks.task_has_output_model(stage_task.id, output_model_name):
                 return ModelTrainingResolution(
                     controller_id=candidate.id,
                     model_task_id=stage_task.id,
@@ -261,17 +262,17 @@ def _model_training_candidates(
     pipeline_name: str,
     pipeline_version: str | None,
     clearml_project: str,
-) -> tuple[core_pipeline.ControllerCandidate, ...]:
+) -> tuple[pipeline_tasks.ControllerCandidate, ...]:
     if pipeline_controller_id is None:
-        return core_pipeline.list_pipeline_controller_candidates(
+        return pipeline_tasks.list_pipeline_controller_candidates(
             pipeline_name=pipeline_name,
             pipeline_version=pipeline_version,
             clearml_project=clearml_project,
         )
 
-    task = tracking.clearml_task(pipeline_controller_id)
+    task = clearml_tasks.clearml_task(pipeline_controller_id)
     return (
-        core_pipeline.ControllerCandidate(
+        pipeline_tasks.ControllerCandidate(
             id=pipeline_controller_id,
             name=str(getattr(task, "name", "")),
             status=str(getattr(task, "status", "")),

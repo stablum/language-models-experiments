@@ -7,8 +7,8 @@ from pathlib import Path
 
 import click
 
+from src.ml_core import clearml_tasks
 from src.ml_core import json_io
-from src.ml_core import tracking
 from src.ml_core.data import splits as data_splits
 
 
@@ -63,7 +63,7 @@ def stage_tokenizer_model(
     )
 
     if tokenizer_task_id is not None:
-        return tracking.download_task_output_model(
+        return clearml_tasks.download_task_output_model(
             task_id=tokenizer_task_id,
             destination_dir=staging_dir,
             filename=STAGED_TOKENIZER_MODEL_NAME,
@@ -111,7 +111,7 @@ def stage_model_files(
     validate_model_source(model_task_id=model_task_id, model_path=model_path)
 
     if model_task_id is not None:
-        staged_model_path = tracking.download_task_output_model(
+        staged_model_path = clearml_tasks.download_task_output_model(
             task_id=model_task_id,
             destination_dir=staging_dir,
             filename=stored_model_filename(output_model_name),
@@ -119,14 +119,14 @@ def stage_model_files(
             connect_to_task=getattr(clearml_run, "task", None),
         )
         tokenizer_filename = stored_tokenizer_filename(staged_model_path)
-        staged_tokenizer_path = tracking.maybe_download_task_input_model(
+        staged_tokenizer_path = clearml_tasks.maybe_download_task_input_model(
             task_id=model_task_id,
             destination_dir=staging_dir,
             filename=tokenizer_filename,
             connect_to_task=getattr(clearml_run, "task", None),
         )
         if staged_tokenizer_path is None:
-            tokenizer_task_id = tracking.clearml_task_parameter(
+            tokenizer_task_id = clearml_tasks.clearml_task_parameter(
                 model_task_id,
                 "Pipeline/tokenizer_task_id",
             )
@@ -135,7 +135,7 @@ def stage_model_files(
                     f"ClearML model task {model_task_id} has no linked input tokenizer model "
                     "and no Pipeline/tokenizer_task_id parameter."
                 )
-            tracking.download_task_output_model(
+            clearml_tasks.download_task_output_model(
                 task_id=tokenizer_task_id,
                 destination_dir=staging_dir,
                 filename=tokenizer_filename,

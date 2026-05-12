@@ -10,6 +10,7 @@ import click
 
 from src.ml_core import cfg as core_cfg
 from src.ml_core import pipeline as core_pipeline
+from src.ml_core import pipeline_tasks
 from src.ml_core import tracking
 from src.models.core import registry as model_registry
 from src.pipelines.language_model import definition as lm_def
@@ -59,7 +60,8 @@ class RunSpec(core_cfg.BaseCfg):
         return self.clearml.task_name or self.pipeline.name
 
     @property
-    def parameter_filters(self) -> dict[str, object]:
+    def match_params(self) -> dict[str, object]:
+        """ClearML Experiment params that identify equivalent run inputs."""
         return {
             "model": self.model.name,
             "corpus": self.data.corpus,
@@ -121,7 +123,7 @@ def resume_model_training_stage(
         clearml_connectivity_check=run_spec.clearml.connectivity_check,
         clearml_output_uri=run_spec.clearml.output_uri,
         clearml_tags=run_spec.clearml.tags,
-        parameter_filters=run_spec.parameter_filters,
+        parameter_filters=run_spec.match_params,
         stage_dependencies=model_pipeline.MODEL_TRAINING_PIPELINE.stage_dependencies,
         stage_names=model_pipeline.MODEL_TRAINING_PIPELINE.stages,
     )
@@ -270,30 +272,11 @@ def run_model_training_pipeline(
         updated_by="pipeline-cli",
     )
     controller_params: dict[str, object] = {
+        **run_spec.match_params,
         "model": model_definition.name,
-        "corpus": run_spec.data.corpus,
-        "tokenizer_model_name": run_spec.tokenizer_model_name,
         "tokenizer_training_name": run_spec.tokenizer_training_name,
         "tokenizer_training_controller_id": tokenizer_resolution.controller_id,
         "tokenizer_task_id": tokenizer_resolution.tokenizer_task_id,
-        "dataset_id": run_spec.data.dataset_id,
-        "source_split": run_spec.data.source_split or "",
-        "text_column": run_spec.data.text_column,
-        "streaming": run_spec.data.streaming,
-        "train_ratio": run_spec.data.train_ratio,
-        "split_seed": run_spec.data.split_seed,
-        "training_limit": run_spec.model.limit,
-        **run_spec.model.hyperparameters,
-        "text_normalization": run_spec.model.text_normalization,
-        "evaluation_partition": run_spec.evaluation.partition,
-        "evaluation_limit": run_spec.evaluation.limit,
-        "top_k": run_spec.evaluation.top_k,
-        "query_prompt": run_spec.query.prompt,
-        "query_max_tokens": run_spec.query.max_tokens,
-        "query_top_k": run_spec.query.top_k,
-        "query_decoding": run_spec.query.decoding,
-        "query_temperature": run_spec.query.temperature,
-        "query_seed": run_spec.query.seed,
     }
     if extra_controller_parameters:
         controller_params.update(extra_controller_parameters)
@@ -350,8 +333,8 @@ def run_model_training_pipeline(
 
     click.echo("ClearML pipeline submitted.")
     if run_spec.pipeline.wait:
-        core_pipeline.assert_pipeline_finished_successfully(pipeline)
-        core_pipeline.print_stage_task_ids(
+        pipeline_tasks.assert_pipeline_finished_successfully(pipeline)
+        pipeline_tasks.print_stage_task_ids(
             pipeline.task.id,
             model_pipeline.MODEL_TRAINING_PIPELINE.stages,
             stage_names=model_pipeline.MODEL_TRAINING_PIPELINE.stages,

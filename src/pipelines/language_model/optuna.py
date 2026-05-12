@@ -10,9 +10,9 @@ from typing import Any, Literal
 
 import click
 
-from src.ml_core import pipeline as core_pipeline
+from src.ml_core import clearml_tasks
 from src.ml_core import json_io
-from src.ml_core import tracking
+from src.ml_core import pipeline_tasks
 from src.ml_core.cli import config as cli_config
 from src.pipelines.language_model import definition as lm_def
 from src.models.core import registry as model_registry
@@ -144,14 +144,14 @@ def load_objective_metric(
 
 
 def latest_completed_evaluation_task_id(controller_id: str) -> str:
-    stage_tasks = core_pipeline.pipeline_stage_tasks(
+    stage_tasks = pipeline_tasks.pipeline_stage_tasks(
         controller_id,
         stage_names=lm_def.MODEL_TRAINING_STAGES,
     )
     completed_evaluations = [
         task
         for task in stage_tasks.get(lm_def.EVALUATION_STAGE, ())
-        if task.status in core_pipeline.COMPLETED_STATUSES
+        if task.status in pipeline_tasks.COMPLETED_STATUSES
     ]
     if not completed_evaluations:
         raise click.ClickException(
@@ -162,7 +162,7 @@ def latest_completed_evaluation_task_id(controller_id: str) -> str:
 
 
 def evaluation_summary_payload(evaluation_task_id: str) -> Mapping[str, object]:
-    task = tracking.clearml_task(evaluation_task_id)
+    task = clearml_tasks.clearml_task(evaluation_task_id)
     artifacts = getattr(task, "artifacts", {}) or {}
     artifact = artifacts.get(OPTUNA_EVALUATION_ARTIFACT)
     if artifact is None:
@@ -208,7 +208,7 @@ def reported_scalar_metric(
     metric_name: str,
     evaluation_partition: str,
 ) -> float | None:
-    task = tracking.clearml_task(evaluation_task_id)
+    task = clearml_tasks.clearml_task(evaluation_task_id)
     get_scalars = getattr(task, "get_reported_scalars", None)
     if not callable(get_scalars):
         return None

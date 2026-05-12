@@ -7,6 +7,7 @@ from pathlib import Path
 import click
 
 from src.ml_core import pipeline as core_pipeline
+from src.ml_core import pipeline_tasks
 from src.ml_core import tracking
 from src.ml_core.cli import config as cli_config
 from src.ml_core.data import splits as data_splits
@@ -308,8 +309,8 @@ def main(
 
     click.echo("ClearML tokenizer-training pipeline submitted.")
     if wait:
-        core_pipeline.assert_pipeline_finished_successfully(pipeline)
-        core_pipeline.print_stage_task_ids(
+        pipeline_tasks.assert_pipeline_finished_successfully(pipeline)
+        pipeline_tasks.print_stage_task_ids(
             pipeline.task.id,
             tokenizer_pipeline.TOKENIZER_TRAINING_PIPELINE.stages,
             stage_names=tokenizer_pipeline.TOKENIZER_TRAINING_PIPELINE.stages,
