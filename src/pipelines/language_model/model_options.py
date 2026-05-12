@@ -24,19 +24,8 @@ def model_hyperparameters_from(values: Mapping[str, object]) -> dict[str, object
     }
 
 
-def merge_model_hyperparameters(
-    grouped: Mapping[str, object] | None,
-    legacy_kwargs: Mapping[str, object],
-) -> dict[str, object]:
-    """Merge grouped model hyperparameters with legacy top-level kwargs."""
-    hyperparameters = dict(grouped or {})
-    hyperparameters.update(model_hyperparameters_from(legacy_kwargs))
-    return hyperparameters
-
-
 __all__ = (
     "MODEL_HYPERPARAMETER_DESCRIPTIONS",
     "MODEL_HYPERPARAMETER_NAMES",
-    "merge_model_hyperparameters",
     "model_hyperparameters_from",
 )

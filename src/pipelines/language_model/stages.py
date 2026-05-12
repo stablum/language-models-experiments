@@ -178,14 +178,13 @@ def train_model_pipeline_step(
     train_ratio: float,
     split_seed: int,
     text_normalization: str,
-    model_hyperparameters: Mapping[str, object] | None = None,
+    model_hyperparameters: Mapping[str, object],
     clearml_output_uri: str | None = None,
     clearml_tags: str | list[str] | tuple[str, ...] | None = None,
     clearml_config_file: str | None = None,
     pipeline_stage_index: int | None = None,
     pipeline_stage_total: int | None = None,
     pipeline_stage_title: str | None = None,
-    **legacy_model_hyperparameters: object,
 ) -> str:
     """Train the language model from the tokenizer step artifact."""
     stage = lm_def.MODEL_STAGE
@@ -237,9 +236,8 @@ def train_model_pipeline_step(
             model_name=model_definition.name,
         ) or f"{corpus}-{model_definition.name}"
         output_path = staging_dir / f"{output_model_name}.json"
-        resolved_model_hyperparameters = lm_model_options.merge_model_hyperparameters(
-            model_hyperparameters,
-            legacy_model_hyperparameters,
+        resolved_model_hyperparameters = lm_model_options.model_hyperparameters_from(
+            model_hyperparameters
         )
         model_options = {
             "corpus": corpus,

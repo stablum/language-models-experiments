@@ -17,6 +17,11 @@ from src.pipelines.language_model import model_training as model_pipeline
 from src.pipelines.language_model import optuna as lm_optuna
 
 
+ALL_STAGES = ("train", "evaluate", "query")
+DATA_STAGES = ("train", "evaluate")
+_CURRENT_VALUE_UNSET = object()
+
+
 class CliArgs(core_cfg.BaseCfg):
     """Raw Click arguments for the model-training command."""
 
@@ -73,153 +78,245 @@ class CliArgs(core_cfg.BaseCfg):
     clearml_tags: tuple[str, ...]
 
 
-def run(args: CliArgs) -> None:
-    ctx = click.get_current_context(silent=True)
-    stage_defaults = mt_defaults.StageDefaults.load()
-    all_stages = ("train", "evaluate", "query")
-    data_stages = ("train", "evaluate")
+class ResolvedRunCfg(core_cfg.BaseCfg):
+    """Stage cfg values after Click/config default resolution."""
 
-    corpus = stage_defaults.resolve_shared(
-        ctx,
-        parameter_name="corpus",
-        current_value=args.corpus,
-        stages=all_stages,
+    tokenizer_model_name: str
+    model: model_pipeline.ModelCfg
+    data: model_pipeline.DataCfg
+    evaluation: model_pipeline.EvaluationCfg
+    query: model_pipeline.QueryCfg
+
+
+class DefaultResolver(core_cfg.BaseCfg):
+    """Resolve Click values against stage-specific config defaults."""
+
+    args: CliArgs
+    stage_defaults: mt_defaults.StageDefaults
+    ctx: click.Context | None
+
+    def shared(self, parameter_name: str, *, stages: tuple[str, ...]) -> object:
+        return self.stage_defaults.resolve_shared(
+            self.ctx,
+            parameter_name=parameter_name,
+            current_value=getattr(self.args, parameter_name),
+            stages=stages,
+        )
+
+    def stage(
+        self,
+        parameter_name: str,
+        *,
+        stage: str,
+        stage_key: str | None = None,
+        current_value: object = _CURRENT_VALUE_UNSET,
+    ) -> object:
+        value = (
+            getattr(self.args, parameter_name)
+            if current_value is _CURRENT_VALUE_UNSET
+            else current_value
+        )
+        return self.stage_defaults.resolve_stage(
+            self.ctx,
+            parameter_name=parameter_name,
+            current_value=value,
+            stage=stage,
+            stage_key=stage_key,
+        )
+
+    def limit(
+        self,
+        parameter_name: str,
+        *,
+        stage: str,
+        current_value: int | None,
+        global_limit: int | None,
+    ) -> int | None:
+        return self.stage_defaults.resolve_limit(
+            self.ctx,
+            parameter_name=parameter_name,
+            current_value=current_value,
+            stage=stage,
+            global_limit=global_limit,
+        )
+
+
+def run(args: CliArgs) -> None:
+    resolver = DefaultResolver(
+        args=args,
+        stage_defaults=mt_defaults.StageDefaults.load(),
+        ctx=click.get_current_context(silent=True),
     )
-    model_name = stage_defaults.resolve_shared(
-        ctx,
-        parameter_name="model_name",
-        current_value=args.model_name,
-        stages=all_stages,
+    resolved_cfg = _resolve_run_cfg(resolver)
+    optuna_cfg = _build_optuna_cfg(args)
+    _validate_run_request(args, optuna_cfg)
+    run_spec = _build_run_spec(args, resolved_cfg)
+
+    if _should_resume_existing_stage(args):
+        if args.pipeline_local:
+            raise click.ClickException(
+                "Existing PipelineController runs are resumed by re-enqueueing "
+                "the controller task. "
+                "Use --pipeline-queued when passing --run-stage or --pipeline-controller-id."
+            )
+        model_training_runs.resume_model_training_stage(
+            run_spec,
+            stage_name=args.run_stage or lm_def.MODEL_STAGE,
+            pipeline_controller_id=args.pipeline_controller_id,
+        )
+        return
+
+    if optuna_cfg.enabled:
+        model_training_runs.run_optuna_model_training(optuna_cfg, run_spec)
+        return
+
+    model_training_runs.run_model_training_pipeline(run_spec)
+
+
+def _resolve_run_cfg(resolver: DefaultResolver) -> ResolvedRunCfg:
+    data_cfg = _resolve_data_cfg(resolver)
+    model_name = str(resolver.shared("model_name", stages=ALL_STAGES))
+    model_definition = model_registry.get_model(model_name)
+    _require_model_pipeline_support(model_definition, model_name)
+
+    return ResolvedRunCfg(
+        tokenizer_model_name=_resolve_tokenizer_model_name(resolver),
+        model=_resolve_model_cfg(
+            resolver,
+            model_name=model_definition.name,
+        ),
+        data=data_cfg,
+        evaluation=_resolve_evaluation_cfg(resolver),
+        query=_resolve_query_cfg(resolver),
     )
-    tokenizer_model_name = stage_defaults.resolve_stage(
-        ctx,
-        parameter_name="tokenizer_model_name",
-        current_value=args.tokenizer_model_name,
-        stage="train",
+
+
+def _resolve_data_cfg(resolver: DefaultResolver) -> model_pipeline.DataCfg:
+    corpus = str(resolver.shared("corpus", stages=ALL_STAGES))
+    corpus_definition = corpora_registry.get_corpus(corpus)
+    dataset_id = resolver.shared("dataset_id", stages=DATA_STAGES)
+    source_split = resolver.shared("source_split", stages=DATA_STAGES)
+    text_column = resolver.shared("text_column", stages=DATA_STAGES)
+
+    return model_pipeline.DataCfg(
+        corpus=corpus,
+        dataset_id=str(dataset_id or corpus_definition.dataset_id),
+        source_split=source_split if source_split is not None else corpus_definition.split,
+        text_column=str(text_column or corpus_definition.text_column),
+        streaming=bool(resolver.shared("streaming", stages=DATA_STAGES)),
+        train_ratio=float(resolver.shared("train_ratio", stages=DATA_STAGES)),
+        split_seed=int(resolver.shared("split_seed", stages=DATA_STAGES)),
     )
-    dataset_id = stage_defaults.resolve_shared(
-        ctx,
-        parameter_name="dataset_id",
-        current_value=args.dataset_id,
-        stages=data_stages,
-    )
-    source_split = stage_defaults.resolve_shared(
-        ctx,
-        parameter_name="source_split",
-        current_value=args.source_split,
-        stages=data_stages,
-    )
-    train_ratio = stage_defaults.resolve_shared(
-        ctx,
-        parameter_name="train_ratio",
-        current_value=args.train_ratio,
-        stages=data_stages,
-    )
-    split_seed = stage_defaults.resolve_shared(
-        ctx,
-        parameter_name="split_seed",
-        current_value=args.split_seed,
-        stages=data_stages,
-    )
-    text_column = stage_defaults.resolve_shared(
-        ctx,
-        parameter_name="text_column",
-        current_value=args.text_column,
-        stages=data_stages,
-    )
-    streaming = stage_defaults.resolve_shared(
-        ctx,
-        parameter_name="streaming",
-        current_value=args.streaming,
-        stages=data_stages,
-    )
-    evaluation_partition = stage_defaults.resolve_stage(
-        ctx,
-        parameter_name="evaluation_partition",
-        current_value=args.evaluation_partition,
-        stage="evaluate",
-    )
-    model_hyperparameters = lm_model_options.model_hyperparameters_from(
-        args.model_dump()
-    )
-    model_hyperparameters = {
-        name: stage_defaults.resolve_stage(
-            ctx,
-            parameter_name=name,
-            current_value=model_hyperparameters[name],
+
+
+def _resolve_tokenizer_model_name(resolver: DefaultResolver) -> str:
+    tokenizer_model_name = resolver.stage("tokenizer_model_name", stage="train")
+    resolved = str(tokenizer_model_name or "").strip()
+    if not resolved:
+        raise click.ClickException(
+            "Training pipeline requires --tokenizer-model-name, "
+            "or tokenizer_model_name in [train]. "
+            "Run tokenizer training first and use its tokenizer model name."
+        )
+    return resolved
+
+
+def _resolve_model_cfg(
+    resolver: DefaultResolver,
+    *,
+    model_name: str,
+) -> model_pipeline.ModelCfg:
+    text_normalization = resolver.stage("text_normalization", stage="train")
+    return model_pipeline.ModelCfg(
+        name=model_name,
+        hyperparameters=_resolve_model_hyperparameters(resolver),
+        limit=resolver.limit(
+            "training_limit",
             stage="train",
+            current_value=resolver.args.training_limit,
+            global_limit=resolver.args.limit,
+        ),
+        text_normalization=str(text_normalization),
+    )
+
+
+def _resolve_model_hyperparameters(resolver: DefaultResolver) -> dict[str, object]:
+    model_hyperparameters = lm_model_options.model_hyperparameters_from(
+        resolver.args.model_dump()
+    )
+    return {
+        name: resolver.stage(
+            name,
+            stage="train",
+            current_value=model_hyperparameters[name],
         )
         for name in lm_model_options.MODEL_HYPERPARAMETER_NAMES
     }
-    top_k = stage_defaults.resolve_stage(
-        ctx,
-        parameter_name="top_k",
-        current_value=args.top_k,
-        stage="evaluate",
+
+
+def _resolve_evaluation_cfg(resolver: DefaultResolver) -> model_pipeline.EvaluationCfg:
+    evaluation_partition = resolver.stage("evaluation_partition", stage="evaluate")
+    top_k = resolver.stage("top_k", stage="evaluate")
+    return model_pipeline.EvaluationCfg(
+        partition=str(evaluation_partition),
+        limit=resolver.limit(
+            "evaluation_limit",
+            stage="evaluate",
+            current_value=resolver.args.evaluation_limit,
+            global_limit=resolver.args.limit,
+        ),
+        top_k=int(top_k),
     )
-    query_prompt = stage_defaults.resolve_stage(
-        ctx,
-        parameter_name="query_prompt",
-        current_value=args.query_prompt,
-        stage="query",
-        stage_key="prompt",
-    )
-    query_max_tokens = stage_defaults.resolve_stage(
-        ctx,
-        parameter_name="query_max_tokens",
-        current_value=args.query_max_tokens,
-        stage="query",
-        stage_key="max_tokens",
-    )
-    query_top_k = stage_defaults.resolve_stage(
-        ctx,
-        parameter_name="query_top_k",
-        current_value=args.query_top_k,
-        stage="query",
-        stage_key="top_k",
-    )
-    query_decoding = stage_defaults.resolve_stage(
-        ctx,
-        parameter_name="query_decoding",
-        current_value=args.query_decoding,
-        stage="query",
-        stage_key="decoding",
-    )
-    query_temperature = stage_defaults.resolve_stage(
-        ctx,
-        parameter_name="query_temperature",
-        current_value=args.query_temperature,
-        stage="query",
-        stage_key="temperature",
-    )
-    query_seed = stage_defaults.resolve_stage(
-        ctx,
-        parameter_name="query_seed",
-        current_value=args.query_seed,
+
+
+def _resolve_query_cfg(resolver: DefaultResolver) -> model_pipeline.QueryCfg:
+    query_seed = resolver.stage(
+        "query_seed",
         stage="query",
         stage_key="seed",
     )
-    text_normalization = stage_defaults.resolve_stage(
-        ctx,
-        parameter_name="text_normalization",
-        current_value=args.text_normalization,
-        stage="train",
+    return model_pipeline.QueryCfg(
+        prompt=str(
+            resolver.stage(
+                "query_prompt",
+                stage="query",
+                stage_key="prompt",
+            )
+        ),
+        max_tokens=int(
+            resolver.stage(
+                "query_max_tokens",
+                stage="query",
+                stage_key="max_tokens",
+            )
+        ),
+        top_k=int(
+            resolver.stage(
+                "query_top_k",
+                stage="query",
+                stage_key="top_k",
+            )
+        ),
+        decoding=str(
+            resolver.stage(
+                "query_decoding",
+                stage="query",
+                stage_key="decoding",
+            )
+        ),
+        temperature=float(
+            resolver.stage(
+                "query_temperature",
+                stage="query",
+                stage_key="temperature",
+            )
+        ),
+        seed=int(query_seed) if query_seed is not None else None,
     )
-    resolved_training_limit = stage_defaults.resolve_limit(
-        ctx,
-        parameter_name="training_limit",
-        current_value=args.training_limit,
-        stage="train",
-        global_limit=args.limit,
-    )
-    resolved_evaluation_limit = stage_defaults.resolve_limit(
-        ctx,
-        parameter_name="evaluation_limit",
-        current_value=args.evaluation_limit,
-        stage="evaluate",
-        global_limit=args.limit,
-    )
-    optuna_cfg = model_training_runs.OptunaCfg(
+
+
+def _build_optuna_cfg(args: CliArgs) -> model_training_runs.OptunaCfg:
+    return model_training_runs.OptunaCfg(
         trials=args.optuna_trials,
         search_specs=lm_optuna.parse_optuna_search_specs(args.optuna_search),
         metric=args.optuna_metric,
@@ -230,30 +327,12 @@ def run(args: CliArgs) -> None:
         timeout_seconds=args.optuna_timeout_seconds,
     )
 
-    corpus_definition = corpora_registry.get_corpus(str(corpus))
-    model_definition = model_registry.get_model(str(model_name))
-    if model_definition.evaluate is None or model_definition.evaluation_items is None:
-        raise click.ClickException(f"Model does not support evaluation yet: {model_name}")
-    if model_definition.query is None or model_definition.query_lines is None:
-        raise click.ClickException(f"Model does not support querying yet: {model_name}")
-    if args.pipeline_local and not args.wait:
-        raise click.ClickException("--no-wait is only supported with --pipeline-queued.")
 
-    resolved_dataset_id = str(dataset_id or corpus_definition.dataset_id)
-    resolved_source_split = source_split if source_split is not None else corpus_definition.split
-    resolved_text_column = str(text_column or corpus_definition.text_column)
-    resolved_tokenizer_model_name = str(tokenizer_model_name or "").strip()
-    if not resolved_tokenizer_model_name:
-        raise click.ClickException(
-            "Training pipeline requires --tokenizer-model-name, or tokenizer_model_name in [train]. "
-            "Run tokenizer training first and use its tokenizer model name."
-        )
-
-    if args.run_stage is not None and args.run_until_stage is not None:
-        raise click.ClickException("--run-stage and --run-until-stage are mutually exclusive.")
-    if args.pipeline_controller_id is not None and args.run_stage is None:
-        raise click.ClickException("--pipeline-controller-id must be used with --run-stage.")
-    run_spec = model_training_runs.RunSpec(
+def _build_run_spec(
+    args: CliArgs,
+    resolved_cfg: ResolvedRunCfg,
+) -> model_training_runs.RunSpec:
+    return model_training_runs.RunSpec(
         pipeline=model_training_runs.PipelineRunCfg(
             name=args.pipeline_name,
             version=args.pipeline_version,
@@ -273,71 +352,59 @@ def run(args: CliArgs) -> None:
             tags=args.clearml_tags,
         ),
         tokenizer_training_name=args.tokenizer_training_name,
-        tokenizer_model_name=resolved_tokenizer_model_name,
-        model=model_pipeline.ModelCfg(
-            name=model_definition.name,
-            hyperparameters=model_hyperparameters,
-            limit=resolved_training_limit,
-            text_normalization=str(text_normalization),
-        ),
-        data=model_pipeline.DataCfg(
-            corpus=str(corpus),
-            dataset_id=resolved_dataset_id,
-            source_split=resolved_source_split,
-            text_column=resolved_text_column,
-            streaming=bool(streaming),
-            train_ratio=float(train_ratio),
-            split_seed=int(split_seed),
-        ),
-        evaluation=model_pipeline.EvaluationCfg(
-            partition=str(evaluation_partition),
-            limit=resolved_evaluation_limit,
-            top_k=int(top_k),
-        ),
-        query=model_pipeline.QueryCfg(
-            prompt=str(query_prompt),
-            max_tokens=int(query_max_tokens),
-            top_k=int(query_top_k),
-            decoding=str(query_decoding),
-            temperature=float(query_temperature),
-            seed=int(query_seed) if query_seed is not None else None,
-        ),
+        tokenizer_model_name=resolved_cfg.tokenizer_model_name,
+        model=resolved_cfg.model,
+        data=resolved_cfg.data,
+        evaluation=resolved_cfg.evaluation,
+        query=resolved_cfg.query,
     )
 
-    if optuna_cfg.enabled:
-        if args.optuna_trials <= 0:
-            raise click.ClickException("--optuna-trials must be greater than zero when --optuna-search is set.")
-        if not optuna_cfg.search_specs:
-            raise click.ClickException("--optuna-trials requires at least one --optuna-search spec.")
-        if (
-            args.run_stage is not None
-            or args.run_until_stage is not None
-            or args.pipeline_controller_id is not None
-        ):
-            raise click.ClickException(
-                "Optuna runs the full model-training pipeline for every trial; "
-                "do not combine it with --run-stage, --run-until-stage, or --pipeline-controller-id."
-            )
-        if not args.wait:
-            raise click.ClickException(
-                "Optuna requires --wait so each trial can read its evaluation objective metric."
-            )
 
-    if args.run_stage is not None or args.pipeline_controller_id is not None:
-        if args.pipeline_local:
-            raise click.ClickException(
-                "Existing PipelineController runs are resumed by re-enqueueing the controller task. "
-                "Use --pipeline-queued when passing --run-stage or --pipeline-controller-id."
-            )
-        model_training_runs.resume_model_training_stage(
-            run_spec,
-            stage_name=args.run_stage or lm_def.MODEL_STAGE,
-            pipeline_controller_id=args.pipeline_controller_id,
+def _require_model_pipeline_support(
+    model_definition: object,
+    model_name: str,
+) -> None:
+    if model_definition.evaluate is None or model_definition.evaluation_items is None:
+        raise click.ClickException(f"Model does not support evaluation yet: {model_name}")
+    if model_definition.query is None or model_definition.query_lines is None:
+        raise click.ClickException(f"Model does not support querying yet: {model_name}")
+
+
+def _validate_run_request(
+    args: CliArgs,
+    optuna_cfg: model_training_runs.OptunaCfg,
+) -> None:
+    if args.pipeline_local and not args.wait:
+        raise click.ClickException("--no-wait is only supported with --pipeline-queued.")
+    if args.run_stage is not None and args.run_until_stage is not None:
+        raise click.ClickException("--run-stage and --run-until-stage are mutually exclusive.")
+    if args.pipeline_controller_id is not None and args.run_stage is None:
+        raise click.ClickException("--pipeline-controller-id must be used with --run-stage.")
+
+    if optuna_cfg.enabled:
+        _validate_optuna_request(args, optuna_cfg)
+
+
+def _validate_optuna_request(
+    args: CliArgs,
+    optuna_cfg: model_training_runs.OptunaCfg,
+) -> None:
+    if args.optuna_trials <= 0:
+        raise click.ClickException(
+            "--optuna-trials must be greater than zero when --optuna-search is set."
         )
-        return
+    if not optuna_cfg.search_specs:
+        raise click.ClickException("--optuna-trials requires at least one --optuna-search spec.")
+    if _should_resume_existing_stage(args) or args.run_until_stage is not None:
+        raise click.ClickException(
+            "Optuna runs the full model-training pipeline for every trial; "
+            "do not combine it with --run-stage, --run-until-stage, or --pipeline-controller-id."
+        )
+    if not args.wait:
+        raise click.ClickException(
+            "Optuna requires --wait so each trial can read its evaluation objective metric."
+        )
 
-    if optuna_cfg.enabled:
-        model_training_runs.run_optuna_model_training(optuna_cfg, run_spec)
-        return
 
-    model_training_runs.run_model_training_pipeline(run_spec)
+def _should_resume_existing_stage(args: CliArgs) -> bool:
+    return args.run_stage is not None or args.pipeline_controller_id is not None

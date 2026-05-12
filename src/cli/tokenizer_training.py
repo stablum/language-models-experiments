@@ -21,19 +21,9 @@ TOKENIZER_TRAINING_CONFIG_SECTION = "tokenizer-training"
 
 
 def load_tokenizer_training_command_defaults(_config_section: str) -> dict[str, object]:
-    defaults = cli_config.load_defaults_from_sections(
+    return cli_config.load_defaults_from_sections(
         ("defaults", "clearml", TOKENIZER_TRAINING_CONFIG_SECTION)
     )
-    legacy_key_map = {
-        "model_type": "sentencepiece_model_type",
-        "character_coverage": "sentencepiece_character_coverage",
-        "hard_vocab_limit": "sentencepiece_hard_vocab_limit",
-        "max_sentence_length": "sentencepiece_max_sentence_length",
-    }
-    for legacy_key, new_key in legacy_key_map.items():
-        if legacy_key in defaults and new_key not in defaults:
-            defaults[new_key] = defaults[legacy_key]
-    return defaults
 
 
 @cli_config.configured_command(

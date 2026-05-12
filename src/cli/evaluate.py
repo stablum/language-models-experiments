@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import click
 
 from src.cli import stage_resume
@@ -102,17 +100,6 @@ def load_evaluate_command_defaults(_config_section: str) -> dict[str, object]:
     ),
 )
 @click.option(
-    "--model-task-id",
-    default=None,
-    help="Deprecated. Evaluation resumes the model dependency from the pipeline controller.",
-)
-@click.option(
-    "--model-path",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    default=None,
-    help="Deprecated. Evaluation resumes the model dependency from the pipeline controller.",
-)
-@click.option(
     "--top-k",
     type=click.IntRange(min=1),
     default=5,
@@ -140,8 +127,6 @@ def main(
     train_ratio: float,
     split_seed: int,
     evaluation_partition: str,
-    model_task_id: str | None,
-    model_path: Path | None,
     top_k: int,
     clearml_project: str,
     clearml_task_name: str | None,
@@ -157,13 +142,9 @@ def main(
 
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
     resolved_source_split = source_split if source_split is not None else corpus_definition.split
+    resolved_text_column = text_column or corpus_definition.text_column
     resolved_tokenizer_model_name = stage_resume.require_tokenizer_model_name(
         tokenizer_model_name,
-        action="Evaluation",
-    )
-    stage_resume.reject_deprecated_model_dependency(
-        model_task_id,
-        model_path,
         action="Evaluation",
     )
     stage_resume.reject_pipeline_local(pipeline_local)
@@ -186,7 +167,13 @@ def main(
             "corpus": corpus,
             "dataset_id": resolved_dataset_id,
             "source_split": resolved_source_split or "",
+            "text_column": resolved_text_column,
+            "streaming": streaming,
+            "train_ratio": train_ratio,
+            "split_seed": split_seed,
             "evaluation_partition": evaluation_partition,
+            "evaluation_limit": limit,
+            "top_k": top_k,
         },
     )
 

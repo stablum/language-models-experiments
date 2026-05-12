@@ -39,19 +39,6 @@ def reject_pipeline_local(pipeline_local: bool) -> None:
         )
 
 
-def reject_deprecated_model_dependency(
-    model_task_id: str | None,
-    model_path: Path | None,
-    *,
-    action: str,
-) -> None:
-    if model_task_id is not None or model_path is not None:
-        raise click.ClickException(
-            f"{action} now resumes the canonical ClearML pipeline DAG. "
-            "Run train first in the same pipeline instead of passing --model-task-id or --model-path."
-        )
-
-
 def resume_model_training_stage(
     *,
     stage_name: str,

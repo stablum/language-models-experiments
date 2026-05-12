@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import click
 
 from src.cli import stage_resume
@@ -12,6 +10,7 @@ from src.ml_core import tracking
 from src.ml_core.cli import config as cli_config
 from src.ml_core.data import splits as data_splits
 from src.pipelines.language_model import definition as lm_def
+from src.pipelines.language_model import model_options as lm_model_options
 from src.pipelines.language_model import model_training as model_pipeline
 from src.corpora import normalization
 from src.corpora import registry as corpora_registry
@@ -87,17 +86,6 @@ from src.models.core import registry as model_registry
     help="Seed for the reusable deterministic train/validation partition.",
 )
 @click.option(
-    "--tokenizer-task-id",
-    default=None,
-    help="Deprecated. Training resolves tokenizers by --tokenizer-model-name.",
-)
-@click.option(
-    "--tokenizer-model",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    default=None,
-    help="Deprecated. Training resolves tokenizers by --tokenizer-model-name.",
-)
-@click.option(
     "--smoothing",
     type=click.FloatRange(min=0.0),
     default=0.1,
@@ -159,8 +147,6 @@ def main(
     limit: int | None,
     train_ratio: float,
     split_seed: int,
-    tokenizer_task_id: str | None,
-    tokenizer_model: Path | None,
     smoothing: float,
     unigram_weight: float,
     bigram_weight: float,
@@ -182,12 +168,8 @@ def main(
     )
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
     resolved_source_split = source_split if source_split is not None else corpus_definition.split
-    if tokenizer_task_id is not None or tokenizer_model is not None:
-        raise click.ClickException(
-            "Model training now resolves tokenizer models from tokenizer-training runs. "
-            "Set --tokenizer-model-name instead of passing --tokenizer-task-id or "
-            "--tokenizer-model."
-        )
+    resolved_text_column = text_column or corpus_definition.text_column
+    model_hyperparameters = lm_model_options.model_hyperparameters_from(locals())
     stage_resume.reject_pipeline_local(pipeline_local)
     stage_resume.resume_model_training_stage(
         stage_name=lm_def.MODEL_STAGE,
@@ -208,6 +190,13 @@ def main(
             "corpus": corpus,
             "dataset_id": resolved_dataset_id,
             "source_split": resolved_source_split or "",
+            "text_column": resolved_text_column,
+            "streaming": streaming,
+            "train_ratio": train_ratio,
+            "split_seed": split_seed,
+            "training_limit": limit,
+            **model_hyperparameters,
+            "text_normalization": text_normalization,
         },
     )
 
