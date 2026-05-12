@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -12,6 +11,7 @@ from typing import Any, Literal
 import click
 
 from src.ml_core import pipeline as core_pipeline
+from src.ml_core import json_io
 from src.ml_core import tracking
 from src.ml_core.cli import config as cli_config
 from src.pipelines.language_model import definition as lm_def
@@ -459,11 +459,7 @@ def _artifact_local_copy(artifact: object) -> Path | None:
 def _load_json_mapping(path: Path) -> Mapping[str, object] | None:
     if not path.exists() or path.is_dir():
         return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    return payload if isinstance(payload, Mapping) else None
+    return json_io.maybe_read_mapping(path)
 
 
 def _describe_search_spec(spec: SearchSpec) -> str:

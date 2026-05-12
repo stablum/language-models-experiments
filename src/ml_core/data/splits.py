@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from src.ml_core import json_io
+
 
 DEFAULT_TRAIN_RATIO = 0.8
 DEFAULT_SPLIT_SEED = 42
@@ -123,30 +125,20 @@ def data_split_plan_from_payload(payload: Mapping[str, Any]) -> DataSplitPlan | 
 
 
 def write_split_plan(path: Path, plan: DataSplitPlan) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(plan.to_payload(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    json_io.write_json(path, plan.to_payload(), sort_keys=True)
     return path
 
 
 def read_split_plan(path: Path) -> DataSplitPlan | None:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(payload, Mapping):
+    payload = json_io.maybe_read_mapping(path)
+    if payload is None:
         return None
     return data_split_plan_from_payload(payload)
 
 
 def read_model_split_plan(model_path: Path) -> DataSplitPlan | None:
-    try:
-        payload = json.loads(model_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(payload, Mapping):
+    payload = json_io.maybe_read_mapping(model_path)
+    if payload is None:
         return None
     data_split = payload.get("data_split")
     if not isinstance(data_split, Mapping):
@@ -155,15 +147,12 @@ def read_model_split_plan(model_path: Path) -> DataSplitPlan | None:
 
 
 def attach_split_plan_to_json_model(model_path: Path, plan: DataSplitPlan) -> None:
-    payload = json.loads(model_path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
+    payload = json_io.maybe_read_mapping(model_path)
+    if payload is None:
         return
 
     payload["data_split"] = plan.to_payload()
-    model_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    json_io.write_json(model_path, payload)
 
 
 def split_plan_clearml_parameters(plan: DataSplitPlan) -> dict[str, object]:

@@ -1,5 +1,7 @@
 """Importable ClearML pipeline stage functions for language-model experiments."""
 
+from __future__ import annotations
+
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -18,15 +20,7 @@ from src.models.core import registry as model_registry
 from src.pipelines.language_model import artifacts as lm_artifacts
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import model_options as lm_model_options
-from src.tokenizers.sentencepiece_training import train_sentencepiece
-
-
-PIPELINE_STAGE_TITLES = {
-    lm_def.TOKENIZER_STAGE: (1, 1, "Tokenizer training"),
-    lm_def.MODEL_STAGE: (1, 3, "Model training"),
-    lm_def.EVALUATION_STAGE: (2, 3, "Evaluation"),
-    lm_def.QUERY_STAGE: (3, 3, "Query"),
-}
+from src.tokenizers import sentencepiece_training
 
 
 def train_tokenizer_step(
@@ -49,11 +43,19 @@ def train_tokenizer_step(
     clearml_output_uri: str | None = None,
     clearml_tags: str | list[str] | tuple[str, ...] | None = None,
     clearml_config_file: str | None = None,
+    pipeline_stage_index: int | None = None,
+    pipeline_stage_total: int | None = None,
+    pipeline_stage_title: str | None = None,
 ) -> str:
     """Train and publish the tokenizer step artifacts."""
     stage = lm_def.TOKENIZER_STAGE
     _configure_step_clearml(clearml_config_file)
-    _emit_pipeline_stage_title(stage)
+    _emit_pipeline_stage_title(
+        stage,
+        index=pipeline_stage_index,
+        total=pipeline_stage_total,
+        title=pipeline_stage_title,
+    )
     corpus_definition = corpora_registry.get_corpus(corpus)
     split_plan = split_artifacts.build_cli_split_plan(
         corpus_definition,
@@ -113,7 +115,7 @@ def train_tokenizer_step(
             text_column=text_column,
             limit=limit,
         )
-        model_path, vocab_path = train_sentencepiece(
+        model_path, vocab_path = sentencepiece_training.train_sentencepiece(
             texts,
             output_prefix=output_prefix,
             vocab_size=vocab_size,
@@ -172,12 +174,20 @@ def train_model_pipeline_step(
     clearml_output_uri: str | None = None,
     clearml_tags: str | list[str] | tuple[str, ...] | None = None,
     clearml_config_file: str | None = None,
+    pipeline_stage_index: int | None = None,
+    pipeline_stage_total: int | None = None,
+    pipeline_stage_title: str | None = None,
     **legacy_model_hyperparameters: object,
 ) -> str:
     """Train the language model from the tokenizer step artifact."""
     stage = lm_def.MODEL_STAGE
     _configure_step_clearml(clearml_config_file)
-    _emit_pipeline_stage_title(stage)
+    _emit_pipeline_stage_title(
+        stage,
+        index=pipeline_stage_index,
+        total=pipeline_stage_total,
+        title=pipeline_stage_title,
+    )
     corpus_definition = corpora_registry.get_corpus(corpus)
     model_definition = model_registry.get_model(model_name)
 
@@ -317,11 +327,19 @@ def evaluate_pipeline_step(
     clearml_output_uri: str | None = None,
     clearml_tags: str | list[str] | tuple[str, ...] | None = None,
     clearml_config_file: str | None = None,
+    pipeline_stage_index: int | None = None,
+    pipeline_stage_total: int | None = None,
+    pipeline_stage_title: str | None = None,
 ) -> str:
     """Evaluate the trained model step artifact."""
     stage = lm_def.EVALUATION_STAGE
     _configure_step_clearml(clearml_config_file)
-    _emit_pipeline_stage_title(stage)
+    _emit_pipeline_stage_title(
+        stage,
+        index=pipeline_stage_index,
+        total=pipeline_stage_total,
+        title=pipeline_stage_title,
+    )
     corpus_definition = corpora_registry.get_corpus(corpus)
     model_definition = model_registry.get_model(model_name)
     if model_definition.evaluate is None:
@@ -537,11 +555,19 @@ def query_pipeline_step(
     clearml_output_uri: str | None = None,
     clearml_tags: str | list[str] | tuple[str, ...] | None = None,
     clearml_config_file: str | None = None,
+    pipeline_stage_index: int | None = None,
+    pipeline_stage_total: int | None = None,
+    pipeline_stage_title: str | None = None,
 ) -> str:
     """Query the trained model step artifact."""
     stage = lm_def.QUERY_STAGE
     _configure_step_clearml(clearml_config_file)
-    _emit_pipeline_stage_title(stage)
+    _emit_pipeline_stage_title(
+        stage,
+        index=pipeline_stage_index,
+        total=pipeline_stage_total,
+        title=pipeline_stage_title,
+    )
     clearml_run = _current_step_run(
         clearml_output_uri=clearml_output_uri,
         clearml_tags=clearml_tags,
@@ -672,8 +698,15 @@ def _configure_step_clearml(clearml_config_file: str | None) -> None:
         tracking.configure_clearml_config_file(Path(clearml_config_file))
 
 
-def _emit_pipeline_stage_title(stage: str) -> None:
-    index, total, title = PIPELINE_STAGE_TITLES[stage]
+def _emit_pipeline_stage_title(
+    stage: str,
+    *,
+    index: int | None,
+    total: int | None,
+    title: str | None,
+) -> None:
+    if index is None or total is None or title is None:
+        index, total, title = lm_def.standalone_stage_title(stage)
     cli_out.emit_stage_title(index, total, title)
 
 

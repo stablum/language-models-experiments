@@ -37,6 +37,7 @@ def add_pipeline_steps(
     seed: int | None,
 ) -> None:
     cfg = step_config.StepCfg(
+        pipeline_definition=QUERY_PIPELINE,
         project_name=clearml_project,
         output_uri=clearml_output_uri,
         tags=clearml_tags,

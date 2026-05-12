@@ -23,6 +23,12 @@ ALL_PIPELINE_STAGES = (TOKENIZER_STAGE, MODEL_STAGE, EVALUATION_STAGE, QUERY_STA
 TOKENIZER_TRAINING_STAGES = (TOKENIZER_STAGE,)
 MODEL_TRAINING_STAGES = (MODEL_STAGE, EVALUATION_STAGE, QUERY_STAGE)
 QUERY_STAGES = (QUERY_STAGE,)
+PIPELINE_STAGE_TITLES = {
+    TOKENIZER_STAGE: "Tokenizer training",
+    MODEL_STAGE: "Model training",
+    EVALUATION_STAGE: "Evaluation",
+    QUERY_STAGE: "Query",
+}
 ALL_PIPELINE_STAGE_DEPENDENCIES = {
     TOKENIZER_STAGE: (),
     MODEL_STAGE: (TOKENIZER_STAGE,),
@@ -66,6 +72,21 @@ class ModelTrainingResolution:
     model_name: str
     tokenizer_model_name: str
     corpus: str
+
+
+def pipeline_stage_title(
+    pipeline_definition: PipelineDefinition,
+    stage: str,
+) -> tuple[int, int, str]:
+    return (
+        pipeline_definition.stages.index(stage) + 1,
+        len(pipeline_definition.stages),
+        PIPELINE_STAGE_TITLES.get(stage, stage.replace("_", " ").title()),
+    )
+
+
+def standalone_stage_title(stage: str) -> tuple[int, int, str]:
+    return 1, 1, PIPELINE_STAGE_TITLES.get(stage, stage.replace("_", " ").title())
 
 
 def configure_pipeline_control(
@@ -265,6 +286,7 @@ __all__ = (
     "MODEL_TRAINING_STAGES",
     "ModelTrainingResolution",
     "PipelineDefinition",
+    "PIPELINE_STAGE_TITLES",
     "QUERY_STAGE",
     "QUERY_STAGE_DEPENDENCIES",
     "QUERY_STAGES",
@@ -273,7 +295,9 @@ __all__ = (
     "TOKENIZER_TRAINING_STAGES",
     "TokenizerTrainingResolution",
     "configure_pipeline_control",
+    "pipeline_stage_title",
     "resolve_model_training_task",
     "resolve_tokenizer_training_task",
+    "standalone_stage_title",
     "stage_gate_callback",
 )

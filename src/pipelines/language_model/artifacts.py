@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import shutil
-from collections.abc import Mapping
 from pathlib import Path
 
 import click
 
+from src.ml_core import json_io
 from src.ml_core import tracking
 from src.ml_core.data import splits as data_splits
 
@@ -246,11 +245,8 @@ def artifact_file(path: object) -> str | None:
 
 
 def stored_tokenizer_filename(model_path: Path) -> str | None:
-    try:
-        payload = json.loads(model_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(payload, Mapping):
+    payload = json_io.maybe_read_mapping(model_path)
+    if payload is None:
         return None
 
     tokenizer_model = payload.get("tokenizer_model")

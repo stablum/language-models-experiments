@@ -13,6 +13,7 @@ from src.pipelines.language_model import monitors as lm_monitors
 
 @dataclass(frozen=True)
 class StepCfg:
+    pipeline_definition: lm_def.PipelineDefinition
     project_name: str
     output_uri: str | None
     tags: tuple[str, ...]
@@ -35,7 +36,7 @@ class StepCfg:
             "function": function,
             "function_kwargs": {
                 **function_kwargs,
-                **self.function_kwargs(),
+                **self.function_kwargs(name),
             },
             "task_name": name,
             "task_type": task_type,
@@ -48,11 +49,18 @@ class StepCfg:
             step_kwargs["parents"] = list(parents)
         add_function_step(**step_kwargs)
 
-    def function_kwargs(self) -> dict[str, object]:
+    def function_kwargs(self, stage: str) -> dict[str, object]:
+        stage_index, stage_total, stage_title = lm_def.pipeline_stage_title(
+            self.pipeline_definition,
+            stage,
+        )
         return {
             "clearml_output_uri": self.output_uri,
             "clearml_tags": "\n".join(self.tags),
             "clearml_config_file": str(self.config_file) if self.config_file else None,
+            "pipeline_stage_index": stage_index,
+            "pipeline_stage_total": stage_total,
+            "pipeline_stage_title": stage_title,
         }
 
     def step_options(self) -> dict[str, object]:

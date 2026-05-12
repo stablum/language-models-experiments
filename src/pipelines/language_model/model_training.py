@@ -66,6 +66,7 @@ def add_pipeline_steps(
     _add_pipeline_parameters(pipeline, pipeline_parameters)
 
     cfg = step_config.StepCfg(
+        pipeline_definition=MODEL_TRAINING_PIPELINE,
         project_name=clearml_project,
         output_uri=clearml_output_uri,
         tags=clearml_tags,

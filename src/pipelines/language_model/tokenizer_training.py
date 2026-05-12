@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.pipelines.language_model import definition as lm_def
+from src.pipelines.language_model import stage_entries
 from src.pipelines.language_model import step_config
-from src.pipelines.language_model.stage_entries import train_tokenizer_stage_entry
 
 
 TOKENIZER_TRAINING_PIPELINE = lm_def.PipelineDefinition(
@@ -41,6 +41,7 @@ def add_pipeline_steps(
     text_normalization: str,
 ) -> None:
     cfg = step_config.StepCfg(
+        pipeline_definition=TOKENIZER_TRAINING_PIPELINE,
         project_name=clearml_project,
         output_uri=clearml_output_uri,
         tags=clearml_tags,
@@ -50,7 +51,7 @@ def add_pipeline_steps(
     cfg.add(
         pipeline,
         name=lm_def.TOKENIZER_STAGE,
-        function=train_tokenizer_stage_entry,
+        function=stage_entries.train_tokenizer_stage_entry,
         function_kwargs={
             "corpus": corpus,
             "dataset_id": dataset_id,

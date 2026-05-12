@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 import random
 from collections import Counter, defaultdict
@@ -14,6 +13,7 @@ import pydantic
 import sentencepiece as spm
 
 from src.corpora import normalization
+from src.ml_core import json_io
 from src.ml_core.models import definition as model_def
 from src.models.core import formatting
 
@@ -353,18 +353,14 @@ def load_json_model_payload(
     model_type: str,
     label: str | None = None,
 ) -> dict[str, Any]:
-    data = json.loads(model_path.read_text(encoding="utf-8"))
+    data = json_io.read_mapping(model_path)
     if data.get("model_type") != model_type:
         raise ValueError(f"Not {label or schema_label(model_type)}: {model_path}")
     return data
 
 
 def write_json_model_payload(output_path: Path, model: dict[str, object]) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        json.dumps(model, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    json_io.write_json(output_path, model)
 
 
 def sentencepiece_model_payload(
