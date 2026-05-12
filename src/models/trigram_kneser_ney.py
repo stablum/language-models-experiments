@@ -1,4 +1,11 @@
-"""Interpolated Kneser-Ney token-level autoregressive trigram model."""
+"""Interpolated Kneser-Ney token-level autoregressive trigram model.
+
+The trigram row uses the usual absolute-discount shape:
+``max(c(h, w) - D, 0) / c(h) + lambda(h) * P_lower(w)``. The Kneser-Ney part is
+the choice of ``P_lower``: lower-order rows are trained from continuation
+counts, so a token is valuable when it appears after many distinct histories,
+not merely when it is frequent overall.
+"""
 
 from __future__ import annotations
 
@@ -25,6 +32,13 @@ class KneserNeyTrigramTrainingSummary(trigrams.TrigramTrainingSummary):
 
 @dataclass(frozen=True)
 class KneserNeyContinuationCounts:
+    """Continuation-count tables used as Kneser-Ney lower-order evidence.
+
+    ``bigram_transitions[prev][next]`` stores how many distinct left contexts
+    were seen before ``prev, next``. ``unigram_counts[next]`` stores how many
+    distinct previous-token types can precede ``next``.
+    """
+
     unigram_counts: Counter[int]
     bigram_transitions: defaultdict[int, Counter[int]]
 
@@ -68,6 +82,9 @@ class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
         bigram_total: int,
         trigram_total: int,
     ) -> float:
+        # For trigrams, the observed row is the ordinary c(prev2, prev1, next)
+        # row. The backed-off probability is the Kneser-Ney bigram row for the
+        # same prev1 token, built from continuation counts at training time.
         lower_order_probability = self.bigram_probability(
             token_id,
             previous_id=previous_id,
@@ -94,6 +111,9 @@ class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
         if total is None:
             total = sum(counts.values())
 
+        # This is still discounted interpolation, but the counts are
+        # continuation counts: "how many distinct left contexts support this
+        # bigram type?" rather than raw bigram frequency.
         return self._discounted_interpolation_probability(
             token_id,
             counts=counts,
@@ -106,6 +126,9 @@ class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
         if candidate_count <= 0:
             return 0.0
 
+        # The unigram KN distribution is also a continuation distribution:
+        # tokens that appear after many different predecessors get more mass.
+        # Uniform probability is only the final floor for unseen continuations.
         uniform_probability = 1 / candidate_count
         return self._discounted_interpolation_probability(
             token_id,
@@ -122,6 +145,8 @@ class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
         total: int,
         lower_order_probability: float,
     ) -> float:
+        # Implements max(c - D, 0) / total + (D * T / total) * P_lower, where
+        # T is len(counts), the number of observed continuation types in a row.
         return ngram.discounted_interpolation_probability(
             token_id,
             counts=counts,
@@ -175,6 +200,8 @@ def train_kneser_ney_trigram_model(
         tokenizer,
         text_normalization=text_normalization,
     )
+    # KN stores ordinary trigram rows for the highest-order evidence, but the
+    # lower-order rows are continuation tables derived from trigram types.
     continuation_counts = collect_kneser_ney_continuation_counts(
         counts.trigram_transitions,
     )
@@ -235,6 +262,8 @@ def collect_kneser_ney_continuation_counts(
         | dict[trigrams.Context, Counter[int]]
     ),
 ) -> KneserNeyContinuationCounts:
+    """Collapse raw trigram types into continuation-count lower-order rows."""
+
     bigram_transitions: defaultdict[int, Counter[int]] = defaultdict(Counter)
     unigram_predecessors: defaultdict[int, set[int]] = defaultdict(set)
 
@@ -242,6 +271,8 @@ def collect_kneser_ney_continuation_counts(
         for next_id, count in next_counts.items():
             if count <= 0:
                 continue
+            # Each positive trigram type contributes one continuation for the
+            # lower-order bigram row, regardless of its raw token frequency.
             bigram_transitions[previous_id][next_id] += 1
             unigram_predecessors[next_id].add(previous_id)
 
