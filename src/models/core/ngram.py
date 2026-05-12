@@ -166,13 +166,17 @@ class BaseNgramModel(NgramPydanticModel):
         prompt_token_ids = self.encode_prompt(prompt)
         context = self.context_for_tokens(prompt_token_ids)
         next_token_predictions = self.next_token_predictions(context, top_k=top_k)
+        generation_top_k = generation_prediction_top_k(
+            decoding=decoding,
+            temperature=temperature,
+        )
         rng = seeded_rng(seed)
         token_ids = list(prompt_token_ids)
         generated_token_ids: list[int] = []
 
         for _ in range(max_tokens):
             next_id = select_next_token(
-                self.next_token_predictions(context, top_k=0),
+                self.next_token_predictions(context, top_k=generation_top_k),
                 eos_id=self.eos_id,
                 decoding=decoding,
                 rng=rng,
@@ -293,6 +297,17 @@ def seeded_rng(seed: int | None) -> random.Random:
 
 def fallback_token_id(eos_id: int) -> int:
     return eos_id if eos_id >= 0 else 0
+
+
+def generation_prediction_top_k(
+    *,
+    decoding: DecodingMode,
+    temperature: float,
+) -> int:
+    # top_k=0 means "all candidates"; greedy paths only need the first row.
+    if decoding == "most-probable" or temperature == 0:
+        return 1
+    return 0
 
 
 def load_pieces(

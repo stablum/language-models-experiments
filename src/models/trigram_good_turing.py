@@ -87,17 +87,15 @@ class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
         top_k: int,
     ) -> list[ngram.NgramPrediction]:
         trigram_counts = dict(self.trigram_transitions.get(context, ()))
-        predictions = [
+        return [
             ngram.NgramPrediction(
                 token_id=token_id,
                 piece=self.pieces[token_id],
                 count=trigram_counts.get(token_id, 0),
                 probability=self.trigram_probability(token_id, context),
             )
-            for token_id in self.candidate_ids
+            for token_id in self.top_token_ids(context, top_k=top_k)
         ]
-        predictions.sort(key=lambda prediction: (-prediction.probability, prediction.token_id))
-        return predictions[:top_k] if top_k > 0 else predictions
 
     def transition_probability(
         self,
@@ -245,13 +243,7 @@ class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
                 lower_probability=self.unigram_probability,
             )
         else:
-            distribution = self._bigram_distributions.get(previous_id)
-            if distribution is None:
-                distribution = self.good_turing_distribution(
-                    dict(self.bigram_transitions.get(previous_id, ())),
-                    lower_probability=self.unigram_probability,
-                )
-                self._bigram_distributions[previous_id] = distribution
+            distribution = self.bigram_distribution(previous_id)
 
         return distribution.probability(
             token_id,
@@ -286,6 +278,24 @@ class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
     def unigram_probability(self, token_id: int) -> float:
         if token_id not in self.candidate_id_set:
             return 0.0
+        return self.unigram_distribution().probability(
+            token_id,
+            lower_probability=self.uniform_probability,
+        )
+
+    def unigram_ranked_token_ids(self) -> tuple[int, ...]:
+        if not self._unigram_ranked_token_ids:
+            self._unigram_ranked_token_ids = tuple(
+                ranked_distribution_token_ids(
+                    self.unigram_distribution(),
+                    lower_ranked_token_ids=self.candidate_ids,
+                    lower_probability=self.uniform_probability,
+                    top_k=0,
+                )
+            )
+        return self._unigram_ranked_token_ids
+
+    def unigram_distribution(self) -> GoodTuringDistribution:
         distribution = self._unigram_distribution
         if distribution is None:
             distribution = self.good_turing_distribution(
@@ -294,30 +304,7 @@ class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
                 lower_probability=self.uniform_probability,
             )
             self._unigram_distribution = distribution
-        return distribution.probability(
-            token_id,
-            lower_probability=self.uniform_probability,
-        )
-
-    def unigram_ranked_token_ids(self) -> tuple[int, ...]:
-        if not self._unigram_ranked_token_ids:
-            distribution = self._unigram_distribution
-            if distribution is None:
-                distribution = self.good_turing_distribution(
-                    self.unigram_counts,
-                    total=self.unigram_total,
-                    lower_probability=self.uniform_probability,
-                )
-                self._unigram_distribution = distribution
-            self._unigram_ranked_token_ids = tuple(
-                ranked_distribution_token_ids(
-                    distribution,
-                    lower_ranked_token_ids=self.candidate_ids,
-                    lower_probability=self.uniform_probability,
-                    top_k=0,
-                )
-            )
-        return self._unigram_ranked_token_ids
+        return distribution
 
     def uniform_probability(self, token_id: int) -> float:
         if token_id not in self.candidate_id_set or not self.candidate_ids:
