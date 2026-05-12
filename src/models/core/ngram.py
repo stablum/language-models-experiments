@@ -401,6 +401,22 @@ def sentencepiece_model_fields(
     }
 
 
+def load_sentencepiece_model_fields(
+    data: dict[str, object],
+    model_path: Path,
+) -> dict[str, object]:
+    tokenizer_model, processor, vocab_size = load_sentencepiece_from_payload(
+        data,
+        model_path,
+    )
+    return {
+        "model_path": model_path,
+        "tokenizer_model": tokenizer_model,
+        "processor": processor,
+        **sentencepiece_model_fields(data, processor, vocab_size),
+    }
+
+
 def load_sentencepiece_from_payload(
     data: dict[str, object],
     model_path: Path,

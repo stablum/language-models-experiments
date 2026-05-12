@@ -425,16 +425,13 @@ def good_turing_count(count: int, Nr: Mapping[int, int]) -> float:
 
 
 def load_good_turing_trigram_model(model_path: Path) -> GoodTuringTrigramModel:
-    data, tokenizer_model, processor, vocab_size = trigrams.load_standard_trigram_payload(
+    data, model_fields = trigrams.load_standard_trigram_model_fields(
         model_path,
         model_type=_SCHEMA_TYPE,
     )
 
     return GoodTuringTrigramModel(
-        model_path=model_path,
-        tokenizer_model=tokenizer_model,
-        processor=processor,
-        **ngram.sentencepiece_model_fields(data, processor, vocab_size),
+        **model_fields,
         unigram_counts=trigrams.parse_unigram_counts(data),
         unigram_total=int(data["unigram_count"]),
         bigram_transitions=trigrams.parse_bigram_transitions(data),

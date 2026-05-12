@@ -33,11 +33,6 @@ class DataSplitPlan:
     split_method: str = SPLIT_METHOD
     schema_version: int = SPLIT_PLAN_SCHEMA_VERSION
 
-    @property
-    def corpus(self) -> str:
-        """Legacy alias for language-model callers and old split artifacts."""
-        return self.dataset_name
-
     def to_payload(self) -> dict[str, object]:
         return {
             "schema_version": self.schema_version,
@@ -57,24 +52,20 @@ class DataSplitPlan:
 
 def build_data_split_plan(
     *,
-    dataset_name: str | None = None,
-    corpus: str | None = None,
+    dataset_name: str,
     dataset_id: str,
     source_split: str | None,
     source_splits: Iterable[str],
     train_ratio: float,
     split_seed: int,
 ) -> DataSplitPlan:
-    resolved_dataset_name = dataset_name or corpus
-    if resolved_dataset_name is None:
-        raise ValueError("dataset_name is required")
-
     normalized_source_splits = tuple(source_splits)
     validation_ratio = round(1.0 - train_ratio, 12)
     identity = {
         "schema_version": SPLIT_PLAN_SCHEMA_VERSION,
         "split_method": SPLIT_METHOD,
-        "corpus": resolved_dataset_name,
+        # This key is part of the historical split ID hash, so keep it stable.
+        "corpus": dataset_name,
         "dataset_id": dataset_id,
         "source_split": source_split,
         "source_splits": list(normalized_source_splits),
@@ -87,7 +78,7 @@ def build_data_split_plan(
     ).hexdigest()[:16]
     return DataSplitPlan(
         split_id=split_id,
-        dataset_name=resolved_dataset_name,
+        dataset_name=dataset_name,
         dataset_id=dataset_id,
         source_split=source_split,
         source_splits=normalized_source_splits,

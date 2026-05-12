@@ -44,10 +44,12 @@ class BigramModel(ngram.BaseNgramModel):
         *,
         top_k: int,
     ) -> list[ngram.NgramPrediction]:
-        candidate_ids = ngram.candidate_token_ids(self.vocab_size, self.bos_id)
         observed = dict(self.transitions.get(previous_id, ()))
-        observed_total = sum(observed.get(token_id, 0) for token_id in candidate_ids)
-        candidate_count = len(candidate_ids)
+        observed_total = sum(
+            observed.get(token_id, 0)
+            for token_id in self.candidate_ids
+        )
+        candidate_count = len(self.candidate_ids)
         denominator = observed_total + self.smoothing * candidate_count
 
         if denominator <= 0:
@@ -66,7 +68,7 @@ class BigramModel(ngram.BaseNgramModel):
                     candidate_count=candidate_count,
                 ),
             )
-            for token_id in candidate_ids
+            for token_id in self.candidate_ids
             if observed.get(token_id, 0) > 0 or self.smoothing > 0
         ]
         predictions.sort(key=lambda prediction: (-prediction.probability, prediction.token_id))
@@ -79,8 +81,6 @@ class BigramModel(ngram.BaseNgramModel):
         top_k: int = 5,
         text_normalization: normalization.TextNormalization | None = None,
     ) -> ngram.NgramEvaluationSummary:
-        candidate_ids = ngram.candidate_token_ids(self.vocab_size, self.bos_id)
-        candidate_id_set = set(candidate_ids)
         row_cache: dict[int, BigramEvaluationRow] = {}
 
         resolved_text_normalization = text_normalization or self.text_normalization
@@ -104,8 +104,6 @@ class BigramModel(ngram.BaseNgramModel):
                 if row is None:
                     row = self.evaluation_row(
                         previous_id,
-                        candidate_ids=candidate_ids,
-                        candidate_id_set=candidate_id_set,
                         top_k=top_k,
                     )
                     row_cache[previous_id] = row
@@ -118,7 +116,6 @@ class BigramModel(ngram.BaseNgramModel):
                     probability=self.transition_probability(
                         next_id,
                         row=row,
-                        candidate_id_set=candidate_id_set,
                     ),
                 )
 
@@ -128,19 +125,16 @@ class BigramModel(ngram.BaseNgramModel):
         self,
         previous_id: int,
         *,
-        candidate_ids: tuple[int, ...],
-        candidate_id_set: set[int],
         top_k: int,
     ) -> BigramEvaluationRow:
         counts = {
             token_id: count
             for token_id, count in self.transitions.get(previous_id, ())
-            if token_id in candidate_id_set
+            if token_id in self.candidate_id_set
         }
-        denominator = sum(counts.values()) + self.smoothing * len(candidate_ids)
+        denominator = sum(counts.values()) + self.smoothing * len(self.candidate_ids)
         ranked_token_ids = self.ranked_token_ids(
             counts=counts,
-            candidate_ids=candidate_ids,
         )
         fallback_token_id = ngram.fallback_token_id(self.eos_id)
         greedy_token_id = ranked_token_ids[0] if ranked_token_ids else fallback_token_id
@@ -155,11 +149,10 @@ class BigramModel(ngram.BaseNgramModel):
         self,
         *,
         counts: dict[int, int],
-        candidate_ids: tuple[int, ...],
     ) -> list[int]:
         if self.smoothing > 0:
             return sorted(
-                candidate_ids,
+                self.candidate_ids,
                 key=lambda token_id: (-(counts.get(token_id, 0) + self.smoothing), token_id),
             )
         return sorted(counts, key=lambda token_id: (-counts[token_id], token_id))
@@ -169,9 +162,8 @@ class BigramModel(ngram.BaseNgramModel):
         next_id: int,
         *,
         row: BigramEvaluationRow,
-        candidate_id_set: set[int],
     ) -> float:
-        if row.denominator <= 0 or next_id not in candidate_id_set:
+        if row.denominator <= 0 or next_id not in self.candidate_id_set:
             return 0.0
         return (row.counts.get(next_id, 0) + self.smoothing) / row.denominator
 
@@ -181,16 +173,9 @@ def load_bigram_model(model_path: Path) -> BigramModel:
         model_path,
         model_type=_SCHEMA_TYPE,
     )
-    tokenizer_model, processor, vocab_size = ngram.load_sentencepiece_from_payload(
-        data,
-        model_path,
-    )
 
     return BigramModel(
-        model_path=model_path,
-        tokenizer_model=tokenizer_model,
-        processor=processor,
-        **ngram.sentencepiece_model_fields(data, processor, vocab_size),
+        **ngram.load_sentencepiece_model_fields(data, model_path),
         smoothing=float(data["smoothing"]),
         transitions=ngram.parse_token_transitions(data, "transitions"),
     )

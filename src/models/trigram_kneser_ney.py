@@ -133,16 +133,13 @@ class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
 
 
 def load_kneser_ney_trigram_model(model_path: Path) -> KneserNeyTrigramModel:
-    data, tokenizer_model, processor, vocab_size = trigrams.load_standard_trigram_payload(
+    data, model_fields = trigrams.load_standard_trigram_model_fields(
         model_path,
         model_type=_SCHEMA_TYPE,
     )
 
     return KneserNeyTrigramModel(
-        model_path=model_path,
-        tokenizer_model=tokenizer_model,
-        processor=processor,
-        **ngram.sentencepiece_model_fields(data, processor, vocab_size),
+        **model_fields,
         discount=float(data["discount"]),
         unigram_counts=ngram.parse_token_counts(data, "kneser_ney_unigrams"),
         unigram_total=int(data["kneser_ney_unigram_count"]),

@@ -388,18 +388,14 @@ def discounted_evaluation_items(
     ]
 
 
-def load_standard_trigram_payload(
+def load_standard_trigram_model_fields(
     model_path: Path,
     *,
     model_type: str,
     label: str | None = None,
-) -> tuple[dict[str, object], Path, spm.SentencePieceProcessor, int]:
+) -> tuple[dict[str, object], dict[str, object]]:
     data = ngram.load_json_model_payload(model_path, model_type=model_type, label=label)
-    tokenizer_model, processor, vocab_size = ngram.load_sentencepiece_from_payload(
-        data,
-        model_path,
-    )
-    return data, tokenizer_model, processor, vocab_size
+    return data, ngram.load_sentencepiece_model_fields(data, model_path)
 
 
 def standard_trigram_model_payload(

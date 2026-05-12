@@ -50,7 +50,7 @@ def build_cli_split_plan(
         else corpus_definition.available_splits
     )
     return data_splits.build_data_split_plan(
-        corpus=corpus,
+        dataset_name=corpus,
         dataset_id=dataset_id,
         source_split=source_split,
         source_splits=source_splits,

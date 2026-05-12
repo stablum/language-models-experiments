@@ -78,16 +78,13 @@ class AbsoluteDiscountTrigramModel(trigrams.DiscountedTrigramModel):
 
 
 def load_absolute_discount_trigram_model(model_path: Path) -> AbsoluteDiscountTrigramModel:
-    data, tokenizer_model, processor, vocab_size = trigrams.load_standard_trigram_payload(
+    data, model_fields = trigrams.load_standard_trigram_model_fields(
         model_path,
         model_type=_SCHEMA_TYPE,
     )
 
     return AbsoluteDiscountTrigramModel(
-        model_path=model_path,
-        tokenizer_model=tokenizer_model,
-        processor=processor,
-        **ngram.sentencepiece_model_fields(data, processor, vocab_size),
+        **model_fields,
         smoothing=float(data["smoothing"]),
         discount=float(data["discount"]),
         bigram_transitions=trigrams.parse_bigram_transitions(data),

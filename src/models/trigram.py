@@ -104,17 +104,14 @@ def normalize_interpolation_weights(
 
 
 def load_trigram_model(model_path: Path) -> TrigramModel:
-    data, tokenizer_model, processor, vocab_size = trigrams.load_standard_trigram_payload(
+    data, model_fields = trigrams.load_standard_trigram_model_fields(
         model_path,
         model_type=_SCHEMA_TYPE,
     )
     weights = data["interpolation_weights"]
 
     return TrigramModel(
-        model_path=model_path,
-        tokenizer_model=tokenizer_model,
-        processor=processor,
-        **ngram.sentencepiece_model_fields(data, processor, vocab_size),
+        **model_fields,
         smoothing=float(data["smoothing"]),
         unigram_weight=float(weights["unigram"]),
         bigram_weight=float(weights["bigram"]),
