@@ -18,6 +18,40 @@ from src.ml_core.tracking import (
 
 
 STAGED_TOKENIZER_MODEL_NAME = "input-tokenizer.model"
+TRAINING_METRIC_ATTRS = (
+    "vocab_size",
+    "sequence_count",
+    "token_count",
+    "transition_count",
+    "unigram_count",
+    "bigram_transition_count",
+    "trigram_transition_count",
+    "continuation_unigram_count",
+    "continuation_bigram_type_count",
+    "smoothing",
+    "discount",
+    "unigram_weight",
+    "bigram_weight",
+    "trigram_weight",
+)
+EVALUATION_METRIC_ATTRS = (
+    "sequence_count",
+    "token_count",
+    "transition_count",
+    "correct_next_token_count",
+    "top_k_correct_next_token_count",
+    "next_token_accuracy",
+    "top_k_accuracy",
+    "average_negative_log_likelihood",
+    "cross_entropy_bits",
+    "perplexity",
+    "zero_probability_count",
+    "top_k",
+    "discount",
+    "unigram_weight",
+    "bigram_weight",
+    "trigram_weight",
+)
 
 
 def stage_tokenizer_model(
@@ -132,55 +166,11 @@ def validate_model_source(
 
 
 def training_summary_metrics(summary: object) -> dict[str, object]:
-    return {
-        "vocab_size": getattr(summary, "vocab_size", None),
-        "sequence_count": getattr(summary, "sequence_count", None),
-        "token_count": getattr(summary, "token_count", None),
-        "transition_count": getattr(summary, "transition_count", None),
-        "unigram_count": getattr(summary, "unigram_count", None),
-        "bigram_transition_count": getattr(summary, "bigram_transition_count", None),
-        "trigram_transition_count": getattr(summary, "trigram_transition_count", None),
-        "continuation_unigram_count": getattr(summary, "continuation_unigram_count", None),
-        "continuation_bigram_type_count": getattr(
-            summary,
-            "continuation_bigram_type_count",
-            None,
-        ),
-        "smoothing": getattr(summary, "smoothing", None),
-        "discount": getattr(summary, "discount", None),
-        "unigram_weight": getattr(summary, "unigram_weight", None),
-        "bigram_weight": getattr(summary, "bigram_weight", None),
-        "trigram_weight": getattr(summary, "trigram_weight", None),
-    }
+    return _attrs(summary, TRAINING_METRIC_ATTRS)
 
 
 def evaluation_metrics(summary: object) -> dict[str, object]:
-    return {
-        "sequence_count": getattr(summary, "sequence_count", None),
-        "token_count": getattr(summary, "token_count", None),
-        "transition_count": getattr(summary, "transition_count", None),
-        "correct_next_token_count": getattr(summary, "correct_next_token_count", None),
-        "top_k_correct_next_token_count": getattr(
-            summary,
-            "top_k_correct_next_token_count",
-            None,
-        ),
-        "next_token_accuracy": getattr(summary, "next_token_accuracy", None),
-        "top_k_accuracy": getattr(summary, "top_k_accuracy", None),
-        "average_negative_log_likelihood": getattr(
-            summary,
-            "average_negative_log_likelihood",
-            None,
-        ),
-        "cross_entropy_bits": getattr(summary, "cross_entropy_bits", None),
-        "perplexity": getattr(summary, "perplexity", None),
-        "zero_probability_count": getattr(summary, "zero_probability_count", None),
-        "top_k": getattr(summary, "top_k", None),
-        "discount": getattr(summary, "discount", None),
-        "unigram_weight": getattr(summary, "unigram_weight", None),
-        "bigram_weight": getattr(summary, "bigram_weight", None),
-        "trigram_weight": getattr(summary, "trigram_weight", None),
-    }
+    return _attrs(summary, EVALUATION_METRIC_ATTRS)
 
 
 def evaluation_metrics_for_partition(
@@ -278,3 +268,7 @@ def stored_model_filename(output_model_name: str | None) -> str | None:
         return None
     output_path = Path(output_model_name)
     return output_path.name if output_path.suffix else f"{output_path.name}.json"
+
+
+def _attrs(obj: object, names: tuple[str, ...]) -> dict[str, object]:
+    return {name: getattr(obj, name, None) for name in names}

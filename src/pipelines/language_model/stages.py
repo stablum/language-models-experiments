@@ -5,55 +5,27 @@ from pathlib import Path
 
 import click
 
-from src.ml_core.data.split_artifacts import (
-    build_cli_split_plan,
-    inherited_split_plan_from_task,
-    split_plan_parameter_sections,
-    upload_split_plan_artifact,
-)
-from src.ml_core.cli.output import emit_stage_title, iter_with_progress
-from src.pipelines.language_model.artifacts import (
-    evaluation_metrics_for_partition,
-    evaluation_payload,
-    query_debug_sample,
-    query_metrics,
-    query_payload,
-    stage_model_files,
-    stage_tokenizer_model,
-    training_summary_metrics,
-)
-from src.ml_core.cli.staging import temporary_staging_directory
 from src.corpora import registry as corpora_registry
 from src.corpora import splits as corpus_splits
 from src.corpora import text as corpus_text
-from src.ml_core.data.splits import (
-    PROJECT_PARTITIONS,
-    SPLIT_PLAN_ARTIFACT,
-    TRAIN_PARTITION,
-    attach_split_plan_to_json_model,
-    count_partition_rows,
-    iter_partition_rows,
-    read_model_split_plan,
-    source_split_label,
-)
-from src.ml_core.models.definition import ModelOptionError
-from src.pipelines.language_model.definition import (
-    EVALUATION_STAGE,
-    MODEL_STAGE,
-    QUERY_STAGE,
-    TOKENIZER_STAGE,
-)
-from src.pipelines.language_model.model_options import merge_model_hyperparameters
+from src.ml_core import tracking
+from src.ml_core.cli import output as cli_out
+from src.ml_core.cli import staging
+from src.ml_core.data import split_artifacts
+from src.ml_core.data import splits as data_splits
+from src.ml_core.models import definition as model_def
 from src.models.core import registry as model_registry
+from src.pipelines.language_model import artifacts as lm_artifacts
+from src.pipelines.language_model import definition as lm_def
+from src.pipelines.language_model import model_options as lm_model_options
 from src.tokenizers.sentencepiece_training import train_sentencepiece
-from src.ml_core.tracking import ClearMLRun, configure_clearml_config_file
 
 
 PIPELINE_STAGE_TITLES = {
-    TOKENIZER_STAGE: (1, 1, "Tokenizer training"),
-    MODEL_STAGE: (1, 3, "Model training"),
-    EVALUATION_STAGE: (2, 3, "Evaluation"),
-    QUERY_STAGE: (3, 3, "Query"),
+    lm_def.TOKENIZER_STAGE: (1, 1, "Tokenizer training"),
+    lm_def.MODEL_STAGE: (1, 3, "Model training"),
+    lm_def.EVALUATION_STAGE: (2, 3, "Evaluation"),
+    lm_def.QUERY_STAGE: (3, 3, "Query"),
 }
 
 
@@ -79,11 +51,11 @@ def train_tokenizer_step(
     clearml_config_file: str | None = None,
 ) -> str:
     """Train and publish the tokenizer step artifacts."""
-    stage = TOKENIZER_STAGE
+    stage = lm_def.TOKENIZER_STAGE
     _configure_step_clearml(clearml_config_file)
     _emit_pipeline_stage_title(stage)
     corpus_definition = corpora_registry.get_corpus(corpus)
-    split_plan = build_cli_split_plan(
+    split_plan = split_artifacts.build_cli_split_plan(
         corpus_definition,
         corpus=corpus,
         dataset_id=dataset_id,
@@ -92,7 +64,9 @@ def train_tokenizer_step(
         split_seed=split_seed,
     )
 
-    with temporary_staging_directory(prefix="lme-pipeline-tokenizer-") as staging_dir:
+    with staging.temporary_staging_directory(
+        prefix="lme-pipeline-tokenizer-"
+    ) as staging_dir:
         output_prefix = staging_dir / artifact_name
         clearml_run = _current_step_run(
             clearml_output_uri=clearml_output_uri,
@@ -111,8 +85,8 @@ def train_tokenizer_step(
                 "Data": {
                     "corpus": corpus,
                     "dataset_id": dataset_id,
-                    "source_split": source_split_label(source_split),
-                    "training_partition": TRAIN_PARTITION,
+                    "source_split": data_splits.source_split_label(source_split),
+                    "training_partition": data_splits.TRAIN_PARTITION,
                     "text_column": text_column,
                     "streaming": streaming,
                     "limit": limit,
@@ -126,7 +100,7 @@ def train_tokenizer_step(
                     "hard_vocab_limit": hard_vocab_limit,
                     "max_sentence_length": max_sentence_length,
                 },
-                **split_plan_parameter_sections(split_plan),
+                **split_artifacts.split_plan_parameter_sections(split_plan),
             }
         )
 
@@ -134,7 +108,7 @@ def train_tokenizer_step(
             corpus_definition,
             dataset_id=dataset_id,
             plan=split_plan,
-            partition=TRAIN_PARTITION,
+            partition=data_splits.TRAIN_PARTITION,
             streaming=streaming,
             text_column=text_column,
             limit=limit,
@@ -159,7 +133,7 @@ def train_tokenizer_step(
                 "limit": limit,
             },
         )
-        upload_split_plan_artifact(
+        split_artifacts.upload_split_plan_artifact(
             clearml_run,
             staging_dir=staging_dir,
             plan=split_plan,
@@ -201,26 +175,28 @@ def train_model_pipeline_step(
     **legacy_model_hyperparameters: object,
 ) -> str:
     """Train the language model from the tokenizer step artifact."""
-    stage = MODEL_STAGE
+    stage = lm_def.MODEL_STAGE
     _configure_step_clearml(clearml_config_file)
     _emit_pipeline_stage_title(stage)
     corpus_definition = corpora_registry.get_corpus(corpus)
     model_definition = model_registry.get_model(model_name)
 
-    with temporary_staging_directory(prefix="lme-pipeline-model-") as staging_dir:
+    with staging.temporary_staging_directory(
+        prefix="lme-pipeline-model-"
+    ) as staging_dir:
         clearml_run = _current_step_run(
             clearml_output_uri=clearml_output_uri,
             clearml_tags=clearml_tags,
             stage=stage,
         )
-        staged_tokenizer_model = stage_tokenizer_model(
+        staged_tokenizer_model = lm_artifacts.stage_tokenizer_model(
             tokenizer_task_id=tokenizer_task_id,
             tokenizer_model_name=tokenizer_model_name,
             tokenizer_model=None,
             staging_dir=staging_dir,
             clearml_run=clearml_run,
         )
-        inherited_plan = inherited_split_plan_from_task(
+        inherited_plan = split_artifacts.inherited_split_plan_from_task(
             task_id=tokenizer_task_id,
             staging_dir=staging_dir,
         )
@@ -230,7 +206,7 @@ def train_model_pipeline_step(
             train_ratio = inherited_plan.train_ratio
             split_seed = inherited_plan.split_seed
 
-        split_plan = build_cli_split_plan(
+        split_plan = split_artifacts.build_cli_split_plan(
             corpus_definition,
             corpus=corpus,
             dataset_id=dataset_id,
@@ -239,7 +215,7 @@ def train_model_pipeline_step(
             split_seed=split_seed,
         )
         output_path = staging_dir / f"{corpus}-sentencepiece-{model_definition.name}.json"
-        resolved_model_hyperparameters = merge_model_hyperparameters(
+        resolved_model_hyperparameters = lm_model_options.merge_model_hyperparameters(
             model_hyperparameters,
             legacy_model_hyperparameters,
         )
@@ -253,7 +229,7 @@ def train_model_pipeline_step(
         }
         try:
             model_definition.validate_options(model_options)
-        except ModelOptionError as error:
+        except model_def.ModelOptionError as error:
             raise click.ClickException(str(error)) from error
 
         clearml_run.connect_parameter_sections(
@@ -269,8 +245,8 @@ def train_model_pipeline_step(
                 "Data": {
                     "corpus": corpus,
                     "dataset_id": dataset_id,
-                    "source_split": source_split_label(source_split),
-                    "training_partition": TRAIN_PARTITION,
+                    "source_split": data_splits.source_split_label(source_split),
+                    "training_partition": data_splits.TRAIN_PARTITION,
                     "text_column": text_column,
                     "streaming": streaming,
                     "limit": limit,
@@ -285,7 +261,7 @@ def train_model_pipeline_step(
                     "tokenizer_model_name": tokenizer_model_name,
                     "tokenizer_model_file": staged_tokenizer_model.name,
                 },
-                **split_plan_parameter_sections(split_plan),
+                **split_artifacts.split_plan_parameter_sections(split_plan),
                 "Outputs": {
                     "model_file": output_path.name,
                 },
@@ -296,16 +272,19 @@ def train_model_pipeline_step(
             corpus_definition,
             dataset_id=dataset_id,
             plan=split_plan,
-            partition=TRAIN_PARTITION,
+            partition=data_splits.TRAIN_PARTITION,
             streaming=streaming,
             text_column=text_column,
             limit=limit,
         )
         summary = model_definition.train(texts, model_options)
-        attach_split_plan_to_json_model(summary.output_path, split_plan)
+        data_splits.attach_split_plan_to_json_model(summary.output_path, split_plan)
 
-        clearml_run.log_metrics("Model training", training_summary_metrics(summary))
-        upload_split_plan_artifact(
+        clearml_run.log_metrics(
+            "Model training",
+            lm_artifacts.training_summary_metrics(summary),
+        )
+        split_artifacts.upload_split_plan_artifact(
             clearml_run,
             staging_dir=staging_dir,
             plan=split_plan,
@@ -340,7 +319,7 @@ def evaluate_pipeline_step(
     clearml_config_file: str | None = None,
 ) -> str:
     """Evaluate the trained model step artifact."""
-    stage = EVALUATION_STAGE
+    stage = lm_def.EVALUATION_STAGE
     _configure_step_clearml(clearml_config_file)
     _emit_pipeline_stage_title(stage)
     corpus_definition = corpora_registry.get_corpus(corpus)
@@ -348,7 +327,7 @@ def evaluate_pipeline_step(
     if model_definition.evaluate is None:
         raise click.ClickException(f"Model does not support evaluation yet: {model_name}")
 
-    evaluation_partitions = tuple(PROJECT_PARTITIONS)
+    evaluation_partitions = tuple(data_splits.PROJECT_PARTITIONS)
     click.echo(
         f"Evaluation stage started: model={model_definition.name}, corpus={corpus}, "
         f"partitions={', '.join(evaluation_partitions)}, "
@@ -357,14 +336,16 @@ def evaluate_pipeline_step(
     if limit is not None:
         click.echo(f"Evaluation row limit: first {limit:,} selected rows")
 
-    with temporary_staging_directory(prefix="lme-pipeline-evaluate-") as staging_dir:
+    with staging.temporary_staging_directory(
+        prefix="lme-pipeline-evaluate-"
+    ) as staging_dir:
         clearml_run = _current_step_run(
             clearml_output_uri=clearml_output_uri,
             clearml_tags=clearml_tags,
             stage=stage,
         )
         click.echo(f"Staging model files from ClearML task {model_task_id}...")
-        staged_model_path = stage_model_files(
+        staged_model_path = lm_artifacts.stage_model_files(
             model_task_id=model_task_id,
             model_path=None,
             staging_dir=staging_dir,
@@ -372,7 +353,7 @@ def evaluate_pipeline_step(
             output_model_name=f"{corpus}-sentencepiece-{model_definition.name}",
         )
         click.echo(f"Staged model file: {staged_model_path.name}")
-        inherited_plan = read_model_split_plan(staged_model_path)
+        inherited_plan = data_splits.read_model_split_plan(staged_model_path)
         if inherited_plan is not None:
             dataset_id = inherited_plan.dataset_id
             source_split = inherited_plan.source_split
@@ -380,7 +361,7 @@ def evaluate_pipeline_step(
             split_seed = inherited_plan.split_seed
             click.echo(f"Using inherited data split plan: {inherited_plan.split_id}")
 
-        split_plan = build_cli_split_plan(
+        split_plan = split_artifacts.build_cli_split_plan(
             corpus_definition,
             corpus=corpus,
             dataset_id=dataset_id,
@@ -396,11 +377,12 @@ def evaluate_pipeline_step(
         if model_definition.validate_evaluation_options is not None:
             try:
                 model_definition.validate_evaluation_options(evaluation_options)
-            except ModelOptionError as error:
+            except model_def.ModelOptionError as error:
                 raise click.ClickException(str(error)) from error
         click.echo(
             f"Evaluation data: dataset={dataset_id}, "
-            f"source_split={source_split_label(source_split)}, text_column={text_column}"
+            f"source_split={data_splits.source_split_label(source_split)}, "
+            f"text_column={text_column}"
         )
 
         clearml_run.connect_parameter_sections(
@@ -416,7 +398,7 @@ def evaluate_pipeline_step(
                 "Data": {
                     "corpus": corpus,
                     "dataset_id": dataset_id,
-                    "source_split": source_split_label(source_split),
+                    "source_split": data_splits.source_split_label(source_split),
                     "evaluation_partition": evaluation_partition,
                     "evaluation_partitions": list(evaluation_partitions),
                     "text_column": text_column,
@@ -431,7 +413,7 @@ def evaluate_pipeline_step(
                 "Evaluation": {
                     "top_k": top_k,
                 },
-                **split_plan_parameter_sections(split_plan),
+                **split_artifacts.split_plan_parameter_sections(split_plan),
             }
         )
 
@@ -444,7 +426,7 @@ def evaluate_pipeline_step(
                 streaming=streaming,
             )
             click.echo("Counting selected evaluation rows...")
-            total_rows = count_partition_rows(
+            total_rows = data_splits.count_partition_rows(
                 dataset,
                 partition=partition,
                 plan=split_plan,
@@ -456,7 +438,7 @@ def evaluate_pipeline_step(
                 )
             else:
                 click.echo(f"Evaluation rows selected: {total_rows:,}")
-            rows = iter_partition_rows(
+            rows = data_splits.iter_partition_rows(
                 dataset,
                 partition=partition,
                 plan=split_plan,
@@ -469,7 +451,7 @@ def evaluate_pipeline_step(
 
             click.echo(f"Running {partition} model evaluation...")
             summary = model_definition.evaluate(
-                iter_with_progress(
+                cli_out.iter_with_progress(
                     texts,
                     label=f"Evaluating {partition} rows",
                     total=total_rows,
@@ -485,7 +467,10 @@ def evaluate_pipeline_step(
 
             clearml_run.log_metrics(
                 "Evaluation",
-                evaluation_metrics_for_partition(summary, partition=partition),
+                lm_artifacts.evaluation_metrics_for_partition(
+                    summary,
+                    partition=partition,
+                ),
             )
 
         primary_summary = summaries.get(evaluation_partition)
@@ -496,7 +481,7 @@ def evaluate_pipeline_step(
             primary_partition = evaluation_partition
 
         click.echo("Uploading evaluation artifacts...")
-        upload_split_plan_artifact(
+        split_artifacts.upload_split_plan_artifact(
             clearml_run,
             staging_dir=staging_dir,
             plan=split_plan,
@@ -505,11 +490,11 @@ def evaluate_pipeline_step(
         clearml_run.upload_artifact(
             "evaluation-summary",
             {
-                **evaluation_payload(primary_summary),
+                **lm_artifacts.evaluation_payload(primary_summary),
                 **{
                     metric_name: value
                     for partition, summary in summaries.items()
-                    for metric_name, value in evaluation_metrics_for_partition(
+                    for metric_name, value in lm_artifacts.evaluation_metrics_for_partition(
                         summary,
                         partition=partition,
                     ).items()
@@ -519,7 +504,7 @@ def evaluate_pipeline_step(
                 "evaluation_limit": limit,
                 "data_split": split_plan.to_payload(),
                 "partitions": {
-                    partition: evaluation_payload(summary)
+                    partition: lm_artifacts.evaluation_payload(summary)
                     for partition, summary in summaries.items()
                 },
             },
@@ -554,7 +539,7 @@ def query_pipeline_step(
     clearml_config_file: str | None = None,
 ) -> str:
     """Query the trained model step artifact."""
-    stage = QUERY_STAGE
+    stage = lm_def.QUERY_STAGE
     _configure_step_clearml(clearml_config_file)
     _emit_pipeline_stage_title(stage)
     clearml_run = _current_step_run(
@@ -585,7 +570,7 @@ def query_pipeline_step(
 
 
 def query_model_run(
-    clearml_run: ClearMLRun,
+    clearml_run: tracking.ClearMLRun,
     *,
     model_task_id: str | None,
     model_path: Path | None,
@@ -599,15 +584,15 @@ def query_model_run(
     temperature: float,
     seed: int | None,
     command: str,
-    stage: str = QUERY_STAGE,
+    stage: str = lm_def.QUERY_STAGE,
 ) -> object:
     """Query a trained model and store the standard query artifacts."""
     model_definition = model_registry.get_model(model_name)
     if model_definition.query is None:
         raise click.ClickException(f"Model does not support querying yet: {model_name}")
 
-    with temporary_staging_directory(prefix="lme-query-") as staging_dir:
-        staged_model_path = stage_model_files(
+    with staging.temporary_staging_directory(prefix="lme-query-") as staging_dir:
+        staged_model_path = lm_artifacts.stage_model_files(
             model_task_id=model_task_id,
             model_path=model_path,
             staging_dir=staging_dir,
@@ -627,7 +612,7 @@ def query_model_run(
         if model_definition.validate_query_options is not None:
             try:
                 model_definition.validate_query_options(query_options)
-            except ModelOptionError as error:
+            except model_def.ModelOptionError as error:
                 raise click.ClickException(str(error)) from error
 
         clearml_run.connect_parameter_sections(
@@ -662,16 +647,16 @@ def query_model_run(
         )
 
         result = model_definition.query(query_options)
-        clearml_run.log_metrics("Query", query_metrics(result))
+        clearml_run.log_metrics("Query", lm_artifacts.query_metrics(result))
         clearml_run.report_debug_sample(
             title="Query",
             series="result",
-            contents=query_debug_sample(result),
+            contents=lm_artifacts.query_debug_sample(result),
             file_extension="txt",
         )
         clearml_run.upload_artifact(
             "query-result",
-            query_payload(result),
+            lm_artifacts.query_payload(result),
             metadata={"model": model_definition.name, "corpus": corpus},
         )
         return result
@@ -684,12 +669,12 @@ def _query_lines(model_definition: object, result: object) -> tuple[str, ...]:
 
 def _configure_step_clearml(clearml_config_file: str | None) -> None:
     if clearml_config_file is not None:
-        configure_clearml_config_file(Path(clearml_config_file))
+        tracking.configure_clearml_config_file(Path(clearml_config_file))
 
 
 def _emit_pipeline_stage_title(stage: str) -> None:
     index, total, title = PIPELINE_STAGE_TITLES[stage]
-    emit_stage_title(index, total, title)
+    cli_out.emit_stage_title(index, total, title)
 
 
 def _current_step_run(
@@ -697,7 +682,7 @@ def _current_step_run(
     clearml_output_uri: str | None,
     clearml_tags: str | list[str] | tuple[str, ...] | None,
     stage: str,
-) -> ClearMLRun:
+) -> tracking.ClearMLRun:
     try:
         from clearml import OutputModel, Task
     except ImportError as error:
@@ -715,7 +700,7 @@ def _current_step_run(
     tags = tuple(dict.fromkeys(_normalize_tags(clearml_tags)))
     if tags:
         task.add_tags(list(tags))
-    return ClearMLRun(
+    return tracking.ClearMLRun(
         task=task,
         output_model_type=OutputModel,
         output_uri=clearml_output_uri,
@@ -723,7 +708,7 @@ def _current_step_run(
     )
 
 
-def _require_task_id(clearml_run: ClearMLRun) -> str:
+def _require_task_id(clearml_run: tracking.ClearMLRun) -> str:
     task_id = clearml_run.task_id
     if task_id is None:
         raise click.ClickException("ClearML step task ID is not available.")
@@ -745,56 +730,3 @@ PIPELINE_STEP_HELPERS = (
     _require_task_id,
     _normalize_tags,
 )
-
-
-def pipeline_artifact_monitors() -> dict[str, list[str | tuple[str, str]]]:
-    return {
-        TOKENIZER_STAGE: [
-            "sentencepiece-vocabulary",
-            SPLIT_PLAN_ARTIFACT,
-        ],
-        MODEL_STAGE: [
-            SPLIT_PLAN_ARTIFACT,
-        ],
-        EVALUATION_STAGE: [
-            "evaluation-summary",
-        ],
-        QUERY_STAGE: [
-            "query-result",
-        ],
-    }
-
-
-def pipeline_metric_monitors(
-    evaluation_partition: str | None = None,
-) -> dict[str, list[tuple[str, str]]]:
-    if evaluation_partition in PROJECT_PARTITIONS:
-        evaluation_partitions = tuple(
-            dict.fromkeys((evaluation_partition, *PROJECT_PARTITIONS))
-        )
-    else:
-        evaluation_partitions = tuple(PROJECT_PARTITIONS)
-    return {
-        TOKENIZER_STAGE: [
-            ("Tokenizer training", "vocab_size"),
-            ("Tokenizer training", "limit"),
-        ],
-        MODEL_STAGE: [
-            ("Model training", "sequence_count"),
-            ("Model training", "token_count"),
-            ("Model training", "transition_count"),
-        ],
-        EVALUATION_STAGE: [
-            ("Evaluation", f"{partition}/{metric}")
-            for partition in evaluation_partitions
-            for metric in (
-                "next_token_accuracy",
-                "top_k_accuracy",
-                "perplexity",
-            )
-        ],
-        QUERY_STAGE: [
-            ("Query", "generated_token_count"),
-            ("Query", "top_next_token_probability"),
-        ],
-    }

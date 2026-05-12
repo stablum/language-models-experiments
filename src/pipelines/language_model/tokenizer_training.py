@@ -4,26 +4,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.pipelines.language_model.definition import (
-    DEFAULT_TOKENIZER_TRAINING_NAME,
-    TOKENIZER_STAGE,
-    TOKENIZER_TRAINING_STAGE_DEPENDENCIES,
-    TOKENIZER_TRAINING_STAGES,
-    PipelineDefinition,
-    output_uri_value,
-    stage_gate_callback,
-)
+from src.pipelines.language_model import definition as lm_def
+from src.pipelines.language_model import step_config
 from src.pipelines.language_model.stage_entries import train_tokenizer_stage_entry
-from src.pipelines.language_model.stages import (
-    pipeline_artifact_monitors,
-    pipeline_metric_monitors,
-)
 
 
-TOKENIZER_TRAINING_PIPELINE = PipelineDefinition(
-    default_name=DEFAULT_TOKENIZER_TRAINING_NAME,
-    stages=TOKENIZER_TRAINING_STAGES,
-    stage_dependencies=TOKENIZER_TRAINING_STAGE_DEPENDENCIES,
+DEFAULT_TOKENIZER_TRAINING_NAME = lm_def.DEFAULT_TOKENIZER_TRAINING_NAME
+TOKENIZER_STAGE = lm_def.TOKENIZER_STAGE
+TOKENIZER_TRAINING_STAGE_DEPENDENCIES = lm_def.TOKENIZER_TRAINING_STAGE_DEPENDENCIES
+TOKENIZER_TRAINING_STAGES = lm_def.TOKENIZER_TRAINING_STAGES
+
+TOKENIZER_TRAINING_PIPELINE = lm_def.PipelineDefinition(
+    default_name=lm_def.DEFAULT_TOKENIZER_TRAINING_NAME,
+    stages=lm_def.TOKENIZER_TRAINING_STAGES,
+    stage_dependencies=lm_def.TOKENIZER_TRAINING_STAGE_DEPENDENCIES,
 )
 
 
@@ -51,25 +45,16 @@ def add_pipeline_steps(
     max_sentence_length: int | None,
     text_normalization: str,
 ) -> None:
-    artifact_monitors = pipeline_artifact_monitors()
-    metric_monitors = pipeline_metric_monitors()
-    common_step_kwargs = {
-        "clearml_output_uri": clearml_output_uri,
-        "clearml_tags": "\n".join(clearml_tags),
-        "clearml_config_file": str(clearml_config_file) if clearml_config_file else None,
-    }
-    step_options = {
-        "project_name": clearml_project,
-        "execution_queue": execution_queue,
-        "output_uri": output_uri_value(clearml_output_uri),
-        "auto_connect_frameworks": False,
-        "auto_connect_arg_parser": False,
-        "pre_execute_callback": stage_gate_callback,
-        "tags": list(clearml_tags) if clearml_tags else None,
-    }
-
-    pipeline.add_function_step(
-        name=TOKENIZER_STAGE,
+    cfg = step_config.StepCfg(
+        project_name=clearml_project,
+        output_uri=clearml_output_uri,
+        tags=clearml_tags,
+        config_file=clearml_config_file,
+        queue=execution_queue,
+    )
+    cfg.add(
+        pipeline,
+        name=lm_def.TOKENIZER_STAGE,
         function=train_tokenizer_stage_entry,
         function_kwargs={
             "corpus": corpus,
@@ -87,14 +72,8 @@ def add_pipeline_steps(
             "hard_vocab_limit": hard_vocab_limit,
             "max_sentence_length": max_sentence_length,
             "text_normalization": text_normalization,
-            **common_step_kwargs,
         },
-        task_name=TOKENIZER_STAGE,
         task_type="training",
-        monitor_artifacts=artifact_monitors[TOKENIZER_STAGE],
-        monitor_metrics=metric_monitors[TOKENIZER_STAGE],
-        stage=TOKENIZER_STAGE,
-        **step_options,
     )
 
 

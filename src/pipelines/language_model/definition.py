@@ -7,49 +7,52 @@ from dataclasses import dataclass
 
 import click
 
-from src.ml_core.pipeline import (
-    ACTIVE_STATUSES,
-    COMPLETED_STATUSES,
-    DEFAULT_CONTROLLER_QUEUE,
-    DEFAULT_PIPELINE_VERSION,
-    FAILED_STATUSES,
-    PIPELINE_CONTROL_MODE,
-    PIPELINE_CONTROL_RUN_STAGE,
-    PIPELINE_CONTROL_RUN_UNTIL_STAGE,
-    PIPELINE_CONTROL_SECTION,
-    PIPELINE_CONTROL_UPDATED_BY,
-    PIPELINE_MODE_ALL,
-    PIPELINE_MODE_RUN_STAGE,
-    PIPELINE_MODE_RUN_UNTIL,
-    TERMINAL_STATUSES,
-    ControllerCandidate,
-    PipelineControl,
-    StageEligibility,
-    StageTask,
-    assert_controller_can_run_stage,
-    assert_controller_task_succeeded,
-    assert_pipeline_finished_successfully,
-    build_pipeline_controller,
-    configure_pipeline_control as configure_generic_pipeline_control,
-    connect_controller_experiment_parameters,
-    controller_parameters_match,
-    list_pipeline_controller_candidates,
-    make_stage_gate_callback,
-    output_uri_value,
-    pipeline_control_from_task,
-    pipeline_options,
-    pipeline_resume_option,
-    pipeline_stage_eligibility,
-    pipeline_stage_tasks,
-    print_stage_task_ids,
-    project_version,
-    resolve_pipeline_controller_id,
-    resume_pipeline_controller_stage,
-    stage_allowed_by_control,
-    validate_stage_selection,
-    wait_for_controller_completion,
+from src.ml_core import pipeline as core_pipeline
+from src.ml_core import tracking
+
+
+ACTIVE_STATUSES = core_pipeline.ACTIVE_STATUSES
+COMPLETED_STATUSES = core_pipeline.COMPLETED_STATUSES
+DEFAULT_CONTROLLER_QUEUE = core_pipeline.DEFAULT_CONTROLLER_QUEUE
+DEFAULT_PIPELINE_VERSION = core_pipeline.DEFAULT_PIPELINE_VERSION
+FAILED_STATUSES = core_pipeline.FAILED_STATUSES
+PIPELINE_CONTROL_MODE = core_pipeline.PIPELINE_CONTROL_MODE
+PIPELINE_CONTROL_RUN_STAGE = core_pipeline.PIPELINE_CONTROL_RUN_STAGE
+PIPELINE_CONTROL_RUN_UNTIL_STAGE = core_pipeline.PIPELINE_CONTROL_RUN_UNTIL_STAGE
+PIPELINE_CONTROL_SECTION = core_pipeline.PIPELINE_CONTROL_SECTION
+PIPELINE_CONTROL_UPDATED_BY = core_pipeline.PIPELINE_CONTROL_UPDATED_BY
+PIPELINE_MODE_ALL = core_pipeline.PIPELINE_MODE_ALL
+PIPELINE_MODE_RUN_STAGE = core_pipeline.PIPELINE_MODE_RUN_STAGE
+PIPELINE_MODE_RUN_UNTIL = core_pipeline.PIPELINE_MODE_RUN_UNTIL
+TERMINAL_STATUSES = core_pipeline.TERMINAL_STATUSES
+ControllerCandidate = core_pipeline.ControllerCandidate
+PipelineControl = core_pipeline.PipelineControl
+StageEligibility = core_pipeline.StageEligibility
+StageTask = core_pipeline.StageTask
+assert_controller_can_run_stage = core_pipeline.assert_controller_can_run_stage
+assert_controller_task_succeeded = core_pipeline.assert_controller_task_succeeded
+assert_pipeline_finished_successfully = (
+    core_pipeline.assert_pipeline_finished_successfully
 )
-from src.ml_core.tracking import clearml_task, task_has_output_model
+build_pipeline_controller = core_pipeline.build_pipeline_controller
+connect_controller_experiment_parameters = (
+    core_pipeline.connect_controller_experiment_parameters
+)
+controller_parameters_match = core_pipeline.controller_parameters_match
+list_pipeline_controller_candidates = core_pipeline.list_pipeline_controller_candidates
+output_uri_value = core_pipeline.output_uri_value
+pipeline_control_from_task = core_pipeline.pipeline_control_from_task
+pipeline_options = core_pipeline.pipeline_options
+pipeline_resume_option = core_pipeline.pipeline_resume_option
+pipeline_stage_eligibility = core_pipeline.pipeline_stage_eligibility
+pipeline_stage_tasks = core_pipeline.pipeline_stage_tasks
+print_stage_task_ids = core_pipeline.print_stage_task_ids
+project_version = core_pipeline.project_version
+resolve_pipeline_controller_id = core_pipeline.resolve_pipeline_controller_id
+resume_pipeline_controller_stage = core_pipeline.resume_pipeline_controller_stage
+stage_allowed_by_control = core_pipeline.stage_allowed_by_control
+validate_stage_selection = core_pipeline.validate_stage_selection
+wait_for_controller_completion = core_pipeline.wait_for_controller_completion
 
 
 DEFAULT_MODEL_TRAINING_NAME = "model-training"
@@ -82,7 +85,7 @@ QUERY_STAGE_DEPENDENCIES = {
     QUERY_STAGE: (),
 }
 
-stage_gate_callback = make_stage_gate_callback(ALL_PIPELINE_STAGES)
+stage_gate_callback = core_pipeline.make_stage_gate_callback(ALL_PIPELINE_STAGES)
 
 
 @dataclass(frozen=True)
@@ -117,7 +120,7 @@ def configure_pipeline_control(
     updated_by: str,
     preserve_remote_control: bool = True,
 ) -> PipelineControl:
-    return configure_generic_pipeline_control(
+    return core_pipeline.configure_pipeline_control(
         task,
         run_stage=run_stage,
         run_until_stage=run_until_stage,
@@ -166,7 +169,7 @@ def resolve_tokenizer_training_task(
             continue
 
         for stage_task in completed_tokenizer_tasks:
-            if task_has_output_model(stage_task.id, tokenizer_model_name):
+            if tracking.task_has_output_model(stage_task.id, tokenizer_model_name):
                 return TokenizerTrainingResolution(
                     controller_id=candidate.id,
                     tokenizer_task_id=stage_task.id,
@@ -233,7 +236,7 @@ def resolve_model_training_task(
             continue
 
         for stage_task in completed_model_tasks:
-            if task_has_output_model(stage_task.id, output_model_name):
+            if tracking.task_has_output_model(stage_task.id, output_model_name):
                 return ModelTrainingResolution(
                     controller_id=candidate.id,
                     model_task_id=stage_task.id,
@@ -277,7 +280,7 @@ def _model_training_candidates(
             clearml_project=clearml_project,
         )
 
-    task = clearml_task(pipeline_controller_id)
+    task = tracking.clearml_task(pipeline_controller_id)
     return (
         ControllerCandidate(
             id=pipeline_controller_id,

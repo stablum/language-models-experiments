@@ -5,44 +5,30 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-from src.pipelines.language_model.definition import (
-    DEFAULT_MODEL_TRAINING_NAME,
-    DEFAULT_TOKENIZER_TRAINING_NAME,
-    EVALUATION_STAGE,
-    MODEL_STAGE,
-    MODEL_TRAINING_STAGE_DEPENDENCIES,
-    MODEL_TRAINING_STAGES,
-    QUERY_STAGE,
-    PipelineDefinition,
-    output_uri_value,
-    resolve_tokenizer_training_task,
-    stage_gate_callback,
-)
-from src.pipelines.language_model.stage_entries import (
-    evaluate_stage_entry,
-    query_stage_entry,
-    train_model_stage_entry,
-)
-from src.pipelines.language_model.model_options import (
-    MODEL_HYPERPARAMETER_DESCRIPTIONS,
-    MODEL_HYPERPARAMETER_NAMES,
-    model_hyperparameters_from,
-)
-from src.pipelines.language_model.stages import (
-    pipeline_artifact_monitors,
-    pipeline_metric_monitors,
-)
+from src.pipelines.language_model import definition as lm_def
+from src.pipelines.language_model import model_options
+from src.pipelines.language_model import stage_entries
+from src.pipelines.language_model import step_config
 
 
-MODEL_TRAINING_PIPELINE = PipelineDefinition(
-    default_name=DEFAULT_MODEL_TRAINING_NAME,
-    stages=MODEL_TRAINING_STAGES,
-    stage_dependencies=MODEL_TRAINING_STAGE_DEPENDENCIES,
+DEFAULT_MODEL_TRAINING_NAME = lm_def.DEFAULT_MODEL_TRAINING_NAME
+DEFAULT_TOKENIZER_TRAINING_NAME = lm_def.DEFAULT_TOKENIZER_TRAINING_NAME
+EVALUATION_STAGE = lm_def.EVALUATION_STAGE
+MODEL_STAGE = lm_def.MODEL_STAGE
+MODEL_TRAINING_STAGE_DEPENDENCIES = lm_def.MODEL_TRAINING_STAGE_DEPENDENCIES
+MODEL_TRAINING_STAGES = lm_def.MODEL_TRAINING_STAGES
+QUERY_STAGE = lm_def.QUERY_STAGE
+resolve_tokenizer_training_task = lm_def.resolve_tokenizer_training_task
+
+MODEL_TRAINING_PIPELINE = lm_def.PipelineDefinition(
+    default_name=lm_def.DEFAULT_MODEL_TRAINING_NAME,
+    stages=lm_def.MODEL_TRAINING_STAGES,
+    stage_dependencies=lm_def.MODEL_TRAINING_STAGE_DEPENDENCIES,
 )
 
 MODEL_TRAINING_PIPELINE_PARAMETERS = {
     "model_name": "Registered model implementation to train, evaluate, and query.",
-    **MODEL_HYPERPARAMETER_DESCRIPTIONS,
+    **model_options.MODEL_HYPERPARAMETER_DESCRIPTIONS,
     "text_normalization": "Text normalization applied before model training.",
 }
 
@@ -78,7 +64,9 @@ def add_pipeline_steps(
     query_seed: int | None,
     text_normalization: str,
 ) -> None:
-    model_hyperparameters = model_hyperparameters_from(model_hyperparameters)
+    model_hyperparameters = model_options.model_hyperparameters_from(
+        model_hyperparameters
+    )
     pipeline_parameters = {
         "model_name": model_name,
         **model_hyperparameters,
@@ -86,26 +74,17 @@ def add_pipeline_steps(
     }
     _add_pipeline_parameters(pipeline, pipeline_parameters)
 
-    artifact_monitors = pipeline_artifact_monitors()
-    metric_monitors = pipeline_metric_monitors()
-    common_step_kwargs = {
-        "clearml_output_uri": clearml_output_uri,
-        "clearml_tags": "\n".join(clearml_tags),
-        "clearml_config_file": str(clearml_config_file) if clearml_config_file else None,
-    }
-    step_options = {
-        "project_name": clearml_project,
-        "execution_queue": execution_queue,
-        "output_uri": output_uri_value(clearml_output_uri),
-        "auto_connect_frameworks": False,
-        "auto_connect_arg_parser": False,
-        "pre_execute_callback": stage_gate_callback,
-        "tags": list(clearml_tags) if clearml_tags else None,
-    }
-
-    pipeline.add_function_step(
-        name=MODEL_STAGE,
-        function=train_model_stage_entry,
+    cfg = step_config.StepCfg(
+        project_name=clearml_project,
+        output_uri=clearml_output_uri,
+        tags=clearml_tags,
+        config_file=clearml_config_file,
+        queue=execution_queue,
+    )
+    cfg.add(
+        pipeline,
+        name=lm_def.MODEL_STAGE,
+        function=stage_entries.train_model_stage_entry,
         function_kwargs={
             "tokenizer_task_id": tokenizer_task_id,
             "tokenizer_model_name": tokenizer_model_name,
@@ -118,22 +97,17 @@ def add_pipeline_steps(
             "limit": training_limit,
             "train_ratio": train_ratio,
             "split_seed": split_seed,
-            **_pipeline_parameter_refs(MODEL_HYPERPARAMETER_NAMES),
+            **_pipeline_parameter_refs(model_options.MODEL_HYPERPARAMETER_NAMES),
             "text_normalization": _pipeline_parameter_ref("text_normalization"),
-            **common_step_kwargs,
         },
-        task_name=MODEL_STAGE,
         task_type="training",
-        monitor_artifacts=artifact_monitors[MODEL_STAGE],
-        monitor_metrics=metric_monitors[MODEL_STAGE],
-        stage=MODEL_STAGE,
-        **step_options,
     )
-    pipeline.add_function_step(
-        name=EVALUATION_STAGE,
-        function=evaluate_stage_entry,
+    cfg.add(
+        pipeline,
+        name=lm_def.EVALUATION_STAGE,
+        function=stage_entries.evaluate_stage_entry,
         function_kwargs={
-            "model_task_id": f"${{{MODEL_STAGE}.id}}",
+            "model_task_id": f"${{{lm_def.MODEL_STAGE}.id}}",
             "model_name": _pipeline_parameter_ref("model_name"),
             "corpus": corpus,
             "dataset_id": dataset_id,
@@ -145,21 +119,16 @@ def add_pipeline_steps(
             "split_seed": split_seed,
             "evaluation_partition": evaluation_partition,
             "top_k": top_k,
-            **common_step_kwargs,
         },
-        parents=[MODEL_STAGE],
-        task_name=EVALUATION_STAGE,
         task_type="testing",
-        monitor_artifacts=artifact_monitors[EVALUATION_STAGE],
-        monitor_metrics=metric_monitors[EVALUATION_STAGE],
-        stage=EVALUATION_STAGE,
-        **step_options,
+        parents=[lm_def.MODEL_STAGE],
     )
-    pipeline.add_function_step(
-        name=QUERY_STAGE,
-        function=query_stage_entry,
+    cfg.add(
+        pipeline,
+        name=lm_def.QUERY_STAGE,
+        function=stage_entries.query_stage_entry,
         function_kwargs={
-            "model_task_id": f"${{{MODEL_STAGE}.id}}",
+            "model_task_id": f"${{{lm_def.MODEL_STAGE}.id}}",
             "model_name": _pipeline_parameter_ref("model_name"),
             "corpus": corpus,
             "prompt": query_prompt,
@@ -168,15 +137,9 @@ def add_pipeline_steps(
             "decoding": query_decoding,
             "temperature": query_temperature,
             "seed": query_seed,
-            **common_step_kwargs,
         },
-        parents=[MODEL_STAGE],
-        task_name=QUERY_STAGE,
         task_type="inference",
-        monitor_artifacts=artifact_monitors[QUERY_STAGE],
-        monitor_metrics=metric_monitors[QUERY_STAGE],
-        stage=QUERY_STAGE,
-        **step_options,
+        parents=[lm_def.MODEL_STAGE],
     )
 
 
