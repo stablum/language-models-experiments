@@ -2,25 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable
 from pathlib import Path
 
 import sentencepiece as spm
 
 from src.corpora import normalization
-
-
-def iter_sentencepiece_sentences(
-    texts: Iterable[str],
-    *,
-    text_normalization: normalization.TextNormalization = "none",
-) -> Iterator[str]:
-    for text in texts:
-        text = normalization.normalize_text(text, text_normalization)
-        for line in text.splitlines():
-            sentence = line.strip()
-            if sentence:
-                yield sentence
+from src.tokenizers import core as tok_core
 
 
 def train_sentencepiece(
@@ -53,3 +41,14 @@ def train_sentencepiece(
     spm.SentencePieceTrainer.train(**trainer_options)
 
     return output_prefix.with_suffix(".model"), output_prefix.with_suffix(".vocab")
+
+
+def iter_sentencepiece_sentences(
+    texts: Iterable[str],
+    *,
+    text_normalization: normalization.TextNormalization = "none",
+) -> Iterable[str]:
+    return tok_core.iter_normalized_sentences(
+        texts,
+        text_normalization=text_normalization,
+    )

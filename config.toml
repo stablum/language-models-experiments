@@ -68,12 +68,13 @@ pipeline_local = true
 controller_queue = "services"
 add_run_number = true
 
-# The tokenizer model name defaults to "<corpus>-sentencepiece-<vocab_size>"
+# The tokenizer model name defaults to "<corpus>-<tokenizer_algo>-<vocab_size>"
 # unless artifact_name is set explicitly.
+tokenizer_algo = "sentencepiece"
 vocab_size = 1000
-model_type = "unigram"
-character_coverage = 1.0
-hard_vocab_limit = true
+sentencepiece_model_type = "unigram"
+sentencepiece_character_coverage = 1.0
+sentencepiece_hard_vocab_limit = true
 
 [train]
 model = "trigram-good-turing"

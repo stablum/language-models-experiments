@@ -20,7 +20,7 @@ from src.models.core import registry as model_registry
 from src.pipelines.language_model import artifacts as lm_artifacts
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import model_options as lm_model_options
-from src.tokenizers import sentencepiece_training
+from src.tokenizers import registry as tokenizer_registry
 
 
 def train_tokenizer_step(
@@ -35,10 +35,11 @@ def train_tokenizer_step(
     split_seed: int,
     vocab_size: int,
     artifact_name: str,
-    model_type: str,
-    character_coverage: float,
-    hard_vocab_limit: bool,
-    max_sentence_length: int | None,
+    tokenizer_algo: str,
+    sentencepiece_model_type: str,
+    sentencepiece_character_coverage: float,
+    sentencepiece_hard_vocab_limit: bool,
+    sentencepiece_max_sentence_length: int | None,
     text_normalization: str,
     clearml_output_uri: str | None = None,
     clearml_tags: str | list[str] | tuple[str, ...] | None = None,
@@ -70,6 +71,13 @@ def train_tokenizer_step(
         prefix="lme-pipeline-tokenizer-"
     ) as staging_dir:
         output_prefix = staging_dir / artifact_name
+        tokenizer_options = tokenizer_registry.tokenizer_options(
+            tokenizer_algo=tokenizer_algo,
+            sentencepiece_model_type=sentencepiece_model_type,
+            sentencepiece_character_coverage=sentencepiece_character_coverage,
+            sentencepiece_hard_vocab_limit=sentencepiece_hard_vocab_limit,
+            sentencepiece_max_sentence_length=sentencepiece_max_sentence_length,
+        )
         clearml_run = _current_step_run(
             clearml_output_uri=clearml_output_uri,
             clearml_tags=clearml_tags,
@@ -95,12 +103,12 @@ def train_tokenizer_step(
                     "text_normalization": text_normalization,
                 },
                 "Tokenizer": {
+                    "tokenizer_algo": tokenizer_algo,
                     "vocab_size": vocab_size,
                     "artifact_name": artifact_name,
-                    "model_type": model_type,
-                    "character_coverage": character_coverage,
-                    "hard_vocab_limit": hard_vocab_limit,
-                    "max_sentence_length": max_sentence_length,
+                },
+                "Tokenizer Options": {
+                    **tokenizer_options,
                 },
                 **split_artifacts.split_plan_parameter_sections(split_plan),
             }
@@ -115,14 +123,12 @@ def train_tokenizer_step(
             text_column=text_column,
             limit=limit,
         )
-        model_path, vocab_path = sentencepiece_training.train_sentencepiece(
+        tokenizer_output = tokenizer_registry.train_tokenizer(
             texts,
+            tokenizer_algo=tokenizer_algo,
             output_prefix=output_prefix,
             vocab_size=vocab_size,
-            model_type=model_type,
-            character_coverage=character_coverage,
-            hard_vocab_limit=hard_vocab_limit,
-            max_sentence_length=max_sentence_length,
+            tokenizer_options=tokenizer_options,
             text_normalization=text_normalization,
         )
 
@@ -130,8 +136,6 @@ def train_tokenizer_step(
             "Tokenizer training",
             {
                 "vocab_size": vocab_size,
-                "character_coverage": character_coverage,
-                "hard_vocab_limit": hard_vocab_limit,
                 "limit": limit,
             },
         )
@@ -142,16 +146,20 @@ def train_tokenizer_step(
             metadata={"corpus": corpus, "stage": stage},
         )
         clearml_run.upload_artifact(
-            "sentencepiece-vocabulary",
-            vocab_path,
-            metadata={"corpus": corpus, "vocab_size": vocab_size},
+            tokenizer_registry.TOKENIZER_VOCAB_ARTIFACT,
+            tokenizer_output.vocab_path,
+            metadata={
+                "corpus": corpus,
+                "tokenizer_algo": tokenizer_algo,
+                "vocab_size": vocab_size,
+            },
         )
         clearml_run.register_model(
-            name=model_path.stem,
-            model_path=model_path,
+            name=artifact_name,
+            model_path=tokenizer_output.model_path,
             framework="custom",
             tags=("tokenizer", corpus),
-            comment="SentencePiece tokenizer model.",
+            comment=f"{tokenizer_algo} tokenizer model.",
         )
         return _require_task_id(clearml_run)
 
@@ -224,7 +232,11 @@ def train_model_pipeline_step(
             train_ratio=train_ratio,
             split_seed=split_seed,
         )
-        output_path = staging_dir / f"{corpus}-sentencepiece-{model_definition.name}.json"
+        output_model_name = lm_def.model_output_name(
+            tokenizer_model_name=tokenizer_model_name,
+            model_name=model_definition.name,
+        ) or f"{corpus}-{model_definition.name}"
+        output_path = staging_dir / f"{output_model_name}.json"
         resolved_model_hyperparameters = lm_model_options.merge_model_hyperparameters(
             model_hyperparameters,
             legacy_model_hyperparameters,
@@ -301,7 +313,7 @@ def train_model_pipeline_step(
             metadata={"model": model_definition.name, "corpus": corpus, "stage": stage},
         )
         clearml_run.register_model(
-            name=summary.output_path.stem,
+            name=output_model_name,
             model_path=summary.output_path,
             framework="custom",
             tags=("language-model", model_definition.name, corpus),
@@ -324,6 +336,7 @@ def evaluate_pipeline_step(
     split_seed: int,
     evaluation_partition: str,
     top_k: int,
+    tokenizer_model_name: str | None = None,
     clearml_output_uri: str | None = None,
     clearml_tags: str | list[str] | tuple[str, ...] | None = None,
     clearml_config_file: str | None = None,
@@ -368,7 +381,10 @@ def evaluate_pipeline_step(
             model_path=None,
             staging_dir=staging_dir,
             clearml_run=clearml_run,
-            output_model_name=f"{corpus}-sentencepiece-{model_definition.name}",
+            output_model_name=lm_def.model_output_name(
+                tokenizer_model_name=tokenizer_model_name,
+                model_name=model_definition.name,
+            ),
         )
         click.echo(f"Staged model file: {staged_model_path.name}")
         inherited_plan = data_splits.read_model_split_plan(staged_model_path)
@@ -551,6 +567,7 @@ def query_pipeline_step(
     decoding: str,
     temperature: float,
     seed: int | None,
+    tokenizer_model_name: str | None = None,
     command: str = "src.cli.model_training",
     clearml_output_uri: str | None = None,
     clearml_tags: str | list[str] | tuple[str, ...] | None = None,
@@ -586,6 +603,7 @@ def query_pipeline_step(
         decoding=decoding,
         temperature=temperature,
         seed=seed,
+        tokenizer_model_name=tokenizer_model_name,
         command=command,
         stage=stage,
     )
@@ -610,6 +628,7 @@ def query_model_run(
     temperature: float,
     seed: int | None,
     command: str,
+    tokenizer_model_name: str | None = None,
     stage: str = lm_def.QUERY_STAGE,
 ) -> object:
     """Query a trained model and store the standard query artifacts."""
@@ -623,7 +642,10 @@ def query_model_run(
             model_path=model_path,
             staging_dir=staging_dir,
             clearml_run=clearml_run,
-            output_model_name=f"{corpus}-sentencepiece-{model_definition.name}",
+            output_model_name=lm_def.model_output_name(
+                tokenizer_model_name=tokenizer_model_name,
+                model_name=model_definition.name,
+            ),
         )
         query_options = {
             "corpus": corpus,
@@ -657,6 +679,7 @@ def query_model_run(
                 },
                 "Model": {
                     "model": model_definition.name,
+                    "tokenizer_model_name": tokenizer_model_name,
                     "model_task_id": model_task_id,
                     "model_path": model_path,
                     "model_file": staged_model_path.name,

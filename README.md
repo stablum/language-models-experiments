@@ -86,7 +86,7 @@ $env:LME_CONFIG_FILE = "config.smoke.toml"
 uv run python -m src.cli.model_training
 ```
 
-Use `model = "bigram"` in `[train]` to choose the trained model type; evaluation, query, and model training inherit that model by default. Use `tokenizer_model_name` in `[train]` to choose which reusable tokenizer model record model training consumes. Keys may be written as `snake_case` or `kebab-case`; `model` maps to the CLI `--model` option. Keep `[model-training]`, `[tokenizer-training]`, and `[query-pipeline]` for orchestration settings such as queues, run numbering, and pipeline names.
+Use `model = "bigram"` in `[train]` to choose the trained model type; evaluation, query, and model training inherit that model by default. Use `tokenizer_algo` in `[tokenizer-training]` to choose the tokenizer implementation, and `tokenizer_model_name` in `[train]` to choose which reusable tokenizer model record model training consumes. Keys may be written as `snake_case` or `kebab-case`; `model` maps to the CLI `--model` option. Keep `[model-training]`, `[tokenizer-training]`, and `[query-pipeline]` for orchestration settings such as queues, run numbering, and pipeline names.
 
 Python CLI output lines are prepended with a local timestamp and per-line delta in `[YYYY-MM-DD HH:MM:SS] [+0.237s]` format. ClearML also captures Python stdout/stderr for each task. Long-running commands print numbered stage titles such as `Stage 1/3 - Model training:` and `Stage 1/1 - Tokenizer training:`. Stage titles are bold cyan, timestamps are gray, delta times are yellow, error lines are red, and warning lines are yellow. Set `NO_COLOR=1` or `LME_COLOR=never` to disable ANSI colors. Native library stdout/stderr writes bypass timestamping by default to avoid pipe deadlocks in C/C++ extensions such as SentencePiece; set `LME_CAPTURE_NATIVE_OUTPUT=1` only when you explicitly want the old fd-level capture behavior.
 
@@ -134,7 +134,7 @@ Stats use the deliberately lossy `lossy-ascii` text normalization by default. It
 
 ## Tokenizer And Model Training
 
-Train or refresh the reusable SentencePiece tokenizer first:
+Train or refresh the reusable tokenizer first. SentencePiece is the default tokenizer algorithm:
 
 ```powershell
 uv run python -m src.cli.tokenizer_training --streaming
@@ -149,7 +149,7 @@ uv run python -m src.cli.model_training --model bigram --streaming
 For a quick smoke test:
 
 ```powershell
-uv run python -m src.cli.tokenizer_training --streaming --limit 50 --vocab-size 100 --artifact-name tinystories-sentencepiece-smoke --no-hard-vocab-limit --clearml-tag smoke
+uv run python -m src.cli.tokenizer_training --streaming --limit 50 --vocab-size 100 --artifact-name tinystories-sentencepiece-smoke --no-sentencepiece-hard-vocab-limit --clearml-tag smoke
 uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-smoke --streaming --limit 50 --clearml-tag smoke
 ```
 
@@ -189,7 +189,7 @@ The controller task monitors the main non-model artifacts, and the stage tasks s
 
 ```text
 train_tokenizer model: tokenizer .model file
-train_tokenizer artifact: sentencepiece-vocabulary
+train_tokenizer artifact: tokenizer-vocabulary
 train_tokenizer artifact: data-split-plan-json
 train_model input model: tokenizer .model file
 train_model output model: trained model JSON
@@ -203,7 +203,7 @@ The `train_tokenizer` stage task is resolved from tokenizer training by `corpus`
 
 Use `--training-limit` and `--evaluation-limit` when those stages should use different row counts. These limits are applied after partitioning, so they do not create overlapping train/validation slices. Use `--source-split` only when you want to restrict the source rows before partitioning; leave it unset to merge all source splits. Use `--evaluation-partition` to choose which reusable project partition is evaluated. Use `--query-prompt`, `--query-max-tokens`, `--query-decoding`, `--query-temperature`, and `--query-seed` to control the mandatory final query.
 
-## SentencePiece Tokenizer
+## Tokenizers
 
 Train a 1000-vocabulary SentencePiece tokenizer:
 
@@ -211,19 +211,25 @@ Train a 1000-vocabulary SentencePiece tokenizer:
 uv run python -m src.cli.tokenizer_training --streaming --vocab-size 1000 --max-sentence-length 8192
 ```
 
+Train a Hugging Face WordLevel tokenizer with whitespace pre-tokenization:
+
+```powershell
+uv run python -m src.cli.tokenizer_training --streaming --tokenizer-algo wordlevel-whitespace --vocab-size 1000
+```
+
 The tokenizer-training pipeline stores generated tokenizer files in ClearML and prints both the controller task ID and the tokenizer stage task ID. Downstream model training resolves the tokenizer by `corpus` and `tokenizer_model_name`.
 
 ```text
-ClearML model: sentencepiece-model
-ClearML artifact: sentencepiece-vocabulary
+ClearML model: tokenizer model
+ClearML artifact: tokenizer-vocabulary
 ClearML artifact: data-split-plan-json
 ```
 
-Tokenizer training uses `--text-normalization lossy-ascii` by default. This keeps the learned vocabulary English-focused and ASCII-only apart from SentencePiece's internal word-boundary marker. Pass `--text-normalization none` when you intentionally want the tokenizer to learn from the original Unicode text.
+Tokenizer training uses `--text-normalization lossy-ascii` by default. This keeps the learned vocabulary English-focused and ASCII-only apart from tokenizer-internal markers. Pass `--text-normalization none` when you intentionally want the tokenizer to learn from the original Unicode text.
 
 ## N-Gram Models
 
-Train a very simple autoregressive token bigram model from the SentencePiece tokenizer:
+Train a very simple autoregressive token bigram model from the reusable tokenizer:
 
 ```powershell
 uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
@@ -446,7 +452,7 @@ uv sync
 docker compose -f docker-compose.clearml.yml up -d
 Copy-Item clearml.local.conf.example clearml.conf
 
-uv run python -m src.cli.tokenizer_training --streaming --limit 50 --vocab-size 100 --artifact-name tinystories-sentencepiece-smoke --no-hard-vocab-limit --clearml-tag smoke
+uv run python -m src.cli.tokenizer_training --streaming --limit 50 --vocab-size 100 --artifact-name tinystories-sentencepiece-smoke --no-sentencepiece-hard-vocab-limit --clearml-tag smoke
 uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-smoke --streaming --limit 50 --clearml-tag smoke
 ```
 

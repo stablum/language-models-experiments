@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from src.ml_core.data import splits as data_splits
 from src.pipelines.language_model import definition as lm_def
+from src.tokenizers import registry as tokenizer_registry
 
 
 def pipeline_artifact_monitors() -> dict[str, list[str | tuple[str, str]]]:
     return {
         lm_def.TOKENIZER_STAGE: [
-            "sentencepiece-vocabulary",
+            tokenizer_registry.TOKENIZER_VOCAB_ARTIFACT,
             data_splits.SPLIT_PLAN_ARTIFACT,
         ],
         lm_def.MODEL_STAGE: [

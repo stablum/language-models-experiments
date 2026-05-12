@@ -203,6 +203,7 @@ def main(
         resolved_model_task_id,
         resolved_model_path,
         source_controller_id,
+        resolved_tokenizer_model_name,
     ) = _resolve_query_model_source(
         model_task_id=model_task_id,
         model_path=model_path,
@@ -234,7 +235,7 @@ def main(
         {
             "model": model_definition.name,
             "corpus": corpus,
-            "tokenizer_model_name": tokenizer_model_name or "",
+            "tokenizer_model_name": resolved_tokenizer_model_name or "",
             "model_training_name": model_training_name,
             "model_training_version": model_training_version or "",
             "source_pipeline_controller_id": source_controller_id or "",
@@ -259,6 +260,7 @@ def main(
         model_task_id=resolved_model_task_id,
         model_path=resolved_model_path,
         model_name=model_definition.name,
+        tokenizer_model_name=resolved_tokenizer_model_name,
         corpus=corpus,
         prompt=prompt,
         max_tokens=max_tokens,
@@ -313,11 +315,16 @@ def _resolve_query_model_source(
     model_name: str,
     tokenizer_model_name: str | None,
     corpus: str,
-) -> tuple[str | None, Path | None, str | None]:
+) -> tuple[str | None, Path | None, str | None, str | None]:
     if model_task_id is not None and model_path is not None:
         raise click.ClickException("Pass either --model-task-id or --model-path, not both.")
     if model_task_id is not None or model_path is not None:
-        return model_task_id, model_path, model_training_controller_id
+        return (
+            model_task_id,
+            model_path,
+            model_training_controller_id,
+            str(tokenizer_model_name or "").strip() or None,
+        )
 
     resolved_tokenizer_model_name = stage_resume.require_tokenizer_model_name(
         tokenizer_model_name,
@@ -334,7 +341,7 @@ def _resolve_query_model_source(
     )
     click.echo(f"Resolved model pipeline controller task ID: {resolution.controller_id}")
     click.echo(f"Resolved model stage task ID: {resolution.model_task_id}")
-    return resolution.model_task_id, None, resolution.controller_id
+    return resolution.model_task_id, None, resolution.controller_id, resolved_tokenizer_model_name
 
 
 if __name__ == "__main__":

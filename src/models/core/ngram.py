@@ -10,12 +10,12 @@ from pathlib import Path
 from typing import Any, Callable, Literal, TypeVar
 
 import pydantic
-import sentencepiece as spm
 
 from src.corpora import normalization
 from src.ml_core import json_io
 from src.ml_core.models import definition as model_def
 from src.models.core import formatting
+from src.tokenizers import core as tok_core
 
 
 DecodingMode = Literal["sample", "most-probable"]
@@ -110,7 +110,7 @@ class NgramEvaluationSummary(NgramPydanticModel):
 class BaseNgramModel(NgramPydanticModel):
     model_path: Path
     tokenizer_model: Path
-    processor: spm.SentencePieceProcessor
+    tokenizer: tok_core.TokenizerCodec
     vocab_size: int
     bos_id: int
     eos_id: int
@@ -133,8 +133,8 @@ class BaseNgramModel(NgramPydanticModel):
         return self._candidate_id_set
 
     def encode_prompt(self, prompt: str) -> list[int]:
-        return encode_prompt(
-            self.processor,
+        return tok_core.encode_prompt(
+            self.tokenizer,
             prompt,
             text_normalization=self.text_normalization,
         )
@@ -185,10 +185,10 @@ class BaseNgramModel(NgramPydanticModel):
             token_ids.append(next_id)
             context = self.advance_context(context, next_id)
 
-        prompt_text = self.processor.decode(prompt_token_ids)
-        generated_text = self.processor.decode(token_ids)
-        continuation_text = decode_continuation(
-            self.processor,
+        prompt_text = self.tokenizer.decode(prompt_token_ids)
+        generated_text = self.tokenizer.decode(token_ids)
+        continuation_text = tok_core.decode_continuation(
+            self.tokenizer,
             generated_text=generated_text,
             prompt_text=prompt_text,
             generated_token_ids=generated_token_ids,
@@ -222,30 +222,6 @@ def divide_or_none(numerator: int, denominator: int) -> float | None:
     if denominator == 0:
         return None
     return numerator / denominator
-
-
-def encode_prompt(
-    processor: spm.SentencePieceProcessor,
-    prompt: str,
-    *,
-    text_normalization: normalization.TextNormalization = "none",
-) -> list[int]:
-    prompt = normalization.normalize_text(prompt, text_normalization)
-    if not prompt:
-        return []
-    return processor.encode(prompt, out_type=int)
-
-
-def decode_continuation(
-    processor: spm.SentencePieceProcessor,
-    *,
-    generated_text: str,
-    prompt_text: str,
-    generated_token_ids: list[int],
-) -> str:
-    if prompt_text and generated_text.startswith(prompt_text):
-        return generated_text[len(prompt_text):]
-    return processor.decode(generated_token_ids)
 
 
 def candidate_token_ids(vocab_size: int, bos_id: int) -> tuple[int, ...]:
@@ -321,13 +297,13 @@ def fallback_token_id(eos_id: int) -> int:
 
 def load_pieces(
     data: dict[str, object],
-    processor: spm.SentencePieceProcessor,
+    tokenizer: tok_core.TokenizerCodec,
     vocab_size: int,
 ) -> tuple[str, ...]:
     stored_pieces = data.get("pieces")
     if stored_pieces:
         return tuple(str(piece) for piece in stored_pieces)
-    return tuple(processor.id_to_piece(index) for index in range(vocab_size))
+    return tuple(tokenizer.id_to_piece(index) for index in range(vocab_size))
 
 
 def resolve_stored_path(stored_path: Path, model_path: Path) -> Path:
@@ -363,28 +339,24 @@ def write_json_model_payload(output_path: Path, model: dict[str, object]) -> Non
     json_io.write_json(output_path, model)
 
 
-def sentencepiece_model_payload(
-    processor: spm.SentencePieceProcessor,
+def tokenizer_model_payload(
+    tokenizer: tok_core.TokenizerCodec,
     *,
     tokenizer_model: Path,
     stored_tokenizer_model: Path | None,
-    vocab_size: int,
     text_normalization: normalization.TextNormalization,
 ) -> dict[str, object]:
-    return {
-        "tokenizer_model": str(stored_tokenizer_model or tokenizer_model),
-        "vocab_size": vocab_size,
-        "text_normalization": text_normalization,
-        "bos_id": processor.bos_id(),
-        "eos_id": processor.eos_id(),
-        "unk_id": processor.unk_id(),
-        "pieces": [processor.id_to_piece(index) for index in range(vocab_size)],
-    }
+    return tok_core.tokenizer_payload(
+        tokenizer,
+        tokenizer_model=tokenizer_model,
+        stored_tokenizer_model=stored_tokenizer_model,
+        text_normalization=text_normalization,
+    )
 
 
-def sentencepiece_model_fields(
+def tokenizer_model_fields(
     data: dict[str, object],
-    processor: spm.SentencePieceProcessor,
+    tokenizer: tok_core.TokenizerCodec,
     vocab_size: int,
 ) -> dict[str, object]:
     return {
@@ -392,42 +364,58 @@ def sentencepiece_model_fields(
         "bos_id": int(data["bos_id"]),
         "eos_id": int(data["eos_id"]),
         "unk_id": int(data["unk_id"]),
-        "pieces": load_pieces(data, processor, vocab_size),
+        "pieces": load_pieces(data, tokenizer, vocab_size),
         "text_normalization": str(data.get("text_normalization", "none")),
     }
 
 
-def load_sentencepiece_model_fields(
+def load_tokenizer_model_fields(
     data: dict[str, object],
     model_path: Path,
 ) -> dict[str, object]:
-    tokenizer_model, processor, vocab_size = load_sentencepiece_from_payload(
+    tokenizer_model, tokenizer, vocab_size = load_tokenizer_from_payload(
         data,
         model_path,
     )
     return {
         "model_path": model_path,
         "tokenizer_model": tokenizer_model,
-        "processor": processor,
-        **sentencepiece_model_fields(data, processor, vocab_size),
+        "tokenizer": tokenizer,
+        **tokenizer_model_fields(data, tokenizer, vocab_size),
     }
 
 
-def load_sentencepiece_from_payload(
+def load_tokenizer_from_payload(
     data: dict[str, object],
     model_path: Path,
-) -> tuple[Path, spm.SentencePieceProcessor, int]:
+) -> tuple[Path, tok_core.TokenizerCodec, int]:
     tokenizer_model = resolve_stored_path(Path(data["tokenizer_model"]), model_path)
-    processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
-    return tokenizer_model, processor, int(data["vocab_size"])
+    tokenizer = tok_core.load_tokenizer(
+        tokenizer_model,
+        tokenizer_algo=str(data["tokenizer_algo"]) if data.get("tokenizer_algo") else None,
+    )
+    return tokenizer_model, tokenizer, int(data.get("vocab_size", tokenizer.vocab_size))
 
 
 def default_tokenizer_model(corpus: str) -> Path:
-    return Path("artifacts", "tokenizers", f"{corpus}-sentencepiece-1000.model")
+    return Path(
+        "artifacts",
+        "tokenizers",
+        f"{corpus}-{tok_core.SENTENCEPIECE_ALGO}-1000.model",
+    )
 
 
-def default_ngram_output(corpus: str, model_suffix: str) -> Path:
-    return Path("artifacts", "models", f"{corpus}-sentencepiece-{model_suffix}.json")
+def default_ngram_output(
+    corpus: str,
+    model_suffix: str,
+    tokenizer_model: object = None,
+) -> Path:
+    tokenizer_stem = (
+        Path(tokenizer_model).stem
+        if tokenizer_model
+        else f"{corpus}-{tok_core.SENTENCEPIECE_ALGO}-1000"
+    )
+    return Path("artifacts", "models", f"{tokenizer_stem}-{model_suffix}.json")
 
 
 def resolve_tokenizer_model(options: model_def.ModelOptions) -> Path:
@@ -439,14 +427,23 @@ def resolve_tokenizer_model(options: model_def.ModelOptions) -> Path:
 
 def resolve_output(options: model_def.ModelOptions, *, model_suffix: str) -> Path:
     output = options.get("output")
-    return Path(output) if output else default_ngram_output(str(options["corpus"]), model_suffix)
+    if output:
+        return Path(output)
+    return default_ngram_output(
+        str(options["corpus"]),
+        model_suffix,
+        tokenizer_model=options.get("tokenizer_model"),
+    )
 
 
 def resolve_model(options: model_def.ModelOptions, *, model_suffix: str) -> Path:
     model_path = options.get("model_path")
-    return Path(model_path) if model_path else default_ngram_output(
+    if model_path:
+        return Path(model_path)
+    return default_ngram_output(
         str(options["corpus"]),
         model_suffix,
+        tokenizer_model=options.get("tokenizer_model"),
     )
 
 
@@ -668,29 +665,18 @@ def token_counts_payload(counts: Counter[int] | Mapping[int, int]) -> list[tuple
     return sorted(counts.items())
 
 
-def iter_sentencepiece_token_sequences(
+def iter_token_sequences(
     texts: Iterable[str],
-    processor: spm.SentencePieceProcessor,
+    tokenizer: tok_core.TokenizerCodec,
     *,
     bos_count: int,
     min_length: int,
     text_normalization: normalization.TextNormalization = "none",
 ) -> Iterator[list[int]]:
-    bos_id = processor.bos_id()
-    eos_id = processor.eos_id()
-
-    for text in texts:
-        text = normalization.normalize_text(text, text_normalization)
-        for line in text.splitlines():
-            sentence = line.strip()
-            if not sentence:
-                continue
-
-            token_ids = processor.encode(sentence, out_type=int)
-            if bos_id >= 0:
-                token_ids = [bos_id] * bos_count + token_ids
-            if eos_id >= 0:
-                token_ids.append(eos_id)
-
-            if len(token_ids) >= min_length:
-                yield token_ids
+    yield from tok_core.iter_token_sequences(
+        texts,
+        tokenizer,
+        bos_count=bos_count,
+        min_length=min_length,
+        text_normalization=text_normalization,
+    )

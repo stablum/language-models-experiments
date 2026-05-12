@@ -7,10 +7,9 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-import sentencepiece as spm
-
 from src.corpora import normalization
 from src.models.core import ngram
+from src.tokenizers import core as tok_core
 
 
 _SCHEMA_TYPE = "autoregressive_bigram"
@@ -92,7 +91,7 @@ class BigramModel(ngram.BaseNgramModel):
         )
         for token_ids in iter_token_sequences(
             texts,
-            self.processor,
+            self.tokenizer,
             text_normalization=resolved_text_normalization,
         ):
             summary.sequence_count += 1
@@ -175,7 +174,7 @@ def load_bigram_model(model_path: Path) -> BigramModel:
     )
 
     return BigramModel(
-        **ngram.load_sentencepiece_model_fields(data, model_path),
+        **ngram.load_tokenizer_model_fields(data, model_path),
         smoothing=float(data["smoothing"]),
         transitions=ngram.parse_token_transitions(data, "transitions"),
     )
@@ -183,13 +182,13 @@ def load_bigram_model(model_path: Path) -> BigramModel:
 
 def iter_token_sequences(
     texts: Iterable[str],
-    processor: spm.SentencePieceProcessor,
+    tokenizer: tok_core.TokenizerCodec,
     *,
     text_normalization: normalization.TextNormalization = "none",
 ) -> Iterator[list[int]]:
-    yield from ngram.iter_sentencepiece_token_sequences(
+    yield from ngram.iter_token_sequences(
         texts,
-        processor,
+        tokenizer,
         bos_count=1,
         min_length=2,
         text_normalization=text_normalization,
@@ -205,18 +204,18 @@ def train_bigram_model(
     smoothing: float = 0.1,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> BigramTrainingSummary:
-    processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
+    tokenizer = tok_core.load_tokenizer(tokenizer_model)
     summary = BigramTrainingSummary(
         output_path=output_path,
         tokenizer_model=tokenizer_model,
-        vocab_size=processor.get_piece_size(),
+        vocab_size=tokenizer.vocab_size,
         text_normalization=text_normalization,
     )
     transitions: defaultdict[int, Counter[int]] = defaultdict(Counter)
 
     for token_ids in iter_token_sequences(
         texts,
-        processor,
+        tokenizer,
         text_normalization=text_normalization,
     ):
         summary.sequence_count += 1
@@ -229,11 +228,10 @@ def train_bigram_model(
     model = {
         "schema_version": 1,
         "model_type": _SCHEMA_TYPE,
-        **ngram.sentencepiece_model_payload(
-            processor,
+        **ngram.tokenizer_model_payload(
+            tokenizer,
             tokenizer_model=tokenizer_model,
             stored_tokenizer_model=stored_tokenizer_model,
-            vocab_size=summary.vocab_size,
             text_normalization=text_normalization,
         ),
         "smoothing": smoothing,

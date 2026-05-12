@@ -8,11 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
-import sentencepiece as spm
-
 from src.corpora import normalization
 from src.models.core import ngram
 from src.models.core import trigrams
+from src.tokenizers import core as tok_core
 
 
 _SCHEMA_TYPE = "interpolated_kneser_ney_trigram"
@@ -163,17 +162,17 @@ def train_kneser_ney_trigram_model(
     discount: float = 0.75,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> KneserNeyTrigramTrainingSummary:
-    processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
+    tokenizer = tok_core.load_tokenizer(tokenizer_model)
     summary = KneserNeyTrigramTrainingSummary(
         output_path=output_path,
         tokenizer_model=tokenizer_model,
-        vocab_size=processor.get_piece_size(),
+        vocab_size=tokenizer.vocab_size,
         discount=discount,
         text_normalization=text_normalization,
     )
     counts = trigrams.collect_trigram_counts(
         texts,
-        processor,
+        tokenizer,
         text_normalization=text_normalization,
     )
     continuation_counts = collect_kneser_ney_continuation_counts(
@@ -185,11 +184,10 @@ def train_kneser_ney_trigram_model(
 
     model = {
         **trigrams.standard_trigram_model_payload(
-            processor,
+            tokenizer,
             model_type=_SCHEMA_TYPE,
             tokenizer_model=tokenizer_model,
             stored_tokenizer_model=stored_tokenizer_model,
-            vocab_size=summary.vocab_size,
             text_normalization=text_normalization,
             counts=counts,
         ),

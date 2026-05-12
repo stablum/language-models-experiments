@@ -8,10 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pydantic
-import sentencepiece as spm
 
 from src.corpora import normalization
 from src.models.core import formatting, ngram, trigrams
+from src.tokenizers import core as tok_core
 
 
 _SCHEMA_TYPE = "good_turing_trigram"
@@ -447,26 +447,25 @@ def train_good_turing_trigram_model(
     stored_tokenizer_model: Path | None = None,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> trigrams.TrigramTrainingSummary:
-    processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
+    tokenizer = tok_core.load_tokenizer(tokenizer_model)
     summary = trigrams.TrigramTrainingSummary(
         output_path=output_path,
         tokenizer_model=tokenizer_model,
-        vocab_size=processor.get_piece_size(),
+        vocab_size=tokenizer.vocab_size,
         text_normalization=text_normalization,
     )
     counts = trigrams.collect_trigram_counts(
         texts,
-        processor,
+        tokenizer,
         text_normalization=text_normalization,
     )
     trigrams.apply_trigram_counts_to_summary(summary, counts)
 
     model = trigrams.standard_trigram_model_payload(
-        processor,
+        tokenizer,
         model_type=_SCHEMA_TYPE,
         tokenizer_model=tokenizer_model,
         stored_tokenizer_model=stored_tokenizer_model,
-        vocab_size=summary.vocab_size,
         text_normalization=text_normalization,
         counts=counts,
     )

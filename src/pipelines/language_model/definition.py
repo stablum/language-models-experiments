@@ -89,6 +89,12 @@ def standalone_stage_title(stage: str) -> tuple[int, int, str]:
     return 1, 1, PIPELINE_STAGE_TITLES.get(stage, stage.replace("_", " ").title())
 
 
+def model_output_name(*, tokenizer_model_name: str | None, model_name: str) -> str | None:
+    if not tokenizer_model_name:
+        return None
+    return f"{tokenizer_model_name}-{model_name}"
+
+
 def configure_pipeline_control(
     task: object,
     *,
@@ -196,7 +202,10 @@ def resolve_model_training_task(
     )
 
     reasons: list[str] = []
-    output_model_name = f"{corpus}-sentencepiece-{model_name}"
+    output_model_name = model_output_name(
+        tokenizer_model_name=tokenizer_model_name,
+        model_name=model_name,
+    )
     for candidate in candidates:
         if not core_pipeline.controller_parameters_match(
             candidate.id,
@@ -295,6 +304,7 @@ __all__ = (
     "TOKENIZER_TRAINING_STAGES",
     "TokenizerTrainingResolution",
     "configure_pipeline_control",
+    "model_output_name",
     "pipeline_stage_title",
     "resolve_model_training_task",
     "resolve_tokenizer_training_task",

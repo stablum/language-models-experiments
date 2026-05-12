@@ -8,10 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
-import sentencepiece as spm
-
 from src.corpora import normalization
 from src.models.core import formatting, ngram
+from src.tokenizers import core as tok_core
 
 
 Context = tuple[int, int]
@@ -102,7 +101,7 @@ class BaseTrigramModel(ngram.BaseNgramModel):
         )
         for token_ids in iter_trigram_token_sequences(
             texts,
-            self.processor,
+            self.tokenizer,
             text_normalization=resolved_text_normalization,
         ):
             summary.sequence_count += 1
@@ -291,7 +290,7 @@ class DiscountedTrigramModel(BaseTrigramModel):
 
 def collect_trigram_counts(
     texts: Iterable[str],
-    processor: spm.SentencePieceProcessor,
+    tokenizer: tok_core.TokenizerCodec,
     *,
     text_normalization: normalization.TextNormalization = (
         normalization.DEFAULT_TEXT_NORMALIZATION
@@ -307,7 +306,7 @@ def collect_trigram_counts(
 
     for token_ids in iter_trigram_token_sequences(
         texts,
-        processor,
+        tokenizer,
         text_normalization=text_normalization,
     ):
         sequence_count += 1
@@ -395,27 +394,25 @@ def load_standard_trigram_model_fields(
     label: str | None = None,
 ) -> tuple[dict[str, object], dict[str, object]]:
     data = ngram.load_json_model_payload(model_path, model_type=model_type, label=label)
-    return data, ngram.load_sentencepiece_model_fields(data, model_path)
+    return data, ngram.load_tokenizer_model_fields(data, model_path)
 
 
 def standard_trigram_model_payload(
-    processor: spm.SentencePieceProcessor,
+    tokenizer: tok_core.TokenizerCodec,
     *,
     model_type: str,
     tokenizer_model: Path,
     stored_tokenizer_model: Path | None,
-    vocab_size: int,
     text_normalization: normalization.TextNormalization,
     counts: TrigramCounts,
 ) -> dict[str, object]:
     return {
         "schema_version": 1,
         "model_type": model_type,
-        **ngram.sentencepiece_model_payload(
-            processor,
+        **ngram.tokenizer_model_payload(
+            tokenizer,
             tokenizer_model=tokenizer_model,
             stored_tokenizer_model=stored_tokenizer_model,
-            vocab_size=vocab_size,
             text_normalization=text_normalization,
         ),
         **trigram_counts_payload(counts),
@@ -463,13 +460,13 @@ def parse_context_transitions(
 
 def iter_trigram_token_sequences(
     texts: Iterable[str],
-    processor: spm.SentencePieceProcessor,
+    tokenizer: tok_core.TokenizerCodec,
     *,
     text_normalization: normalization.TextNormalization = "none",
 ) -> Iterator[list[int]]:
-    yield from ngram.iter_sentencepiece_token_sequences(
+    yield from ngram.iter_token_sequences(
         texts,
-        processor,
+        tokenizer,
         bos_count=2,
         min_length=3,
         text_normalization=text_normalization,

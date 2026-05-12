@@ -6,12 +6,11 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import ClassVar
 
-import sentencepiece as spm
-
 from src.corpora import normalization
 from src.ml_core.models import definition as model_def
 from src.models.core import formatting, ngram
 from src.models.core import trigrams
+from src.tokenizers import core as tok_core
 
 
 _SCHEMA_TYPE = "interpolated_trigram"
@@ -140,11 +139,11 @@ def train_trigram_model(
         bigram_weight=bigram_weight,
         trigram_weight=trigram_weight,
     )
-    processor = spm.SentencePieceProcessor(model_file=str(tokenizer_model))
+    tokenizer = tok_core.load_tokenizer(tokenizer_model)
     summary = TrigramTrainingSummary(
         output_path=output_path,
         tokenizer_model=tokenizer_model,
-        vocab_size=processor.get_piece_size(),
+        vocab_size=tokenizer.vocab_size,
         unigram_weight=normalized_weights[0],
         bigram_weight=normalized_weights[1],
         trigram_weight=normalized_weights[2],
@@ -152,18 +151,17 @@ def train_trigram_model(
     )
     counts = trigrams.collect_trigram_counts(
         texts,
-        processor,
+        tokenizer,
         text_normalization=text_normalization,
     )
     trigrams.apply_trigram_counts_to_summary(summary, counts)
 
     model = {
         **trigrams.standard_trigram_model_payload(
-            processor,
+            tokenizer,
             model_type=_SCHEMA_TYPE,
             tokenizer_model=tokenizer_model,
             stored_tokenizer_model=stored_tokenizer_model,
-            vocab_size=summary.vocab_size,
             text_normalization=text_normalization,
             counts=counts,
         ),

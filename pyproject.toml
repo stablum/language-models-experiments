@@ -1,6 +1,6 @@
 [project]
 name = "language-models-experiments"
-version = "0.5.36"
+version = "0.5.37"
 license = "GPL-3.0-only"
 license-files = ["LICENSE"]
 requires-python = ">=3.14"
@@ -11,6 +11,7 @@ dependencies = [
     "optuna>=4,<5",
     "pydantic>=2,<3",
     "sentencepiece>=0.2.1,<0.3",
+    "tokenizers>=0.22,<1",
 ]
 
 [tool.uv]

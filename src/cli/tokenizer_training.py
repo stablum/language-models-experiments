@@ -14,22 +14,33 @@ from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import tokenizer_training as tokenizer_pipeline
 from src.corpora import normalization
 from src.corpora import registry as corpora_registry
+from src.tokenizers import registry as tokenizer_registry
 
 
 TOKENIZER_TRAINING_CONFIG_SECTION = "tokenizer-training"
 
 
 def load_tokenizer_training_command_defaults(_config_section: str) -> dict[str, object]:
-    return cli_config.load_defaults_from_sections(
+    defaults = cli_config.load_defaults_from_sections(
         ("defaults", "clearml", TOKENIZER_TRAINING_CONFIG_SECTION)
     )
+    legacy_key_map = {
+        "model_type": "sentencepiece_model_type",
+        "character_coverage": "sentencepiece_character_coverage",
+        "hard_vocab_limit": "sentencepiece_hard_vocab_limit",
+        "max_sentence_length": "sentencepiece_max_sentence_length",
+    }
+    for legacy_key, new_key in legacy_key_map.items():
+        if legacy_key in defaults and new_key not in defaults:
+            defaults[new_key] = defaults[legacy_key]
+    return defaults
 
 
 @cli_config.configured_command(
     "tokenizer-training",
     default_loader=load_tokenizer_training_command_defaults,
     context_settings={"help_option_names": ["-h", "--help"]},
-    help="Run reusable SentencePiece tokenizer training as a ClearML Pipeline DAG.",
+    help="Run reusable tokenizer training as a ClearML Pipeline DAG.",
 )
 @core_pipeline.pipeline_resume_option
 @core_pipeline.pipeline_options(
@@ -84,7 +95,7 @@ def load_tokenizer_training_command_defaults(_config_section: str) -> dict[str, 
     type=click.IntRange(min=1),
     default=1000,
     show_default=True,
-    help="SentencePiece vocabulary size.",
+    help="Tokenizer vocabulary size.",
 )
 @click.option(
     "--artifact-name",
@@ -92,27 +103,42 @@ def load_tokenizer_training_command_defaults(_config_section: str) -> dict[str, 
     help="Base name for the tokenizer model and vocabulary outputs stored in ClearML.",
 )
 @click.option(
+    "--tokenizer-algo",
+    type=click.Choice(tokenizer_registry.tokenizer_algo_names()),
+    default=tokenizer_registry.DEFAULT_TOKENIZER_ALGO,
+    show_default=True,
+    help="Tokenizer training algorithm.",
+)
+@click.option(
+    "--sentencepiece-model-type",
     "--model-type",
+    "sentencepiece_model_type",
     type=click.Choice(("unigram", "bpe", "char", "word")),
     default="unigram",
     show_default=True,
     help="SentencePiece model type.",
 )
 @click.option(
+    "--sentencepiece-character-coverage",
     "--character-coverage",
+    "sentencepiece_character_coverage",
     type=float,
     default=1.0,
     show_default=True,
     help="Fraction of characters covered by the model.",
 )
 @click.option(
+    "--sentencepiece-hard-vocab-limit/--no-sentencepiece-hard-vocab-limit",
     "--hard-vocab-limit/--no-hard-vocab-limit",
+    "sentencepiece_hard_vocab_limit",
     default=True,
     show_default=True,
     help="Require SentencePiece to produce exactly vocab-size pieces.",
 )
 @click.option(
+    "--sentencepiece-max-sentence-length",
     "--max-sentence-length",
+    "sentencepiece_max_sentence_length",
     type=click.IntRange(min=1),
     default=None,
     help="Maximum sentence length passed to SentencePiece.",
@@ -144,10 +170,11 @@ def main(
     split_seed: int,
     vocab_size: int,
     artifact_name: str | None,
-    model_type: str,
-    character_coverage: float,
-    hard_vocab_limit: bool,
-    max_sentence_length: int | None,
+    tokenizer_algo: str,
+    sentencepiece_model_type: str,
+    sentencepiece_character_coverage: float,
+    sentencepiece_hard_vocab_limit: bool,
+    sentencepiece_max_sentence_length: int | None,
     text_normalization: str,
     clearml_project: str,
     clearml_task_name: str | None,
@@ -164,11 +191,16 @@ def main(
     resolved_dataset_id = dataset_id or corpus_definition.dataset_id
     resolved_source_split = source_split if source_split is not None else corpus_definition.split
     resolved_text_column = text_column or corpus_definition.text_column
-    resolved_artifact_name = artifact_name or f"{corpus}-sentencepiece-{vocab_size}"
+    resolved_artifact_name = artifact_name or tokenizer_registry.default_artifact_name(
+        corpus=corpus,
+        tokenizer_algo=tokenizer_algo,
+        vocab_size=vocab_size,
+    )
 
     parameter_filters = {
         "corpus": corpus,
         "tokenizer_model_name": resolved_artifact_name,
+        "tokenizer_algo": tokenizer_algo,
     }
     if pipeline_controller_id is not None:
         if pipeline_local:
@@ -235,7 +267,8 @@ def main(
             "source_split": resolved_source_split or "",
             "text_column": resolved_text_column,
             "vocab_size": vocab_size,
-            "model_type": model_type,
+            "tokenizer_algo": tokenizer_algo,
+            "sentencepiece_model_type": sentencepiece_model_type,
             "text_normalization": text_normalization,
         },
     )
@@ -256,15 +289,17 @@ def main(
         split_seed=split_seed,
         vocab_size=vocab_size,
         artifact_name=resolved_artifact_name,
-        model_type=model_type,
-        character_coverage=character_coverage,
-        hard_vocab_limit=hard_vocab_limit,
-        max_sentence_length=max_sentence_length,
+        tokenizer_algo=tokenizer_algo,
+        sentencepiece_model_type=sentencepiece_model_type,
+        sentencepiece_character_coverage=sentencepiece_character_coverage,
+        sentencepiece_hard_vocab_limit=sentencepiece_hard_vocab_limit,
+        sentencepiece_max_sentence_length=sentencepiece_max_sentence_length,
         text_normalization=text_normalization,
     )
 
     click.echo(f"ClearML tokenizer-training pipeline: {settings.project_name}/{resolved_pipeline_name}")
     click.echo(f"Pipeline version: {pipeline_version}")
+    click.echo(f"Tokenizer algorithm: {tokenizer_algo}")
     click.echo(f"Tokenizer model name: {resolved_artifact_name}")
     click.echo(f"Pipeline controller task ID: {pipeline.task.id}")
     task_url = pipeline.task.get_output_log_web_page()

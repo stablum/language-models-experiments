@@ -1,1 +1,1 @@
-"""Tokenizer training utilities."""
+"""Tokenizer training and runtime utilities."""
