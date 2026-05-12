@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 
+from src.ml_core import cfg as core_cfg
 from src.ml_core import pipeline as core_pipeline
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import monitors as lm_monitors
 
 
-@dataclass(frozen=True)
-class StepCfg:
+class StepCfg(core_cfg.BaseCfg):
     pipeline_definition: lm_def.PipelineDefinition
     project_name: str
     output_uri: str | None

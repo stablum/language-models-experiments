@@ -10,7 +10,6 @@ import click
 from src.corpora import registry as corpora_registry
 from src.corpora import splits as corpus_splits
 from src.corpora import text as corpus_text
-from src.ml_core import tracking
 from src.ml_core.cli import output as cli_out
 from src.ml_core.cli import staging
 from src.ml_core.data import split_artifacts
@@ -20,6 +19,7 @@ from src.models.core import registry as model_registry
 from src.pipelines.language_model import artifacts as lm_artifacts
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import model_options as lm_model_options
+from src.pipelines.language_model import stage_runtime
 from src.tokenizers import registry as tokenizer_registry
 
 
@@ -50,8 +50,8 @@ def train_tokenizer_step(
 ) -> str:
     """Train and publish the tokenizer step artifacts."""
     stage = lm_def.TOKENIZER_STAGE
-    _configure_step_clearml(clearml_config_file)
-    _emit_pipeline_stage_title(
+    stage_runtime.configure_step_clearml(clearml_config_file)
+    stage_runtime.emit_pipeline_stage_title(
         stage,
         index=pipeline_stage_index,
         total=pipeline_stage_total,
@@ -78,7 +78,7 @@ def train_tokenizer_step(
             sentencepiece_hard_vocab_limit=sentencepiece_hard_vocab_limit,
             sentencepiece_max_sentence_length=sentencepiece_max_sentence_length,
         )
-        clearml_run = _current_step_run(
+        clearml_run = stage_runtime.current_step_run(
             clearml_output_uri=clearml_output_uri,
             clearml_tags=clearml_tags,
             stage=stage,
@@ -161,7 +161,7 @@ def train_tokenizer_step(
             tags=("tokenizer", corpus),
             comment=f"{tokenizer_algo} tokenizer model.",
         )
-        return _require_task_id(clearml_run)
+        return stage_runtime.require_task_id(clearml_run)
 
 
 def train_model_pipeline_step(
@@ -189,8 +189,8 @@ def train_model_pipeline_step(
 ) -> str:
     """Train the language model from the tokenizer step artifact."""
     stage = lm_def.MODEL_STAGE
-    _configure_step_clearml(clearml_config_file)
-    _emit_pipeline_stage_title(
+    stage_runtime.configure_step_clearml(clearml_config_file)
+    stage_runtime.emit_pipeline_stage_title(
         stage,
         index=pipeline_stage_index,
         total=pipeline_stage_total,
@@ -202,7 +202,7 @@ def train_model_pipeline_step(
     with staging.temporary_staging_directory(
         prefix="lme-pipeline-model-"
     ) as staging_dir:
-        clearml_run = _current_step_run(
+        clearml_run = stage_runtime.current_step_run(
             clearml_output_uri=clearml_output_uri,
             clearml_tags=clearml_tags,
             stage=stage,
@@ -319,7 +319,7 @@ def train_model_pipeline_step(
             tags=("language-model", model_definition.name, corpus),
             comment="Token n-gram language model JSON.",
         )
-        return _require_task_id(clearml_run)
+        return stage_runtime.require_task_id(clearml_run)
 
 
 def evaluate_pipeline_step(
@@ -346,8 +346,8 @@ def evaluate_pipeline_step(
 ) -> str:
     """Evaluate the trained model step artifact."""
     stage = lm_def.EVALUATION_STAGE
-    _configure_step_clearml(clearml_config_file)
-    _emit_pipeline_stage_title(
+    stage_runtime.configure_step_clearml(clearml_config_file)
+    stage_runtime.emit_pipeline_stage_title(
         stage,
         index=pipeline_stage_index,
         total=pipeline_stage_total,
@@ -370,7 +370,7 @@ def evaluate_pipeline_step(
     with staging.temporary_staging_directory(
         prefix="lme-pipeline-evaluate-"
     ) as staging_dir:
-        clearml_run = _current_step_run(
+        clearml_run = stage_runtime.current_step_run(
             clearml_output_uri=clearml_output_uri,
             clearml_tags=clearml_tags,
             stage=stage,
@@ -551,238 +551,4 @@ def evaluate_pipeline_step(
             },
         )
         click.echo("Evaluation artifacts uploaded.")
-        return _require_task_id(clearml_run)
-
-
-def query_pipeline_step(
-    *,
-    model_task_id: str | None,
-    model_path: str | Path | None = None,
-    source_pipeline_controller_id: str | None = None,
-    model_name: str,
-    corpus: str,
-    prompt: str,
-    max_tokens: int,
-    top_k: int,
-    decoding: str,
-    temperature: float,
-    seed: int | None,
-    tokenizer_model_name: str | None = None,
-    command: str = "src.cli.model_training",
-    clearml_output_uri: str | None = None,
-    clearml_tags: str | list[str] | tuple[str, ...] | None = None,
-    clearml_config_file: str | None = None,
-    pipeline_stage_index: int | None = None,
-    pipeline_stage_total: int | None = None,
-    pipeline_stage_title: str | None = None,
-) -> str:
-    """Query the trained model step artifact."""
-    stage = lm_def.QUERY_STAGE
-    _configure_step_clearml(clearml_config_file)
-    _emit_pipeline_stage_title(
-        stage,
-        index=pipeline_stage_index,
-        total=pipeline_stage_total,
-        title=pipeline_stage_title,
-    )
-    clearml_run = _current_step_run(
-        clearml_output_uri=clearml_output_uri,
-        clearml_tags=clearml_tags,
-        stage=stage,
-    )
-    result = query_model_run(
-        clearml_run,
-        model_task_id=model_task_id,
-        model_path=Path(model_path) if model_path is not None else None,
-        source_pipeline_controller_id=source_pipeline_controller_id,
-        model_name=model_name,
-        corpus=corpus,
-        prompt=prompt,
-        max_tokens=max_tokens,
-        top_k=top_k,
-        decoding=decoding,
-        temperature=temperature,
-        seed=seed,
-        tokenizer_model_name=tokenizer_model_name,
-        command=command,
-        stage=stage,
-    )
-    model_definition = model_registry.get_model(model_name)
-    for line in _query_lines(model_definition, result):
-        click.echo(line)
-    return _require_task_id(clearml_run)
-
-
-def query_model_run(
-    clearml_run: tracking.ClearMLRun,
-    *,
-    model_task_id: str | None,
-    model_path: Path | None,
-    source_pipeline_controller_id: str | None,
-    model_name: str,
-    corpus: str,
-    prompt: str,
-    max_tokens: int,
-    top_k: int,
-    decoding: str,
-    temperature: float,
-    seed: int | None,
-    command: str,
-    tokenizer_model_name: str | None = None,
-    stage: str = lm_def.QUERY_STAGE,
-) -> object:
-    """Query a trained model and store the standard query artifacts."""
-    model_definition = model_registry.get_model(model_name)
-    if model_definition.query is None:
-        raise click.ClickException(f"Model does not support querying yet: {model_name}")
-
-    with staging.temporary_staging_directory(prefix="lme-query-") as staging_dir:
-        staged_model_path = lm_artifacts.stage_model_files(
-            model_task_id=model_task_id,
-            model_path=model_path,
-            staging_dir=staging_dir,
-            clearml_run=clearml_run,
-            output_model_name=lm_def.model_output_name(
-                tokenizer_model_name=tokenizer_model_name,
-                model_name=model_definition.name,
-            ),
-        )
-        query_options = {
-            "corpus": corpus,
-            "model_path": staged_model_path,
-            "prompt": prompt,
-            "max_tokens": max_tokens,
-            "top_k": top_k,
-            "decoding": decoding,
-            "temperature": temperature,
-            "seed": seed,
-        }
-        if model_definition.validate_query_options is not None:
-            try:
-                model_definition.validate_query_options(query_options)
-            except model_def.ModelOptionError as error:
-                raise click.ClickException(str(error)) from error
-
-        clearml_run.connect_parameter_sections(
-            {
-                "Run": {
-                    "command": command,
-                    "artifact_store": "clearml",
-                },
-                "Pipeline": {
-                    "stage": stage,
-                    "source_pipeline_controller_id": source_pipeline_controller_id,
-                    "model_task_id": model_task_id,
-                },
-                "Data": {
-                    "corpus": corpus,
-                },
-                "Model": {
-                    "model": model_definition.name,
-                    "tokenizer_model_name": tokenizer_model_name,
-                    "model_task_id": model_task_id,
-                    "model_path": model_path,
-                    "model_file": staged_model_path.name,
-                },
-                "Query": {
-                    "prompt": prompt,
-                    "max_tokens": max_tokens,
-                    "top_k": top_k,
-                    "decoding": decoding,
-                    "temperature": temperature,
-                    "seed": seed,
-                },
-            }
-        )
-
-        result = model_definition.query(query_options)
-        clearml_run.log_metrics("Query", lm_artifacts.query_metrics(result))
-        clearml_run.report_debug_sample(
-            title="Query",
-            series="result",
-            contents=lm_artifacts.query_debug_sample(result),
-            file_extension="txt",
-        )
-        clearml_run.upload_artifact(
-            "query-result",
-            lm_artifacts.query_payload(result),
-            metadata={"model": model_definition.name, "corpus": corpus},
-        )
-        return result
-
-
-def _query_lines(model_definition: object, result: object) -> tuple[str, ...]:
-    query_lines = getattr(model_definition, "query_lines", None)
-    return tuple(query_lines(result)) if query_lines is not None else ()
-
-
-def _configure_step_clearml(clearml_config_file: str | None) -> None:
-    if clearml_config_file is not None:
-        tracking.configure_clearml_config_file(Path(clearml_config_file))
-
-
-def _emit_pipeline_stage_title(
-    stage: str,
-    *,
-    index: int | None,
-    total: int | None,
-    title: str | None,
-) -> None:
-    if index is None or total is None or title is None:
-        index, total, title = lm_def.standalone_stage_title(stage)
-    cli_out.emit_stage_title(index, total, title)
-
-
-def _current_step_run(
-    *,
-    clearml_output_uri: str | None,
-    clearml_tags: str | list[str] | tuple[str, ...] | None,
-    stage: str,
-) -> tracking.ClearMLRun:
-    try:
-        from clearml import OutputModel, Task
-    except ImportError as error:
-        raise click.ClickException(
-            "ClearML pipeline steps require the clearml Python package. "
-            "Run `uv sync` before using the pipeline CLI."
-        ) from error
-
-    task = Task.current_task()
-    if task is None:
-        raise click.ClickException(
-            "This pipeline step must run inside a ClearML task created by PipelineController."
-        )
-
-    tags = tuple(dict.fromkeys(_normalize_tags(clearml_tags)))
-    if tags:
-        task.add_tags(list(tags))
-    return tracking.ClearMLRun(
-        task=task,
-        output_model_type=OutputModel,
-        output_uri=clearml_output_uri,
-        task_tags=tags,
-    )
-
-
-def _require_task_id(clearml_run: tracking.ClearMLRun) -> str:
-    task_id = clearml_run.task_id
-    if task_id is None:
-        raise click.ClickException("ClearML step task ID is not available.")
-    return task_id
-
-
-def _normalize_tags(clearml_tags: str | list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
-    if clearml_tags is None:
-        return ()
-    if isinstance(clearml_tags, str):
-        return tuple(tag for tag in clearml_tags.splitlines() if tag)
-    return tuple(clearml_tags)
-
-
-PIPELINE_STEP_HELPERS = (
-    _configure_step_clearml,
-    _emit_pipeline_stage_title,
-    _current_step_run,
-    _require_task_id,
-    _normalize_tags,
-)
+        return stage_runtime.require_task_id(clearml_run)

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
 from typing import Any
+
+from src.ml_core import cfg as core_cfg
 
 
 ModelOptions = Mapping[str, Any]
@@ -20,8 +21,7 @@ class ModelOptionError(ValueError):
     """Raised when model-specific options are invalid."""
 
 
-@dataclass(frozen=True)
-class ModelDefinition:
+class ModelDefinition(core_cfg.BaseCfg):
     name: str
     train: ModelTrainer
     validate_options: ModelOptionValidator

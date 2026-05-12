@@ -9,7 +9,6 @@ import click
 from src.cli import model_training_defaults as mt_defaults
 from src.cli import model_training_runs
 from src.ml_core import cfg as core_cfg
-from src.ml_core.cli import config as cli_config
 from src.corpora import registry as corpora_registry
 from src.models.core import registry as model_registry
 from src.pipelines.language_model import definition as lm_def
@@ -76,204 +75,148 @@ class CliArgs(core_cfg.BaseCfg):
 
 def run(args: CliArgs) -> None:
     ctx = click.get_current_context(silent=True)
-    pipeline_defaults = cli_config.load_defaults_from_sections(
-        (mt_defaults.MODEL_TRAINING_CONFIG_SECTION,)
-    )
-    train_defaults = cli_config.load_defaults_from_sections(
-        (mt_defaults.TRAIN_CONFIG_SECTION,)
-    )
-    evaluate_defaults = cli_config.load_defaults_from_sections(
-        (mt_defaults.EVALUATE_CONFIG_SECTION,)
-    )
-    query_defaults = cli_config.load_defaults_from_sections(
-        (mt_defaults.QUERY_CONFIG_SECTION,)
-    )
+    stage_defaults = mt_defaults.StageDefaults.load()
+    all_stages = ("train", "evaluate", "query")
+    data_stages = ("train", "evaluate")
 
-    corpus = mt_defaults.resolve_consistent_stage_default(
+    corpus = stage_defaults.resolve_shared(
         ctx,
         parameter_name="corpus",
         current_value=args.corpus,
-        pipeline_defaults=pipeline_defaults,
-        candidates=(
-            ("train", train_defaults, "corpus"),
-            ("evaluate", evaluate_defaults, "corpus"),
-            ("query", query_defaults, "corpus"),
-        ),
+        stages=all_stages,
     )
-    model_name = mt_defaults.resolve_consistent_stage_default(
+    model_name = stage_defaults.resolve_shared(
         ctx,
         parameter_name="model_name",
         current_value=args.model_name,
-        pipeline_defaults=pipeline_defaults,
-        candidates=(
-            ("train", train_defaults, "model_name"),
-            ("evaluate", evaluate_defaults, "model_name"),
-            ("query", query_defaults, "model_name"),
-        ),
+        stages=all_stages,
     )
-    tokenizer_model_name = mt_defaults.resolve_stage_default(
+    tokenizer_model_name = stage_defaults.resolve_stage(
         ctx,
         parameter_name="tokenizer_model_name",
         current_value=args.tokenizer_model_name,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=train_defaults,
+        stage="train",
     )
-    dataset_id = mt_defaults.resolve_consistent_stage_default(
+    dataset_id = stage_defaults.resolve_shared(
         ctx,
         parameter_name="dataset_id",
         current_value=args.dataset_id,
-        pipeline_defaults=pipeline_defaults,
-        candidates=(
-            ("train", train_defaults, "dataset_id"),
-            ("evaluate", evaluate_defaults, "dataset_id"),
-        ),
+        stages=data_stages,
     )
-    source_split = mt_defaults.resolve_consistent_stage_default(
+    source_split = stage_defaults.resolve_shared(
         ctx,
         parameter_name="source_split",
         current_value=args.source_split,
-        pipeline_defaults=pipeline_defaults,
-        candidates=(
-            ("train", train_defaults, "source_split"),
-            ("evaluate", evaluate_defaults, "source_split"),
-        ),
+        stages=data_stages,
     )
-    train_ratio = mt_defaults.resolve_consistent_stage_default(
+    train_ratio = stage_defaults.resolve_shared(
         ctx,
         parameter_name="train_ratio",
         current_value=args.train_ratio,
-        pipeline_defaults=pipeline_defaults,
-        candidates=(
-            ("train", train_defaults, "train_ratio"),
-            ("evaluate", evaluate_defaults, "train_ratio"),
-        ),
+        stages=data_stages,
     )
-    split_seed = mt_defaults.resolve_consistent_stage_default(
+    split_seed = stage_defaults.resolve_shared(
         ctx,
         parameter_name="split_seed",
         current_value=args.split_seed,
-        pipeline_defaults=pipeline_defaults,
-        candidates=(
-            ("train", train_defaults, "split_seed"),
-            ("evaluate", evaluate_defaults, "split_seed"),
-        ),
+        stages=data_stages,
     )
-    text_column = mt_defaults.resolve_consistent_stage_default(
+    text_column = stage_defaults.resolve_shared(
         ctx,
         parameter_name="text_column",
         current_value=args.text_column,
-        pipeline_defaults=pipeline_defaults,
-        candidates=(
-            ("train", train_defaults, "text_column"),
-            ("evaluate", evaluate_defaults, "text_column"),
-        ),
+        stages=data_stages,
     )
-    streaming = mt_defaults.resolve_consistent_stage_default(
+    streaming = stage_defaults.resolve_shared(
         ctx,
         parameter_name="streaming",
         current_value=args.streaming,
-        pipeline_defaults=pipeline_defaults,
-        candidates=(
-            ("train", train_defaults, "streaming"),
-            ("evaluate", evaluate_defaults, "streaming"),
-        ),
+        stages=data_stages,
     )
-    evaluation_partition = mt_defaults.resolve_stage_default(
+    evaluation_partition = stage_defaults.resolve_stage(
         ctx,
         parameter_name="evaluation_partition",
         current_value=args.evaluation_partition,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=evaluate_defaults,
+        stage="evaluate",
     )
     model_hyperparameters = lm_model_options.model_hyperparameters_from(
         args.model_dump()
     )
     model_hyperparameters = {
-        name: mt_defaults.resolve_stage_default(
+        name: stage_defaults.resolve_stage(
             ctx,
             parameter_name=name,
             current_value=model_hyperparameters[name],
-            pipeline_defaults=pipeline_defaults,
-            stage_defaults=train_defaults,
+            stage="train",
         )
         for name in lm_model_options.MODEL_HYPERPARAMETER_NAMES
     }
-    top_k = mt_defaults.resolve_stage_default(
+    top_k = stage_defaults.resolve_stage(
         ctx,
         parameter_name="top_k",
         current_value=args.top_k,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=evaluate_defaults,
+        stage="evaluate",
     )
-    query_prompt = mt_defaults.resolve_stage_default(
+    query_prompt = stage_defaults.resolve_stage(
         ctx,
         parameter_name="query_prompt",
         current_value=args.query_prompt,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=query_defaults,
+        stage="query",
         stage_key="prompt",
     )
-    query_max_tokens = mt_defaults.resolve_stage_default(
+    query_max_tokens = stage_defaults.resolve_stage(
         ctx,
         parameter_name="query_max_tokens",
         current_value=args.query_max_tokens,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=query_defaults,
+        stage="query",
         stage_key="max_tokens",
     )
-    query_top_k = mt_defaults.resolve_stage_default(
+    query_top_k = stage_defaults.resolve_stage(
         ctx,
         parameter_name="query_top_k",
         current_value=args.query_top_k,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=query_defaults,
+        stage="query",
         stage_key="top_k",
     )
-    query_decoding = mt_defaults.resolve_stage_default(
+    query_decoding = stage_defaults.resolve_stage(
         ctx,
         parameter_name="query_decoding",
         current_value=args.query_decoding,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=query_defaults,
+        stage="query",
         stage_key="decoding",
     )
-    query_temperature = mt_defaults.resolve_stage_default(
+    query_temperature = stage_defaults.resolve_stage(
         ctx,
         parameter_name="query_temperature",
         current_value=args.query_temperature,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=query_defaults,
+        stage="query",
         stage_key="temperature",
     )
-    query_seed = mt_defaults.resolve_stage_default(
+    query_seed = stage_defaults.resolve_stage(
         ctx,
         parameter_name="query_seed",
         current_value=args.query_seed,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=query_defaults,
+        stage="query",
         stage_key="seed",
     )
-    text_normalization = mt_defaults.resolve_stage_default(
+    text_normalization = stage_defaults.resolve_stage(
         ctx,
         parameter_name="text_normalization",
         current_value=args.text_normalization,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=train_defaults,
+        stage="train",
     )
-    resolved_training_limit = mt_defaults.resolve_stage_limit(
+    resolved_training_limit = stage_defaults.resolve_limit(
         ctx,
         parameter_name="training_limit",
         current_value=args.training_limit,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=train_defaults,
+        stage="train",
         global_limit=args.limit,
     )
-    resolved_evaluation_limit = mt_defaults.resolve_stage_limit(
+    resolved_evaluation_limit = stage_defaults.resolve_limit(
         ctx,
         parameter_name="evaluation_limit",
         current_value=args.evaluation_limit,
-        pipeline_defaults=pipeline_defaults,
-        stage_defaults=evaluate_defaults,
+        stage="evaluate",
         global_limit=args.limit,
     )
     optuna_cfg = model_training_runs.OptunaCfg(

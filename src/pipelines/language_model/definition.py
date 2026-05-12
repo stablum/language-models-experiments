@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 
 import click
 
+from src.ml_core import cfg as core_cfg
 from src.ml_core import pipeline as core_pipeline
 from src.ml_core import tracking
 
@@ -50,23 +50,20 @@ QUERY_STAGE_DEPENDENCIES = {
 stage_gate_callback = core_pipeline.make_stage_gate_callback(ALL_PIPELINE_STAGES)
 
 
-@dataclass(frozen=True)
-class PipelineDefinition:
+class PipelineDefinition(core_cfg.BaseCfg):
     default_name: str
     stages: tuple[str, ...]
     stage_dependencies: Mapping[str, tuple[str, ...]]
 
 
-@dataclass(frozen=True)
-class TokenizerTrainingResolution:
+class TokenizerTrainingResolution(core_cfg.BaseCfg):
     controller_id: str
     tokenizer_task_id: str
     tokenizer_model_name: str
     corpus: str
 
 
-@dataclass(frozen=True)
-class ModelTrainingResolution:
+class ModelTrainingResolution(core_cfg.BaseCfg):
     controller_id: str
     model_task_id: str
     model_name: str
