@@ -198,7 +198,35 @@ P_{\lambda}(w \mid u,v)
 + \lambda_3 P_3(w \mid u,v).
 ```
 
-The weights are configured globally and normalized to sum to 1. If a maximum-likelihood denominator is zero, that row contributes 0. Because there is no add-k floor, unseen tokens or unavailable lower-order rows can still receive zero probability.
+The same weights can also be obtained by unrolling the recursive interpolation form
+
+```math
+P_{\mathrm{JM}}(w \mid u,v)
+=
+\beta_3 P_3(w \mid u,v)
++ (1-\beta_3)P_{\mathrm{JM}}(w \mid v),
+```
+
+with
+
+```math
+P_{\mathrm{JM}}(w \mid v)
+=
+\beta_2 P_2(w \mid v)
++ (1-\beta_2)P_1(w).
+```
+
+This gives the flat product weights
+
+```math
+\lambda_3 = \beta_3,
+\qquad
+\lambda_2 = (1-\beta_3)\beta_2,
+\qquad
+\lambda_1 = (1-\beta_3)(1-\beta_2).
+```
+
+The implementation stores the flattened global \lambda weights directly. If a maximum-likelihood denominator is zero, that row contributes 0. Because there is no add-k floor, unseen tokens or unavailable lower-order rows can still receive zero probability.
 
 ## Absolute-Discount Trigram
 
