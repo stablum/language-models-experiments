@@ -50,6 +50,8 @@ SEARCH_PARAMETERS = {
     "unigram_weight": SearchParameter(float, minimum=0.0),
     "bigram_weight": SearchParameter(float, minimum=0.0),
     "trigram_weight": SearchParameter(float, minimum=0.0),
+    "beta_2": SearchParameter(float, minimum=0.0, maximum=1.0),
+    "beta_3": SearchParameter(float, minimum=0.0, maximum=1.0),
     "discount": SearchParameter(float, minimum=0.0, maximum=1.0),
     "top_k": SearchParameter(int, minimum=1),
     "query_max_tokens": SearchParameter(int, minimum=0),

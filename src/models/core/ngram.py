@@ -247,12 +247,7 @@ def select_next_token(
     if decoding == "most-probable":
         return most_probable_token(predictions, eos_id=eos_id)
     if decoding == "sample":
-        return sample_token(
-            predictions,
-            eos_id=eos_id,
-            rng=rng,
-            temperature=temperature,
-        )
+        return sample_token(predictions, eos_id=eos_id, rng=rng, temperature=temperature)
     raise ValueError(f"Unsupported decoding mode: {decoding}")
 
 
@@ -299,11 +294,7 @@ def fallback_token_id(eos_id: int) -> int:
     return eos_id if eos_id >= 0 else 0
 
 
-def generation_prediction_top_k(
-    *,
-    decoding: DecodingMode,
-    temperature: float,
-) -> int:
+def generation_prediction_top_k(*, decoding: DecodingMode, temperature: float) -> int:
     # top_k=0 means "all candidates"; greedy paths only need the first row.
     if decoding == "most-probable" or temperature == 0:
         return 1
@@ -388,10 +379,7 @@ def load_tokenizer_model_fields(
     data: dict[str, object],
     model_path: Path,
 ) -> dict[str, object]:
-    tokenizer_model, tokenizer, vocab_size = load_tokenizer_from_payload(
-        data,
-        model_path,
-    )
+    tokenizer_model, tokenizer, vocab_size = load_tokenizer_from_payload(data, model_path)
     return {
         "model_path": model_path,
         "tokenizer_model": tokenizer_model,
@@ -576,6 +564,7 @@ def model_definition(
         training_options = {
             option_name: options[option_name]
             for option_name in training_option_names
+            if option_name in options
         }
         return train_model(
             texts,

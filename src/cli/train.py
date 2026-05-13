@@ -114,6 +114,24 @@ from src.models.core import registry as model_registry
     help="Interpolation weight for trigram probabilities in models that use it.",
 )
 @click.option(
+    "--beta-2",
+    type=click.FloatRange(min=0.0, max=1.0),
+    default=None,
+    help=(
+        "Recursive interpolation beta for the bigram-vs-unigram branch. "
+        "Set with --beta-3 to derive interpolation weights."
+    ),
+)
+@click.option(
+    "--beta-3",
+    type=click.FloatRange(min=0.0, max=1.0),
+    default=None,
+    help=(
+        "Recursive interpolation beta for the trigram-vs-lower-order branch. "
+        "Set with --beta-2 to derive interpolation weights."
+    ),
+)
+@click.option(
     "--discount",
     type=click.FloatRange(min=0.0, max=1.0),
     default=0.75,
@@ -151,6 +169,8 @@ def main(
     unigram_weight: float,
     bigram_weight: float,
     trigram_weight: float,
+    beta_2: float | None,
+    beta_3: float | None,
     discount: float,
     text_normalization: str,
     clearml_project: str,

@@ -160,6 +160,24 @@ from src.corpora import registry as corpora_registry
     help="Interpolation weight for trigram probabilities in models that use it.",
 )
 @click.option(
+    "--beta-2",
+    type=click.FloatRange(min=0.0, max=1.0),
+    default=None,
+    help=(
+        "Recursive interpolation beta for the bigram-vs-unigram branch. "
+        "Set with --beta-3 to derive interpolation weights."
+    ),
+)
+@click.option(
+    "--beta-3",
+    type=click.FloatRange(min=0.0, max=1.0),
+    default=None,
+    help=(
+        "Recursive interpolation beta for the trigram-vs-lower-order branch. "
+        "Set with --beta-2 to derive interpolation weights."
+    ),
+)
+@click.option(
     "--discount",
     type=click.FloatRange(min=0.0, max=1.0),
     default=0.75,
@@ -235,7 +253,8 @@ from src.corpora import registry as corpora_registry
     help=(
         "Hyperparameter search spec. Repeatable. Examples: "
         "smoothing=float:1e-4:1.0:log, discount=float:0.1:0.95, "
-        "top_k=int:1:10, model=categorical:bigram,trigram-add-k."
+        "beta_2=float:0:1.0, top_k=int:1:10, "
+        "model=categorical:bigram,trigram-add-k."
     ),
 )
 @click.option(
@@ -303,6 +322,8 @@ def main(
     unigram_weight: float,
     bigram_weight: float,
     trigram_weight: float,
+    beta_2: float | None,
+    beta_3: float | None,
     discount: float,
     top_k: int,
     query_prompt: str,

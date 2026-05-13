@@ -31,6 +31,8 @@ TRAIN_DEFAULT_KEY_MAP = {
     "unigram_weight": "unigram_weight",
     "bigram_weight": "bigram_weight",
     "trigram_weight": "trigram_weight",
+    "beta_2": "beta_2",
+    "beta_3": "beta_3",
     "discount": "discount",
     "limit": "training_limit",
     "text_normalization": "text_normalization",

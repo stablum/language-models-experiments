@@ -253,7 +253,7 @@ Train an interpolated add-k trigram model:
 uv run python -m src.cli.model_training --model trigram-add-k --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
 ```
 
-The add-k trigram model estimates `P(next_token | previous_previous_token, previous_token)` with linear interpolation over add-k smoothed unigram, bigram, and trigram probabilities. The default weights are `0.1 / 0.3 / 0.6`; adjust them with `--unigram-weight`, `--bigram-weight`, and `--trigram-weight`.
+The add-k trigram model estimates `P(next_token | previous_previous_token, previous_token)` with linear interpolation over add-k smoothed unigram, bigram, and trigram probabilities. The default weights are `0.1 / 0.3 / 0.6`; adjust them with `--unigram-weight`, `--bigram-weight`, and `--trigram-weight`, or set recursive interpolation values with `--beta-2` and `--beta-3`. The model artifact records both lambdas and betas.
 
 Train a Jelinek-Mercer trigram model:
 
@@ -261,7 +261,7 @@ Train a Jelinek-Mercer trigram model:
 uv run python -m src.cli.model_training --model trigram-jelinek-mercer --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
 ```
 
-The Jelinek-Mercer trigram model uses the same fixed interpolation weights over unigram, bigram, and trigram probabilities, but those component probabilities are unsmoothed maximum-likelihood estimates.
+The Jelinek-Mercer trigram model uses the same fixed interpolation weights over unigram, bigram, and trigram probabilities, but those component probabilities are unsmoothed maximum-likelihood estimates. It also accepts either flat lambda weights or recursive beta values.
 
 Train an absolute-discount trigram model:
 
@@ -340,7 +340,7 @@ name=int:low:high[:step][:log]
 name=categorical:value1,value2
 ```
 
-Supported names are `model`, `smoothing`, `discount`, `unigram_weight`, `bigram_weight`, `trigram_weight`, `top_k`, `query_max_tokens`, `query_top_k`, `query_decoding`, `query_temperature`, and `query_seed`. Use `--optuna-metric next_token_accuracy --optuna-direction maximize` to optimize an accuracy metric instead of perplexity. Persistent studies can be configured with `--optuna-study-name` and `--optuna-storage`, for example `sqlite:///artifacts/optuna.db`.
+Supported names are `model`, `smoothing`, `discount`, `unigram_weight`, `bigram_weight`, `trigram_weight`, `beta_2`, `beta_3`, `top_k`, `query_max_tokens`, `query_top_k`, `query_decoding`, `query_temperature`, and `query_seed`. Use `--optuna-metric next_token_accuracy --optuna-direction maximize` to optimize an accuracy metric instead of perplexity. Persistent studies can be configured with `--optuna-study-name` and `--optuna-storage`, for example `sqlite:///artifacts/optuna.db`.
 
 The same settings can live in `config.toml`, either in `[optuna]` or as command-specific keys in `[model-training]`:
 

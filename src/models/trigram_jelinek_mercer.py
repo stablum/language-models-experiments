@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 from src.corpora import normalization
-from src.models.core import ngram, trigrams
+from src.models.core import ngram, trigram_interpolation as interp, trigrams
 from src.tokenizers import core as tok_core
 
 
@@ -43,13 +43,10 @@ def load_jelinek_mercer_trigram_model(model_path: Path) -> JelinekMercerTrigramM
         model_path,
         model_type=_SCHEMA_TYPE,
     )
-    weights = data["interpolation_weights"]
 
     return JelinekMercerTrigramModel(
         **model_fields,
-        unigram_weight=float(weights["unigram"]),
-        bigram_weight=float(weights["bigram"]),
-        trigram_weight=float(weights["trigram"]),
+        **interp.parse_fields(data),
         unigram_counts=trigrams.parse_unigram_counts(data),
         unigram_total=int(data["unigram_count"]),
         bigram_transitions=trigrams.parse_bigram_transitions(data),
@@ -63,24 +60,30 @@ def train_jelinek_mercer_trigram_model(
     tokenizer_model: Path,
     output_path: Path,
     stored_tokenizer_model: Path | None = None,
-    unigram_weight: float = 0.1,
-    bigram_weight: float = 0.3,
-    trigram_weight: float = 0.6,
+    unigram_weight: float = interp.DEFAULT_UNIGRAM_WEIGHT,
+    bigram_weight: float = interp.DEFAULT_BIGRAM_WEIGHT,
+    trigram_weight: float = interp.DEFAULT_TRIGRAM_WEIGHT,
+    beta_2: float | None = None,
+    beta_3: float | None = None,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> trigrams.InterpolatedTrigramTrainingSummary:
-    normalized_weights = trigrams.normalize_interpolation_weights(
+    interpolation = interp.resolve_params(
         unigram_weight=unigram_weight,
         bigram_weight=bigram_weight,
         trigram_weight=trigram_weight,
+        beta_2=beta_2,
+        beta_3=beta_3,
     )
     tokenizer = tok_core.load_tokenizer(tokenizer_model)
     summary = trigrams.InterpolatedTrigramTrainingSummary(
         output_path=output_path,
         tokenizer_model=tokenizer_model,
         vocab_size=tokenizer.vocab_size,
-        unigram_weight=normalized_weights[0],
-        bigram_weight=normalized_weights[1],
-        trigram_weight=normalized_weights[2],
+        unigram_weight=interpolation.unigram_weight,
+        bigram_weight=interpolation.bigram_weight,
+        trigram_weight=interpolation.trigram_weight,
+        beta_2=interpolation.beta_2,
+        beta_3=interpolation.beta_3,
         text_normalization=text_normalization,
     )
     counts = trigrams.collect_trigram_counts(
@@ -99,11 +102,7 @@ def train_jelinek_mercer_trigram_model(
             text_normalization=text_normalization,
             counts=counts,
         ),
-        "interpolation_weights": {
-            "unigram": summary.unigram_weight,
-            "bigram": summary.bigram_weight,
-            "trigram": summary.trigram_weight,
-        },
+        **interp.payload(summary),
     }
     ngram.write_json_model_payload(output_path, model)
 
@@ -118,7 +117,7 @@ def format_summary(
             summary=summary,
             artifact_label="Jelinek-Mercer trigram model file",
         ),
-        trigrams.interpolation_weight_item(summary),
+        *interp.items(summary),
     ]
 
 
@@ -127,11 +126,13 @@ MODEL_DEFINITION = ngram.model_definition(
     train_model=train_jelinek_mercer_trigram_model,
     summary_items=format_summary,
     load_model=load_jelinek_mercer_trigram_model,
-    evaluation_items=trigrams.interpolated_evaluation_items,
+    evaluation_items=interp.evaluation_items,
     training_option_names=(
         "unigram_weight",
         "bigram_weight",
         "trigram_weight",
+        "beta_2",
+        "beta_3",
     ),
-    validate_training_options=trigrams.validate_interpolation_options,
+    validate_training_options=interp.validate_options,
 )

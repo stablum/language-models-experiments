@@ -53,6 +53,8 @@ class CliArgs(core_cfg.BaseCfg):
     unigram_weight: float
     bigram_weight: float
     trigram_weight: float
+    beta_2: float | None
+    beta_3: float | None
     discount: float
     top_k: int
     query_prompt: str

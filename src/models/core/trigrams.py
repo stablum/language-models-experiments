@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import ClassVar
 
 from src.corpora import normalization
-from src.ml_core.models import definition as model_def
 from src.models.core import formatting, ngram
 from src.tokenizers import core as tok_core
 
@@ -42,12 +41,16 @@ class InterpolatedTrigramTrainingSummary(TrigramTrainingSummary):
     unigram_weight: float = 0.0
     bigram_weight: float = 0.0
     trigram_weight: float = 0.0
+    beta_2: float | None = None
+    beta_3: float | None = None
 
 
 class InterpolatedTrigramEvaluationSummary(ngram.NgramEvaluationSummary):
     unigram_weight: float = 0.0
     bigram_weight: float = 0.0
     trigram_weight: float = 0.0
+    beta_2: float | None = None
+    beta_3: float | None = None
 
 
 @dataclass(frozen=True)
@@ -294,12 +297,16 @@ class InterpolatedTrigramModel(BaseTrigramModel):
     unigram_weight: float
     bigram_weight: float
     trigram_weight: float
+    beta_2: float | None = None
+    beta_3: float | None = None
 
     def evaluation_summary_fields(self) -> dict[str, object]:
         return {
             "unigram_weight": self.unigram_weight,
             "bigram_weight": self.bigram_weight,
             "trigram_weight": self.trigram_weight,
+            "beta_2": self.beta_2,
+            "beta_3": self.beta_3,
         }
 
     def context_probability(
@@ -461,52 +468,6 @@ def discounted_evaluation_items(
     return [
         *ngram.base_evaluation_items(summary),
         discount_item(summary),
-        *formatting.format_ngram_evaluation_metrics(summary),
-    ]
-
-
-def normalize_interpolation_weights(
-    *,
-    unigram_weight: float,
-    bigram_weight: float,
-    trigram_weight: float,
-) -> tuple[float, float, float]:
-    total = unigram_weight + bigram_weight + trigram_weight
-    if total <= 0:
-        raise ValueError("At least one interpolation weight must be positive.")
-    return unigram_weight / total, bigram_weight / total, trigram_weight / total
-
-
-def validate_interpolation_options(options: model_def.ModelOptions) -> None:
-    try:
-        normalize_interpolation_weights(
-            unigram_weight=options["unigram_weight"],
-            bigram_weight=options["bigram_weight"],
-            trigram_weight=options["trigram_weight"],
-        )
-    except ValueError as error:
-        raise model_def.ModelOptionError(str(error)) from error
-
-
-def interpolation_weight_item(
-    summary: InterpolatedTrigramTrainingSummary | InterpolatedTrigramEvaluationSummary,
-) -> tuple[str, str]:
-    return (
-        "Interpolation weights",
-        formatting.format_interpolation_weights(
-            unigram_weight=summary.unigram_weight,
-            bigram_weight=summary.bigram_weight,
-            trigram_weight=summary.trigram_weight,
-        ),
-    )
-
-
-def interpolated_evaluation_items(
-    summary: InterpolatedTrigramEvaluationSummary,
-) -> list[tuple[str, str]]:
-    return [
-        *ngram.base_evaluation_items(summary),
-        interpolation_weight_item(summary),
         *formatting.format_ngram_evaluation_metrics(summary),
     ]
 

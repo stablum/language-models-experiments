@@ -28,6 +28,8 @@ TRAINING_METRIC_ATTRS = (
     "unigram_weight",
     "bigram_weight",
     "trigram_weight",
+    "beta_2",
+    "beta_3",
 )
 EVALUATION_METRIC_ATTRS = (
     "sequence_count",
@@ -46,6 +48,8 @@ EVALUATION_METRIC_ATTRS = (
     "unigram_weight",
     "bigram_weight",
     "trigram_weight",
+    "beta_2",
+    "beta_3",
 )
 
 

@@ -10,6 +10,8 @@ MODEL_HYPERPARAMETER_DESCRIPTIONS = {
     "unigram_weight": "Interpolation weight for unigram probabilities in models that use it.",
     "bigram_weight": "Interpolation weight for bigram probabilities in models that use it.",
     "trigram_weight": "Interpolation weight for trigram probabilities in models that use it.",
+    "beta_2": "Recursive interpolation beta for the bigram-vs-unigram branch.",
+    "beta_3": "Recursive interpolation beta for the trigram-vs-lower-order branch.",
     "discount": "Absolute discount value for models that use it.",
 }
 MODEL_HYPERPARAMETER_NAMES = tuple(MODEL_HYPERPARAMETER_DESCRIPTIONS)

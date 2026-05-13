@@ -49,7 +49,7 @@ add_run_number = true
 #   name = int:low:high[:step][:log]
 #   name = categorical:value1,value2
 # Supported names include model, smoothing, discount, unigram_weight,
-# bigram_weight, trigram_weight, top_k, query_max_tokens, query_top_k,
+# bigram_weight, trigram_weight, beta_2, beta_3, top_k, query_max_tokens, query_top_k,
 # query_decoding, query_temperature, and query_seed.
 optuna_trials = 50
 optuna_metric = "next_token_accuracy"
@@ -60,6 +60,8 @@ optuna_search = [
    "bigram_weight=float:0:1.0",
    "trigram_weight=float:0:1.0",
 #   "discount=float:0.1:0.95",
+#   "beta_2=float:0:1.0",
+#   "beta_3=float:0:1.0",
 ]
 
 [tokenizer-training]
@@ -85,6 +87,7 @@ smoothing = 0.1
 unigram_weight = 0.1
 bigram_weight = 0.3
 trigram_weight = 0.6
+# beta_2 and beta_3 can be set together instead of unigram/bigram/trigram weights.
 discount = 0.75
 
 [evaluate]

@@ -146,6 +146,8 @@ The weights are non-negative and normalized:
 \lambda_1 + \lambda_2 + \lambda_3 = 1.
 ```
 
+The model can be configured either with flat \lambda weights or with recursive \beta values. Whichever form is supplied, the model artifact records both forms.
+
 The default weights are
 
 ```math
@@ -226,7 +228,19 @@ This gives the flat product weights
 \lambda_1 = (1-\beta_3)(1-\beta_2).
 ```
 
-The implementation stores the flattened global \lambda weights directly. If a maximum-likelihood denominator is zero, that row contributes 0. Because there is no add-k floor, unseen tokens or unavailable lower-order rows can still receive zero probability.
+Conversely, flat weights imply
+
+```math
+\beta_3 = \lambda_3,
+\qquad
+\beta_2 =
+\begin{cases}
+\dfrac{\lambda_2}{\lambda_1+\lambda_2}, & \lambda_1+\lambda_2 > 0, \\
+0, & \lambda_1+\lambda_2 = 0.
+\end{cases}
+```
+
+When \lambda_1+\lambda_2 = 0, the lower-order branch has no probability mass, so \beta_2 is arbitrary; this implementation records 0 by convention. The implementation accepts either form and stores both the flattened global \lambda weights and the recursive \beta values. If a maximum-likelihood denominator is zero, that row contributes 0. Because there is no add-k floor, unseen tokens or unavailable lower-order rows can still receive zero probability.
 
 ## Absolute-Discount Trigram
 
