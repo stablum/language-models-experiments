@@ -16,7 +16,6 @@ from typing import ClassVar
 from src.corpora import normalization
 from src.models.core import ngram
 from src.models.core import trigrams
-from src.tokenizers import core as tok_core
 
 
 _SCHEMA_TYPE = "absolute_discount_trigram"
@@ -84,7 +83,7 @@ class AbsoluteDiscountTrigramModel(trigrams.DiscountedTrigramModel):
             counts=counts,
             total=total,
             smoothing=self.smoothing,
-            candidate_count=ngram.candidate_token_count(self.vocab_size, self.bos_id),
+            candidate_count=self.candidate_count,
         )
 
 
@@ -113,31 +112,30 @@ def train_absolute_discount_trigram_model(
     discount: float = 0.75,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> AbsoluteDiscountTrigramTrainingSummary:
-    tokenizer = tok_core.load_tokenizer(tokenizer_model)
+    artifacts = trigrams.collect_training_artifacts(
+        texts,
+        tokenizer_model=tokenizer_model,
+        text_normalization=text_normalization,
+    )
     summary = AbsoluteDiscountTrigramTrainingSummary(
         output_path=output_path,
         tokenizer_model=tokenizer_model,
-        vocab_size=tokenizer.vocab_size,
+        vocab_size=artifacts.tokenizer.vocab_size,
         discount=discount,
-        text_normalization=text_normalization,
-    )
-    counts = trigrams.collect_trigram_counts(
-        texts,
-        tokenizer,
         text_normalization=text_normalization,
     )
     # Training stores raw trigram and bigram counts; discounting and additive
     # smoothing are applied lazily when probabilities are queried.
-    trigrams.apply_trigram_counts_to_summary(summary, counts)
+    trigrams.apply_trigram_counts_to_summary(summary, artifacts.counts)
 
     model = {
         **trigrams.standard_trigram_model_payload(
-            tokenizer,
+            artifacts.tokenizer,
             model_type=_SCHEMA_TYPE,
             tokenizer_model=tokenizer_model,
             stored_tokenizer_model=stored_tokenizer_model,
             text_normalization=text_normalization,
-            counts=counts,
+            counts=artifacts.counts,
         ),
         "smoothing": smoothing,
         "discount": summary.discount,

@@ -140,6 +140,10 @@ class BaseNgramModel(NgramPydanticModel):
             self._candidate_id_set = frozenset(self.candidate_ids)
         return self._candidate_id_set
 
+    @property
+    def candidate_count(self) -> int:
+        return len(self.candidate_ids)
+
     def encode_prompt(self, prompt: str) -> list[int]:
         return tok_core.encode_prompt(
             self.tokenizer,
@@ -240,10 +244,6 @@ def candidate_token_ids(vocab_size: int, bos_id: int) -> tuple[int, ...]:
     return tuple(token_id for token_id in range(vocab_size) if token_id != bos_id)
 
 
-def candidate_token_count(vocab_size: int, bos_id: int) -> int:
-    return vocab_size - 1 if 0 <= bos_id < vocab_size else vocab_size
-
-
 def select_next_token(
     predictions: Sequence[NgramPrediction],
     *,
@@ -307,6 +307,29 @@ def generation_prediction_top_k(*, decoding: DecodingMode, temperature: float) -
     if decoding == "most-probable" or temperature == 0:
         return 1
     return 0
+
+
+def prediction_sort_key(prediction: NgramPrediction) -> tuple[float, int]:
+    return -prediction.probability, prediction.token_id
+
+
+def sorted_predictions(
+    predictions: Iterable[NgramPrediction],
+    *,
+    top_k: int,
+) -> list[NgramPrediction]:
+    ranked_predictions = sorted(predictions, key=prediction_sort_key)
+    return ranked_predictions[:top_k] if top_k > 0 else ranked_predictions
+
+
+def greedy_token_id(ranked_token_ids: Sequence[int], *, eos_id: int) -> int:
+    if ranked_token_ids:
+        return ranked_token_ids[0]
+    return fallback_token_id(eos_id)
+
+
+def top_k_token_id_set(ranked_token_ids: Sequence[int], *, top_k: int) -> frozenset[int]:
+    return frozenset(ranked_token_ids[:top_k]) if top_k > 0 else frozenset()
 
 
 def load_pieces(

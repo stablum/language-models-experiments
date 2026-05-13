@@ -5,31 +5,37 @@ from __future__ import annotations
 import heapq
 import math
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from types import NotImplementedType
 from typing import Any
+
+import pydantic
 
 from src.corpora import normalization
 from src.corpora import text as corpus_text
+from src.ml_core import cfg as core_cfg
 
 
-@dataclass(order=True)
-class LongExample:
+class LongExample(core_cfg.FrozenBaseCfg):
     char_count: int
     row_number: int
-    token_count: int = field(compare=False)
-    preview: str = field(compare=False)
+    token_count: int
+    preview: str
+
+    def __lt__(self, other: object) -> bool | NotImplementedType:
+        if not isinstance(other, LongExample):
+            return NotImplemented
+        return (self.char_count, self.row_number) < (other.char_count, other.row_number)
 
 
-@dataclass
-class CorpusStats:
+class CorpusStats(core_cfg.BaseCfg):
     rows: int = 0
     nonempty_rows: int = 0
     total_chars: int = 0
     total_whitespace_tokens: int = 0
     total_newlines: int = 0
-    char_lengths: list[int] = field(default_factory=list)
-    token_lengths: list[int] = field(default_factory=list)
-    longest_examples: list[LongExample] = field(default_factory=list)
+    char_lengths: list[int] = pydantic.Field(default_factory=list)
+    token_lengths: list[int] = pydantic.Field(default_factory=list)
+    longest_examples: list[LongExample] = pydantic.Field(default_factory=list)
 
     def add_text(
         self,

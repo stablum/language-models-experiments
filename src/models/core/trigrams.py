@@ -29,6 +29,11 @@ class TrigramCounts(ngram.FrozenNgramModel):
         return sum(self.unigram_counts.values())
 
 
+class TrigramTrainingArtifacts(ngram.FrozenNgramModel):
+    tokenizer: tok_core.TokenizerCodec
+    counts: TrigramCounts
+
+
 class TrigramTrainingSummary(ngram.NgramTrainingSummary):
     unigram_count: int = 0
     bigram_transition_count: int = 0
@@ -85,17 +90,18 @@ class BaseTrigramModel(ngram.BaseNgramModel):
         top_k: int,
     ) -> list[ngram.NgramPrediction]:
         trigram_counts = dict(self.trigram_transitions.get(context, ()))
-        predictions = [
-            ngram.NgramPrediction(
-                token_id=token_id,
-                piece=self.pieces[token_id],
-                count=trigram_counts.get(token_id, 0),
-                probability=self.transition_probability(token_id, context),
-            )
-            for token_id in self.candidate_ids
-        ]
-        predictions.sort(key=lambda prediction: (-prediction.probability, prediction.token_id))
-        return predictions[:top_k] if top_k > 0 else predictions
+        return ngram.sorted_predictions(
+            (
+                ngram.NgramPrediction(
+                    token_id=token_id,
+                    piece=self.pieces[token_id],
+                    count=trigram_counts.get(token_id, 0),
+                    probability=self.transition_probability(token_id, context),
+                )
+                for token_id in self.candidate_ids
+            ),
+            top_k=top_k,
+        )
 
     def evaluate(
         self,
@@ -242,15 +248,13 @@ class BaseTrigramModel(ngram.BaseNgramModel):
             bigram_total=bigram_total,
             trigram_total=trigram_total,
         )
-        fallback_token_id = ngram.fallback_token_id(self.eos_id)
-        greedy_token_id = ranked_token_ids[0] if ranked_token_ids else fallback_token_id
         return TrigramEvaluationRow(
             bigram_counts=bigram_counts,
             trigram_counts=trigram_counts,
             bigram_total=bigram_total,
             trigram_total=trigram_total,
-            greedy_token_id=greedy_token_id,
-            top_k_token_ids=frozenset(ranked_token_ids[:top_k]) if top_k > 0 else frozenset(),
+            greedy_token_id=ngram.greedy_token_id(ranked_token_ids, eos_id=self.eos_id),
+            top_k_token_ids=ngram.top_k_token_id_set(ranked_token_ids, top_k=top_k),
         )
 
     def ranked_token_ids(
@@ -415,6 +419,23 @@ def collect_trigram_counts(
         bigram_transition_count=bigram_transition_count,
         trigram_transition_count=trigram_transition_count,
     )
+
+
+def collect_training_artifacts(
+    texts: Iterable[str],
+    *,
+    tokenizer_model: Path,
+    text_normalization: normalization.TextNormalization = (
+        normalization.DEFAULT_TEXT_NORMALIZATION
+    ),
+) -> TrigramTrainingArtifacts:
+    tokenizer = tok_core.load_tokenizer(tokenizer_model)
+    counts = collect_trigram_counts(
+        texts,
+        tokenizer,
+        text_normalization=text_normalization,
+    )
+    return TrigramTrainingArtifacts(tokenizer=tokenizer, counts=counts)
 
 
 def trigram_counts_payload(counts: TrigramCounts) -> dict[str, object]:

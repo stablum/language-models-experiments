@@ -46,30 +46,31 @@ class BigramModel(ngram.BaseNgramModel):
             observed.get(token_id, 0)
             for token_id in self.candidate_ids
         )
-        candidate_count = len(self.candidate_ids)
+        candidate_count = self.candidate_count
         denominator = observed_total + self.smoothing * candidate_count
 
         if denominator <= 0:
             return []
 
-        predictions = [
-            ngram.NgramPrediction(
-                token_id=token_id,
-                piece=self.pieces[token_id],
-                count=observed.get(token_id, 0),
-                probability=ngram.additive_smoothed_probability(
-                    token_id,
-                    counts=observed,
-                    total=observed_total,
-                    smoothing=self.smoothing,
-                    candidate_count=candidate_count,
-                ),
-            )
-            for token_id in self.candidate_ids
-            if observed.get(token_id, 0) > 0 or self.smoothing > 0
-        ]
-        predictions.sort(key=lambda prediction: (-prediction.probability, prediction.token_id))
-        return predictions[:top_k] if top_k > 0 else predictions
+        return ngram.sorted_predictions(
+            (
+                ngram.NgramPrediction(
+                    token_id=token_id,
+                    piece=self.pieces[token_id],
+                    count=observed.get(token_id, 0),
+                    probability=ngram.additive_smoothed_probability(
+                        token_id,
+                        counts=observed,
+                        total=observed_total,
+                        smoothing=self.smoothing,
+                        candidate_count=candidate_count,
+                    ),
+                )
+                for token_id in self.candidate_ids
+                if observed.get(token_id, 0) > 0 or self.smoothing > 0
+            ),
+            top_k=top_k,
+        )
 
     def evaluate(
         self,
@@ -133,13 +134,11 @@ class BigramModel(ngram.BaseNgramModel):
         ranked_token_ids = self.ranked_token_ids(
             counts=counts,
         )
-        fallback_token_id = ngram.fallback_token_id(self.eos_id)
-        greedy_token_id = ranked_token_ids[0] if ranked_token_ids else fallback_token_id
         return BigramEvaluationRow(
             counts=counts,
             denominator=denominator,
-            greedy_token_id=greedy_token_id,
-            top_k_token_ids=frozenset(ranked_token_ids[:top_k]) if top_k > 0 else frozenset(),
+            greedy_token_id=ngram.greedy_token_id(ranked_token_ids, eos_id=self.eos_id),
+            top_k_token_ids=ngram.top_k_token_id_set(ranked_token_ids, top_k=top_k),
         )
 
     def ranked_token_ids(

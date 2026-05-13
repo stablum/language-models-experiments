@@ -17,7 +17,6 @@ from typing import ClassVar
 from src.corpora import normalization
 from src.models.core import ngram
 from src.models.core import trigrams
-from src.tokenizers import core as tok_core
 
 
 _SCHEMA_TYPE = "interpolated_kneser_ney_trigram"
@@ -120,7 +119,7 @@ class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
         )
 
     def unigram_probability(self, token_id: int) -> float:
-        candidate_count = ngram.candidate_token_count(self.vocab_size, self.bos_id)
+        candidate_count = self.candidate_count
         if candidate_count <= 0:
             return 0.0
 
@@ -185,36 +184,35 @@ def train_kneser_ney_trigram_model(
     discount: float = 0.75,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> KneserNeyTrigramTrainingSummary:
-    tokenizer = tok_core.load_tokenizer(tokenizer_model)
+    artifacts = trigrams.collect_training_artifacts(
+        texts,
+        tokenizer_model=tokenizer_model,
+        text_normalization=text_normalization,
+    )
     summary = KneserNeyTrigramTrainingSummary(
         output_path=output_path,
         tokenizer_model=tokenizer_model,
-        vocab_size=tokenizer.vocab_size,
+        vocab_size=artifacts.tokenizer.vocab_size,
         discount=discount,
-        text_normalization=text_normalization,
-    )
-    counts = trigrams.collect_trigram_counts(
-        texts,
-        tokenizer,
         text_normalization=text_normalization,
     )
     # KN stores ordinary trigram rows for the highest-order evidence, but the
     # lower-order rows are continuation tables derived from trigram types.
     continuation_counts = collect_kneser_ney_continuation_counts(
-        counts.trigram_transitions,
+        artifacts.counts.trigram_transitions,
     )
-    trigrams.apply_trigram_counts_to_summary(summary, counts)
+    trigrams.apply_trigram_counts_to_summary(summary, artifacts.counts)
     summary.continuation_unigram_count = continuation_counts.unigram_count
     summary.continuation_bigram_type_count = continuation_counts.bigram_type_count
 
     model = {
         **trigrams.standard_trigram_model_payload(
-            tokenizer,
+            artifacts.tokenizer,
             model_type=_SCHEMA_TYPE,
             tokenizer_model=tokenizer_model,
             stored_tokenizer_model=stored_tokenizer_model,
             text_normalization=text_normalization,
-            counts=counts,
+            counts=artifacts.counts,
         ),
         "discount": summary.discount,
         "kneser_ney_unigram_count": summary.continuation_unigram_count,

@@ -6,12 +6,13 @@ import codecs
 import os
 import sys
 import threading
-from dataclasses import dataclass
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from time import perf_counter
 from typing import TextIO, TypeVar
+
+from src.ml_core import cfg as core_cfg
 
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -31,8 +32,7 @@ PROGRESS_BAR_WIDTH = 28
 T = TypeVar("T")
 
 
-@dataclass
-class LineTimingState:
+class LineTimingState(core_cfg.BaseCfg):
     last_emission_monotonic: float | None = None
 
 

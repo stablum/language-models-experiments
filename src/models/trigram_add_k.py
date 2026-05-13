@@ -23,7 +23,7 @@ class AddKTrigramModel(trigrams.InterpolatedTrigramModel):
             counts=self.unigram_counts,
             total=self.unigram_total,
             smoothing=self.smoothing,
-            candidate_count=ngram.candidate_token_count(self.vocab_size, self.bos_id),
+            candidate_count=self.candidate_count,
         )
 
     def conditional_probability(
@@ -38,7 +38,7 @@ class AddKTrigramModel(trigrams.InterpolatedTrigramModel):
             counts=counts,
             total=total,
             smoothing=self.smoothing,
-            candidate_count=ngram.candidate_token_count(self.vocab_size, self.bos_id),
+            candidate_count=self.candidate_count,
         )
 
 

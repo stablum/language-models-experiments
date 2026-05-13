@@ -11,7 +11,6 @@ import pydantic
 from src.corpora import normalization
 from src.ml_core.models import definition as model_def
 from src.models.core import formatting, ngram, trigrams
-from src.tokenizers import core as tok_core
 
 
 DEFAULT_UNIGRAM_WEIGHT = 0.1
@@ -128,11 +127,15 @@ def train_interpolated_trigram_model(
     texts: Iterable[str],
     spec: InterpolatedTrainingSpec,
 ) -> trigrams.InterpolatedTrigramTrainingSummary:
-    tokenizer = tok_core.load_tokenizer(spec.tokenizer_model)
+    artifacts = trigrams.collect_training_artifacts(
+        texts,
+        tokenizer_model=spec.tokenizer_model,
+        text_normalization=spec.text_normalization,
+    )
     summary = trigrams.InterpolatedTrigramTrainingSummary(
         output_path=spec.output_path,
         tokenizer_model=spec.tokenizer_model,
-        vocab_size=tokenizer.vocab_size,
+        vocab_size=artifacts.tokenizer.vocab_size,
         unigram_weight=spec.params.unigram_weight,
         bigram_weight=spec.params.bigram_weight,
         trigram_weight=spec.params.trigram_weight,
@@ -140,21 +143,16 @@ def train_interpolated_trigram_model(
         beta_3=spec.params.beta_3,
         text_normalization=spec.text_normalization,
     )
-    counts = trigrams.collect_trigram_counts(
-        texts,
-        tokenizer,
-        text_normalization=spec.text_normalization,
-    )
-    trigrams.apply_trigram_counts_to_summary(summary, counts)
+    trigrams.apply_trigram_counts_to_summary(summary, artifacts.counts)
 
     model = {
         **trigrams.standard_trigram_model_payload(
-            tokenizer,
+            artifacts.tokenizer,
             model_type=spec.model_type,
             tokenizer_model=spec.tokenizer_model,
             stored_tokenizer_model=spec.stored_tokenizer_model,
             text_normalization=spec.text_normalization,
-            counts=counts,
+            counts=artifacts.counts,
         ),
         **spec.extra_model_payload,
         **payload(summary),
