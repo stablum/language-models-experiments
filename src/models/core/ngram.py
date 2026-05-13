@@ -518,6 +518,17 @@ def additive_smoothed_probability(
     return (counts.get(token_id, 0) + smoothing) / denominator
 
 
+def maximum_likelihood_probability(
+    token_id: int,
+    *,
+    counts: Mapping[int, int],
+    total: int,
+) -> float:
+    if total <= 0:
+        return 0.0
+    return counts.get(token_id, 0) / total
+
+
 def discounted_interpolation_probability(
     token_id: int,
     *,

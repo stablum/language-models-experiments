@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
 from src.corpora import normalization
+from src.ml_core.models import definition as model_def
 from src.models.core import formatting, ngram
 from src.tokenizers import core as tok_core
 
@@ -35,6 +36,18 @@ class TrigramTrainingSummary(ngram.NgramTrainingSummary):
     unigram_count: int = 0
     bigram_transition_count: int = 0
     trigram_transition_count: int = 0
+
+
+class InterpolatedTrigramTrainingSummary(TrigramTrainingSummary):
+    unigram_weight: float = 0.0
+    bigram_weight: float = 0.0
+    trigram_weight: float = 0.0
+
+
+class InterpolatedTrigramEvaluationSummary(ngram.NgramEvaluationSummary):
+    unigram_weight: float = 0.0
+    bigram_weight: float = 0.0
+    trigram_weight: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -274,6 +287,71 @@ class BaseTrigramModel(ngram.BaseNgramModel):
         return bos_id, bos_id
 
 
+class InterpolatedTrigramModel(BaseTrigramModel):
+    evaluation_summary_type: ClassVar[type[ngram.NgramEvaluationSummary]] = (
+        InterpolatedTrigramEvaluationSummary
+    )
+    unigram_weight: float
+    bigram_weight: float
+    trigram_weight: float
+
+    def evaluation_summary_fields(self) -> dict[str, object]:
+        return {
+            "unigram_weight": self.unigram_weight,
+            "bigram_weight": self.bigram_weight,
+            "trigram_weight": self.trigram_weight,
+        }
+
+    def context_probability(
+        self,
+        next_id: int,
+        counts: ResolvedTrigramContextCounts,
+    ) -> float:
+        return (
+            self.unigram_weight * self.unigram_probability(next_id)
+            + self.bigram_weight * self.bigram_probability(
+                next_id,
+                counts=counts.bigram_counts,
+                total=counts.bigram_total,
+            )
+            + self.trigram_weight * self.trigram_probability(
+                next_id,
+                counts=counts.trigram_counts,
+                total=counts.trigram_total,
+            )
+        )
+
+    def unigram_probability(self, token_id: int) -> float:
+        raise NotImplementedError
+
+    def bigram_probability(
+        self,
+        token_id: int,
+        *,
+        counts: Mapping[int, int],
+        total: int,
+    ) -> float:
+        return self.conditional_probability(token_id, counts=counts, total=total)
+
+    def trigram_probability(
+        self,
+        token_id: int,
+        *,
+        counts: Mapping[int, int],
+        total: int,
+    ) -> float:
+        return self.conditional_probability(token_id, counts=counts, total=total)
+
+    def conditional_probability(
+        self,
+        token_id: int,
+        *,
+        counts: Mapping[int, int],
+        total: int,
+    ) -> float:
+        raise NotImplementedError
+
+
 class DiscountedTrigramEvaluationSummary(ngram.NgramEvaluationSummary):
     discount: float = 0.0
 
@@ -383,6 +461,52 @@ def discounted_evaluation_items(
     return [
         *ngram.base_evaluation_items(summary),
         discount_item(summary),
+        *formatting.format_ngram_evaluation_metrics(summary),
+    ]
+
+
+def normalize_interpolation_weights(
+    *,
+    unigram_weight: float,
+    bigram_weight: float,
+    trigram_weight: float,
+) -> tuple[float, float, float]:
+    total = unigram_weight + bigram_weight + trigram_weight
+    if total <= 0:
+        raise ValueError("At least one interpolation weight must be positive.")
+    return unigram_weight / total, bigram_weight / total, trigram_weight / total
+
+
+def validate_interpolation_options(options: model_def.ModelOptions) -> None:
+    try:
+        normalize_interpolation_weights(
+            unigram_weight=options["unigram_weight"],
+            bigram_weight=options["bigram_weight"],
+            trigram_weight=options["trigram_weight"],
+        )
+    except ValueError as error:
+        raise model_def.ModelOptionError(str(error)) from error
+
+
+def interpolation_weight_item(
+    summary: InterpolatedTrigramTrainingSummary | InterpolatedTrigramEvaluationSummary,
+) -> tuple[str, str]:
+    return (
+        "Interpolation weights",
+        formatting.format_interpolation_weights(
+            unigram_weight=summary.unigram_weight,
+            bigram_weight=summary.bigram_weight,
+            trigram_weight=summary.trigram_weight,
+        ),
+    )
+
+
+def interpolated_evaluation_items(
+    summary: InterpolatedTrigramEvaluationSummary,
+) -> list[tuple[str, str]]:
+    return [
+        *ngram.base_evaluation_items(summary),
+        interpolation_weight_item(summary),
         *formatting.format_ngram_evaluation_metrics(summary),
     ]
 

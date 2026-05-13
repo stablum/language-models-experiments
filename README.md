@@ -247,13 +247,21 @@ ClearML artifact: data-split-plan-json
 
 The model stores readable indented JSON with sparse transition counts for `P(next_token | previous_token)`, plus tokenizer metadata, text-normalization metadata, and an add-k smoothing value. It is meant as a simple baseline, not a serious neural language model.
 
-Train an interpolated trigram model:
+Train an interpolated add-k trigram model:
 
 ```powershell
-uv run python -m src.cli.model_training --model trigram --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
+uv run python -m src.cli.model_training --model trigram-add-k --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
 ```
 
-The trigram model estimates `P(next_token | previous_previous_token, previous_token)` with linear interpolation over add-k smoothed unigram, bigram, and trigram probabilities. The default weights are `0.1 / 0.3 / 0.6`; adjust them with `--unigram-weight`, `--bigram-weight`, and `--trigram-weight`.
+The add-k trigram model estimates `P(next_token | previous_previous_token, previous_token)` with linear interpolation over add-k smoothed unigram, bigram, and trigram probabilities. The default weights are `0.1 / 0.3 / 0.6`; adjust them with `--unigram-weight`, `--bigram-weight`, and `--trigram-weight`.
+
+Train a Jelinek-Mercer trigram model:
+
+```powershell
+uv run python -m src.cli.model_training --model trigram-jelinek-mercer --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
+```
+
+The Jelinek-Mercer trigram model uses the same fixed interpolation weights over unigram, bigram, and trigram probabilities, but those component probabilities are unsmoothed maximum-likelihood estimates.
 
 Train an absolute-discount trigram model:
 
@@ -297,7 +305,7 @@ Ask for the most probable continuation after a prompt:
 uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --query-prompt "Once upon" --query-decoding most-probable --query-max-tokens 80
 ```
 
-The same query and evaluation commands work with `--model trigram`, `--model trigram-absolute-discount`, `--model trigram-good-turing`, or `--model trigram-kneser-ney` after training that model.
+The same query and evaluation commands work with `--model trigram-add-k`, `--model trigram-jelinek-mercer`, `--model trigram-absolute-discount`, `--model trigram-good-turing`, or `--model trigram-kneser-ney` after training that model.
 
 For repeated prompt and sampling exploration, use the query CLI. It resolves the newest completed `train_model` stage matching `model`, `corpus`, and `tokenizer_model_name`, then creates a fresh single-stage `query` pipeline for each query:
 
@@ -376,7 +384,7 @@ To add another corpus, add a loader module under `src/corpora/` and register a n
 
 ## Models
 
-The model training, query, and evaluation CLIs are model-generic. `bigram`, `trigram`, `trigram-absolute-discount`, `trigram-good-turing`, and `trigram-kneser-ney` are currently registered.
+The model training, query, and evaluation CLIs are model-generic. `bigram`, `trigram-add-k`, `trigram-jelinek-mercer`, `trigram-absolute-discount`, `trigram-good-turing`, and `trigram-kneser-ney` are currently registered.
 
 See [MODELS.md](MODELS.md) for the probability formulas and brief model descriptions.
 

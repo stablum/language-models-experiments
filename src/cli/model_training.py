@@ -235,7 +235,7 @@ from src.corpora import registry as corpora_registry
     help=(
         "Hyperparameter search spec. Repeatable. Examples: "
         "smoothing=float:1e-4:1.0:log, discount=float:0.1:0.95, "
-        "top_k=int:1:10, model=categorical:bigram,trigram."
+        "top_k=int:1:10, model=categorical:bigram,trigram-add-k."
     ),
 )
 @click.option(

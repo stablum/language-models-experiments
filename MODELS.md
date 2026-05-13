@@ -98,11 +98,11 @@ This model is intentionally simple. It is useful as a sparse transition-table ba
 v \mapsto \{(w, c(v,w)) : c(v,w) > 0\}.
 ```
 
-## Interpolated Trigram
+## Interpolated Add-k Trigram
 
-Registered name: `trigram`.
+Registered name: `trigram-add-k`.
 
-The interpolated trigram model uses ordinary unigram, bigram, and trigram counts with add-k smoothing at each order.
+The interpolated add-k trigram model uses ordinary unigram, bigram, and trigram counts with add-k smoothing at each order. This is a linear interpolation of Lidstone-smoothed distributions; add-one smoothing is the Laplace special case.
 
 The smoothed unigram distribution is
 
@@ -157,6 +157,48 @@ The default weights are
 ```
 
 This model is smooth everywhere when the smoothing constant is positive, but the lower-order models are ordinary lower-order frequency models. A word is probable as a unigram if it appears often, not necessarily if it appears in many different contexts.
+
+## Jelinek-Mercer Trigram
+
+Registered name: `trigram-jelinek-mercer`.
+
+The Jelinek-Mercer trigram model uses the same linear interpolation structure, but each component is the unsmoothed maximum-likelihood estimate.
+
+The unigram distribution is
+
+```math
+P_1(w)
+=
+\frac{c(w)}{\sum_{x \in \mathcal{V}_\star} c(x)}.
+```
+
+The bigram distribution is
+
+```math
+P_2(w \mid v)
+=
+\frac{c(v,w)}{c(v,\cdot)}.
+```
+
+The trigram distribution is
+
+```math
+P_3(w \mid u,v)
+=
+\frac{c(u,v,w)}{c(u,v,\cdot)}.
+```
+
+The final fixed-lambda Jelinek-Mercer model is
+
+```math
+P_{\lambda}(w \mid u,v)
+=
+\lambda_1 P_1(w)
++ \lambda_2 P_2(w \mid v)
++ \lambda_3 P_3(w \mid u,v).
+```
+
+The weights are configured globally and normalized to sum to 1. If a maximum-likelihood denominator is zero, that row contributes 0. Because there is no add-k floor, unseen tokens or unavailable lower-order rows can still receive zero probability.
 
 ## Absolute-Discount Trigram
 
