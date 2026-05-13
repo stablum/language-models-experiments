@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 import click
 
 from src.ml_core import clearml_tasks
+from src.ml_core import cfg as core_cfg
 from src.ml_core import json_io
 from src.ml_core import pipeline_tasks
 from src.ml_core.cli import config as cli_config
@@ -25,16 +25,14 @@ DEFAULT_OPTUNA_DIRECTION = "minimize"
 DistributionName = Literal["float", "int", "categorical"]
 
 
-@dataclass(frozen=True)
-class SearchParameter:
+class SearchParameter(core_cfg.FrozenBaseCfg):
     value_type: type
     minimum: float | int | None = None
     maximum: float | int | None = None
     choices: tuple[Any, ...] = ()
 
 
-@dataclass(frozen=True)
-class SearchSpec:
+class SearchSpec(core_cfg.FrozenBaseCfg):
     parameter_name: str
     distribution: DistributionName
     low: float | int | None = None
@@ -45,20 +43,26 @@ class SearchSpec:
 
 
 SEARCH_PARAMETERS = {
-    "model_name": SearchParameter(str, choices=model_registry.model_names()),
-    "smoothing": SearchParameter(float, minimum=0.0),
-    "unigram_weight": SearchParameter(float, minimum=0.0),
-    "bigram_weight": SearchParameter(float, minimum=0.0),
-    "trigram_weight": SearchParameter(float, minimum=0.0),
-    "beta_2": SearchParameter(float, minimum=0.0, maximum=1.0),
-    "beta_3": SearchParameter(float, minimum=0.0, maximum=1.0),
-    "discount": SearchParameter(float, minimum=0.0, maximum=1.0),
-    "top_k": SearchParameter(int, minimum=1),
-    "query_max_tokens": SearchParameter(int, minimum=0),
-    "query_top_k": SearchParameter(int, minimum=1),
-    "query_decoding": SearchParameter(str, choices=("sample", "most-probable")),
-    "query_temperature": SearchParameter(float, minimum=0.0),
-    "query_seed": SearchParameter(int),
+    "model_name": SearchParameter(
+        value_type=str,
+        choices=model_registry.model_names(),
+    ),
+    "smoothing": SearchParameter(value_type=float, minimum=0.0),
+    "unigram_weight": SearchParameter(value_type=float, minimum=0.0),
+    "bigram_weight": SearchParameter(value_type=float, minimum=0.0),
+    "trigram_weight": SearchParameter(value_type=float, minimum=0.0),
+    "beta_2": SearchParameter(value_type=float, minimum=0.0, maximum=1.0),
+    "beta_3": SearchParameter(value_type=float, minimum=0.0, maximum=1.0),
+    "discount": SearchParameter(value_type=float, minimum=0.0, maximum=1.0),
+    "top_k": SearchParameter(value_type=int, minimum=1),
+    "query_max_tokens": SearchParameter(value_type=int, minimum=0),
+    "query_top_k": SearchParameter(value_type=int, minimum=1),
+    "query_decoding": SearchParameter(
+        value_type=str,
+        choices=("sample", "most-probable"),
+    ),
+    "query_temperature": SearchParameter(value_type=float, minimum=0.0),
+    "query_seed": SearchParameter(value_type=int),
 }
 
 
@@ -319,7 +323,13 @@ def _parse_float_spec(
             f"Unknown float Optuna modifier {parts[3]!r} for {parameter_name!r}; expected log."
         )
     _validate_bounds(parameter_name, low, high, parameter, log=log)
-    return SearchSpec(parameter_name, "float", low=low, high=high, log=log)
+    return SearchSpec(
+        parameter_name=parameter_name,
+        distribution="float",
+        low=low,
+        high=high,
+        log=log,
+    )
 
 
 def _parse_int_spec(
@@ -356,7 +366,14 @@ def _parse_int_spec(
             f"Log integer Optuna search for {parameter_name!r} cannot use a custom step."
         )
     _validate_bounds(parameter_name, low, high, parameter, log=log)
-    return SearchSpec(parameter_name, "int", low=low, high=high, step=step, log=log)
+    return SearchSpec(
+        parameter_name=parameter_name,
+        distribution="int",
+        low=low,
+        high=high,
+        step=step,
+        log=log,
+    )
 
 
 def _parse_categorical_spec(parameter_name: str, raw_expression: str) -> SearchSpec:
@@ -383,7 +400,11 @@ def _parse_categorical_spec(parameter_name: str, raw_expression: str) -> SearchS
                 f"Unsupported categorical value for {parameter_name!r}: "
                 f"{unknown[0]!r}. Choices: {choices}."
             )
-    return SearchSpec(parameter_name, "categorical", choices=values)
+    return SearchSpec(
+        parameter_name=parameter_name,
+        distribution="categorical",
+        choices=values,
+    )
 
 
 def _search_parameter(parameter_name: str) -> SearchParameter:

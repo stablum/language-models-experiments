@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from types import ModuleType
 from typing import Any
 
 from src.corpora import babylm, europarl, tinystories
+from src.ml_core import cfg as core_cfg
 
 
 CorpusLoader = Callable[..., Any]
 
 
-@dataclass(frozen=True)
-class CorpusDefinition:
+class CorpusDefinition(core_cfg.FrozenBaseCfg):
     name: str
     dataset_id: str
     split: str | None

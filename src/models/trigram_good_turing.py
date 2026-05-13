@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
 from pathlib import Path
 
 import pydantic
@@ -26,8 +25,7 @@ _SCHEMA_TYPE = "good_turing_trigram"
 ProbabilityFn = Callable[[int], float]
 
 
-@dataclass(frozen=True)
-class GoodTuringDistribution:
+class GoodTuringDistribution(ngram.FrozenNgramModel):
     """One smoothed conditional row.
 
     ``observed_probabilities`` stores the discounted probabilities for seen

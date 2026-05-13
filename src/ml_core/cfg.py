@@ -11,4 +11,10 @@ class BaseCfg(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
 
 
-__all__ = ("BaseCfg",)
+class FrozenBaseCfg(BaseCfg):
+    """Immutable cfg (configuration) model for small value objects."""
+
+    model_config = pydantic.ConfigDict(arbitrary_types_allowed=True, frozen=True)
+
+
+__all__ = ("BaseCfg", "FrozenBaseCfg")

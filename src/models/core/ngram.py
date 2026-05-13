@@ -28,6 +28,14 @@ class NgramPydanticModel(pydantic.BaseModel):
     )
 
 
+class FrozenNgramModel(NgramPydanticModel):
+    model_config = pydantic.ConfigDict(
+        arbitrary_types_allowed=True,
+        frozen=True,
+        validate_assignment=True,
+    )
+
+
 class NgramPrediction(NgramPydanticModel):
     token_id: int
     piece: str

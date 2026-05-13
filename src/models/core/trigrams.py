@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
@@ -16,13 +15,12 @@ from src.tokenizers import core as tok_core
 Context = tuple[int, int]
 
 
-@dataclass(frozen=True)
-class TrigramCounts:
+class TrigramCounts(ngram.FrozenNgramModel):
     sequence_count: int
     token_count: int
     unigram_counts: Counter[int]
-    bigram_transitions: defaultdict[int, Counter[int]]
-    trigram_transitions: defaultdict[Context, Counter[int]]
+    bigram_transitions: dict[int, Counter[int]]
+    trigram_transitions: dict[Context, Counter[int]]
     bigram_transition_count: int
     trigram_transition_count: int
 
@@ -53,8 +51,7 @@ class InterpolatedTrigramEvaluationSummary(ngram.NgramEvaluationSummary):
     beta_3: float | None = None
 
 
-@dataclass(frozen=True)
-class TrigramEvaluationRow:
+class TrigramEvaluationRow(ngram.FrozenNgramModel):
     bigram_counts: dict[int, int]
     trigram_counts: dict[int, int]
     bigram_total: int
@@ -63,8 +60,7 @@ class TrigramEvaluationRow:
     top_k_token_ids: frozenset[int]
 
 
-@dataclass(frozen=True)
-class ResolvedTrigramContextCounts:
+class ResolvedTrigramContextCounts(ngram.FrozenNgramModel):
     previous_id: int
     bigram_counts: dict[int, int]
     trigram_counts: dict[int, int]

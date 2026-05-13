@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
@@ -30,8 +29,7 @@ class KneserNeyTrigramTrainingSummary(trigrams.TrigramTrainingSummary):
     discount: float = 0.0
 
 
-@dataclass(frozen=True)
-class KneserNeyContinuationCounts:
+class KneserNeyContinuationCounts(ngram.FrozenNgramModel):
     """Continuation-count tables used as Kneser-Ney lower-order evidence.
 
     ``bigram_transitions[prev][next]`` stores how many distinct left contexts
@@ -40,7 +38,7 @@ class KneserNeyContinuationCounts:
     """
 
     unigram_counts: Counter[int]
-    bigram_transitions: defaultdict[int, Counter[int]]
+    bigram_transitions: dict[int, Counter[int]]
 
     @property
     def unigram_count(self) -> int:

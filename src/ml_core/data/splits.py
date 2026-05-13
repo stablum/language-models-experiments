@@ -5,10 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from src.ml_core import cfg as core_cfg
 from src.ml_core import json_io
 
 
@@ -22,8 +22,7 @@ SPLIT_PLAN_SCHEMA_VERSION = 1
 SPLIT_PLAN_ARTIFACT = "data-split-plan-json"
 
 
-@dataclass(frozen=True)
-class DataSplitPlan:
+class DataSplitPlan(core_cfg.FrozenBaseCfg):
     split_id: str
     dataset_name: str
     dataset_id: str

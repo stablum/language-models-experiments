@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
 from pathlib import Path
 
 from src.corpora import normalization
+from src.ml_core import cfg as core_cfg
 from src.tokenizers import core as tok_core
 from src.tokenizers import sentencepiece_training
 from src.tokenizers import wordlevel_training
@@ -16,8 +16,7 @@ DEFAULT_TOKENIZER_ALGO = tok_core.SENTENCEPIECE_ALGO
 TOKENIZER_VOCAB_ARTIFACT = "tokenizer-vocabulary"
 
 
-@dataclass(frozen=True)
-class TokenizerTrainingOutput:
+class TokenizerTrainingOutput(core_cfg.FrozenBaseCfg):
     model_path: Path
     vocab_path: Path
     tokenizer_algo: str
@@ -58,7 +57,11 @@ def train_tokenizer(
             ),
             text_normalization=text_normalization,
         )
-        return TokenizerTrainingOutput(model_path, vocab_path, tokenizer_algo)
+        return TokenizerTrainingOutput(
+            model_path=model_path,
+            vocab_path=vocab_path,
+            tokenizer_algo=tokenizer_algo,
+        )
 
     if tokenizer_algo == tok_core.WORDLEVEL_WHITESPACE_ALGO:
         model_path, vocab_path = wordlevel_training.train_wordlevel_whitespace(
@@ -67,7 +70,11 @@ def train_tokenizer(
             vocab_size=vocab_size,
             text_normalization=text_normalization,
         )
-        return TokenizerTrainingOutput(model_path, vocab_path, tokenizer_algo)
+        return TokenizerTrainingOutput(
+            model_path=model_path,
+            vocab_path=vocab_path,
+            tokenizer_algo=tokenizer_algo,
+        )
 
     raise ValueError(f"Unsupported tokenizer algorithm: {tokenizer_algo}")
 

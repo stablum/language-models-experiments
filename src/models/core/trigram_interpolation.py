@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
+from pathlib import Path
 from typing import Protocol
 
+import pydantic
+
+from src.corpora import normalization
 from src.ml_core.models import definition as model_def
-from src.models.core import formatting, ngram
+from src.models.core import formatting, ngram, trigrams
+from src.tokenizers import core as tok_core
 
 
 DEFAULT_UNIGRAM_WEIGHT = 0.1
@@ -22,12 +27,22 @@ class InterpolationSummary(Protocol):
     beta_3: float | None
 
 
-class InterpolationParams(ngram.NgramPydanticModel):
+class InterpolationParams(ngram.FrozenNgramModel):
     unigram_weight: float
     bigram_weight: float
     trigram_weight: float
     beta_2: float | None = None
     beta_3: float | None = None
+
+
+class InterpolatedTrainingSpec(ngram.FrozenNgramModel):
+    model_type: str
+    tokenizer_model: Path
+    output_path: Path
+    stored_tokenizer_model: Path | None = None
+    params: InterpolationParams
+    text_normalization: normalization.TextNormalization
+    extra_model_payload: Mapping[str, object] = pydantic.Field(default_factory=dict)
 
 
 def normalize_weights(
@@ -107,6 +122,46 @@ def resolve_params(
         beta_2=betas[0],
         beta_3=betas[1],
     )
+
+
+def train_interpolated_trigram_model(
+    texts: Iterable[str],
+    spec: InterpolatedTrainingSpec,
+) -> trigrams.InterpolatedTrigramTrainingSummary:
+    tokenizer = tok_core.load_tokenizer(spec.tokenizer_model)
+    summary = trigrams.InterpolatedTrigramTrainingSummary(
+        output_path=spec.output_path,
+        tokenizer_model=spec.tokenizer_model,
+        vocab_size=tokenizer.vocab_size,
+        unigram_weight=spec.params.unigram_weight,
+        bigram_weight=spec.params.bigram_weight,
+        trigram_weight=spec.params.trigram_weight,
+        beta_2=spec.params.beta_2,
+        beta_3=spec.params.beta_3,
+        text_normalization=spec.text_normalization,
+    )
+    counts = trigrams.collect_trigram_counts(
+        texts,
+        tokenizer,
+        text_normalization=spec.text_normalization,
+    )
+    trigrams.apply_trigram_counts_to_summary(summary, counts)
+
+    model = {
+        **trigrams.standard_trigram_model_payload(
+            tokenizer,
+            model_type=spec.model_type,
+            tokenizer_model=spec.tokenizer_model,
+            stored_tokenizer_model=spec.stored_tokenizer_model,
+            text_normalization=spec.text_normalization,
+            counts=counts,
+        ),
+        **spec.extra_model_payload,
+        **payload(summary),
+    }
+    ngram.write_json_model_payload(spec.output_path, model)
+
+    return summary
 
 
 def validate_options(options: model_def.ModelOptions) -> None:

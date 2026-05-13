@@ -7,7 +7,6 @@ from pathlib import Path
 
 from src.corpora import normalization
 from src.models.core import ngram, trigram_interpolation as interp, trigrams
-from src.tokenizers import core as tok_core
 
 
 _SCHEMA_TYPE = "jelinek_mercer_trigram"
@@ -74,39 +73,17 @@ def train_jelinek_mercer_trigram_model(
         beta_2=beta_2,
         beta_3=beta_3,
     )
-    tokenizer = tok_core.load_tokenizer(tokenizer_model)
-    summary = trigrams.InterpolatedTrigramTrainingSummary(
-        output_path=output_path,
-        tokenizer_model=tokenizer_model,
-        vocab_size=tokenizer.vocab_size,
-        unigram_weight=interpolation.unigram_weight,
-        bigram_weight=interpolation.bigram_weight,
-        trigram_weight=interpolation.trigram_weight,
-        beta_2=interpolation.beta_2,
-        beta_3=interpolation.beta_3,
-        text_normalization=text_normalization,
-    )
-    counts = trigrams.collect_trigram_counts(
+    return interp.train_interpolated_trigram_model(
         texts,
-        tokenizer,
-        text_normalization=text_normalization,
-    )
-    trigrams.apply_trigram_counts_to_summary(summary, counts)
-
-    model = {
-        **trigrams.standard_trigram_model_payload(
-            tokenizer,
+        interp.InterpolatedTrainingSpec(
             model_type=_SCHEMA_TYPE,
+            output_path=output_path,
             tokenizer_model=tokenizer_model,
             stored_tokenizer_model=stored_tokenizer_model,
             text_normalization=text_normalization,
-            counts=counts,
+            params=interpolation,
         ),
-        **interp.payload(summary),
-    }
-    ngram.write_json_model_payload(output_path, model)
-
-    return summary
+    )
 
 
 def format_summary(

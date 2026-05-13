@@ -38,5 +38,5 @@ def model_names() -> tuple[str, ...]:
     return tuple(MODELS)
 
 
-def get_model(name: str) -> ModelDefinition:
+def get_model(name: str) -> model_def.ModelDefinition:
     return MODELS[name]

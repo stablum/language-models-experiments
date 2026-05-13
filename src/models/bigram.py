@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
 from pathlib import Path
 
 from src.corpora import normalization
@@ -19,8 +18,7 @@ class BigramTrainingSummary(ngram.NgramTrainingSummary):
     transition_count: int = 0
 
 
-@dataclass(frozen=True)
-class BigramEvaluationRow:
+class BigramEvaluationRow(ngram.FrozenNgramModel):
     counts: dict[int, int]
     denominator: float
     greedy_token_id: int
