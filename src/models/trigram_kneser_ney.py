@@ -60,38 +60,26 @@ class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
         next_id: int,
         counts: trigrams.ResolvedTrigramContextCounts,
     ) -> float:
-        return self.trigram_probability(
-            next_id,
-            previous_id=counts.previous_id,
-            bigram_counts=counts.bigram_counts,
-            trigram_counts=counts.trigram_counts,
-            bigram_total=counts.bigram_total,
-            trigram_total=counts.trigram_total,
-        )
+        return self.trigram_probability(next_id, counts)
 
     def trigram_probability(
         self,
         token_id: int,
-        *,
-        previous_id: int,
-        bigram_counts: Mapping[int, int],
-        trigram_counts: Mapping[int, int],
-        bigram_total: int,
-        trigram_total: int,
+        counts: trigrams.ResolvedTrigramContextCounts,
     ) -> float:
         # For trigrams, the observed row is the ordinary c(prev2, prev1, next)
         # row. The backed-off probability is the Kneser-Ney bigram row for the
         # same prev1 token, built from continuation counts at training time.
         lower_order_probability = self.bigram_probability(
             token_id,
-            previous_id=previous_id,
-            counts=bigram_counts,
-            total=bigram_total,
+            previous_id=counts.previous_id,
+            counts=counts.bigram_counts,
+            total=counts.bigram_total,
         )
         return self._discounted_interpolation_probability(
             token_id,
-            counts=trigram_counts,
-            total=trigram_total,
+            counts=counts.trigram_counts,
+            total=counts.trigram_total,
             lower_order_probability=lower_order_probability,
         )
 

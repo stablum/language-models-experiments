@@ -36,35 +36,25 @@ class AbsoluteDiscountTrigramModel(trigrams.DiscountedTrigramModel):
         next_id: int,
         counts: trigrams.ResolvedTrigramContextCounts,
     ) -> float:
-        return self.trigram_probability(
-            next_id,
-            bigram_counts=counts.bigram_counts,
-            trigram_counts=counts.trigram_counts,
-            bigram_total=counts.bigram_total,
-            trigram_total=counts.trigram_total,
-        )
+        return self.trigram_probability(next_id, counts)
 
     def trigram_probability(
         self,
         token_id: int,
-        *,
-        bigram_counts: dict[int, int],
-        trigram_counts: dict[int, int],
-        bigram_total: int,
-        trigram_total: int,
+        counts: trigrams.ResolvedTrigramContextCounts,
     ) -> float:
         # Absolute discounting removes D mass from every observed trigram type.
         # The helper redistributes the total removed mass through this lower
         # order bigram probability.
         lower_order_probability = self.lower_order_probability(
             token_id,
-            counts=bigram_counts,
-            total=bigram_total,
+            counts=counts.bigram_counts,
+            total=counts.bigram_total,
         )
         return ngram.discounted_interpolation_probability(
             token_id,
-            counts=trigram_counts,
-            total=trigram_total,
+            counts=counts.trigram_counts,
+            total=counts.trigram_total,
             discount=self.discount,
             lower_order_probability=lower_order_probability,
         )

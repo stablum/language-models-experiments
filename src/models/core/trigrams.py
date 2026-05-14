@@ -56,21 +56,18 @@ class InterpolatedTrigramEvaluationSummary(ngram.NgramEvaluationSummary):
     beta_3: float | None = None
 
 
-class TrigramEvaluationRow(ngram.FrozenNgramModel):
-    bigram_counts: dict[int, int]
-    trigram_counts: dict[int, int]
-    bigram_total: int
-    trigram_total: int
-    greedy_token_id: int
-    top_k_token_ids: frozenset[int]
-
-
 class ResolvedTrigramContextCounts(ngram.FrozenNgramModel):
     previous_id: int
     bigram_counts: dict[int, int]
     trigram_counts: dict[int, int]
     bigram_total: int
     trigram_total: int
+
+
+class TrigramEvaluationRow(ngram.FrozenNgramModel):
+    counts: ResolvedTrigramContextCounts
+    greedy_token_id: int
+    top_k_token_ids: frozenset[int]
 
 
 class BaseTrigramModel(ngram.BaseNgramModel):
@@ -89,14 +86,18 @@ class BaseTrigramModel(ngram.BaseNgramModel):
         *,
         top_k: int,
     ) -> list[ngram.NgramPrediction]:
-        trigram_counts = dict(self.trigram_transitions.get(context, ()))
+        counts = self.context_counts(context)
         return ngram.sorted_predictions(
             (
                 ngram.NgramPrediction(
                     token_id=token_id,
                     piece=self.pieces[token_id],
-                    count=trigram_counts.get(token_id, 0),
-                    probability=self.transition_probability(token_id, context),
+                    count=counts.trigram_counts.get(token_id, 0),
+                    probability=self.transition_probability(
+                        token_id,
+                        context,
+                        counts=counts,
+                    ),
                 )
                 for token_id in self.candidate_ids
             ),
@@ -142,7 +143,11 @@ class BaseTrigramModel(ngram.BaseNgramModel):
                     actual_token_id=next_id,
                     greedy_token_id=row.greedy_token_id,
                     top_k_token_ids=row.top_k_token_ids,
-                    probability=self.transition_probability(next_id, context, row=row),
+                    probability=self.transition_probability(
+                        next_id,
+                        context,
+                        counts=row.counts,
+                    ),
                 )
 
         return summary
@@ -169,23 +174,13 @@ class BaseTrigramModel(ngram.BaseNgramModel):
         next_id: int,
         context: Context,
         *,
-        row: TrigramEvaluationRow | None = None,
-        bigram_counts: dict[int, int] | None = None,
-        trigram_counts: dict[int, int] | None = None,
-        bigram_total: int | None = None,
-        trigram_total: int | None = None,
+        counts: ResolvedTrigramContextCounts | None = None,
     ) -> float:
         if next_id not in self.candidate_id_set:
             return 0.0
 
-        counts = self.resolved_context_counts(
-            context,
-            row=row,
-            bigram_counts=bigram_counts,
-            trigram_counts=trigram_counts,
-            bigram_total=bigram_total,
-            trigram_total=trigram_total,
-        )
+        if counts is None:
+            counts = self.context_counts(context)
         return self.context_probability(next_id, counts)
 
     def context_probability(
@@ -195,39 +190,20 @@ class BaseTrigramModel(ngram.BaseNgramModel):
     ) -> float:
         raise NotImplementedError
 
-    def resolved_context_counts(
+    def context_counts(
         self,
         context: Context,
-        *,
-        row: TrigramEvaluationRow | None = None,
-        bigram_counts: dict[int, int] | None = None,
-        trigram_counts: dict[int, int] | None = None,
-        bigram_total: int | None = None,
-        trigram_total: int | None = None,
     ) -> ResolvedTrigramContextCounts:
         previous_id = context[1]
-        if row is not None:
-            return ResolvedTrigramContextCounts(
-                previous_id=previous_id,
-                bigram_counts=row.bigram_counts,
-                trigram_counts=row.trigram_counts,
-                bigram_total=row.bigram_total,
-                trigram_total=row.trigram_total,
-            )
-
-        if bigram_counts is None:
-            bigram_counts = dict(self.bigram_transitions.get(previous_id, ()))
-        if trigram_counts is None:
-            trigram_counts = dict(self.trigram_transitions.get(context, ()))
+        bigram_counts = dict(self.bigram_transitions.get(previous_id, ()))
+        trigram_counts = dict(self.trigram_transitions.get(context, ()))
 
         return ResolvedTrigramContextCounts(
             previous_id=previous_id,
             bigram_counts=bigram_counts,
             trigram_counts=trigram_counts,
-            bigram_total=bigram_total if bigram_total is not None else sum(bigram_counts.values()),
-            trigram_total=(
-                trigram_total if trigram_total is not None else sum(trigram_counts.values())
-            ),
+            bigram_total=sum(bigram_counts.values()),
+            trigram_total=sum(trigram_counts.values()),
         )
 
     def evaluation_row(
@@ -236,23 +212,13 @@ class BaseTrigramModel(ngram.BaseNgramModel):
         *,
         top_k: int,
     ) -> TrigramEvaluationRow:
-        previous_id = context[1]
-        bigram_counts = dict(self.bigram_transitions.get(previous_id, ()))
-        trigram_counts = dict(self.trigram_transitions.get(context, ()))
-        bigram_total = sum(bigram_counts.values())
-        trigram_total = sum(trigram_counts.values())
+        counts = self.context_counts(context)
         ranked_token_ids = self.ranked_token_ids(
             context,
-            bigram_counts=bigram_counts,
-            trigram_counts=trigram_counts,
-            bigram_total=bigram_total,
-            trigram_total=trigram_total,
+            counts=counts,
         )
         return TrigramEvaluationRow(
-            bigram_counts=bigram_counts,
-            trigram_counts=trigram_counts,
-            bigram_total=bigram_total,
-            trigram_total=trigram_total,
+            counts=counts,
             greedy_token_id=ngram.greedy_token_id(ranked_token_ids, eos_id=self.eos_id),
             top_k_token_ids=ngram.top_k_token_id_set(ranked_token_ids, top_k=top_k),
         )
@@ -261,10 +227,7 @@ class BaseTrigramModel(ngram.BaseNgramModel):
         self,
         context: Context,
         *,
-        bigram_counts: dict[int, int],
-        trigram_counts: dict[int, int],
-        bigram_total: int,
-        trigram_total: int,
+        counts: ResolvedTrigramContextCounts,
     ) -> list[int]:
         return sorted(
             self.candidate_ids,
@@ -272,10 +235,7 @@ class BaseTrigramModel(ngram.BaseNgramModel):
                 -self.transition_probability(
                     token_id,
                     context,
-                    bigram_counts=bigram_counts,
-                    trigram_counts=trigram_counts,
-                    bigram_total=bigram_total,
-                    trigram_total=trigram_total,
+                    counts=counts,
                 ),
                 token_id,
             ),

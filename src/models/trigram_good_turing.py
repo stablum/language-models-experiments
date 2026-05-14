@@ -64,27 +64,11 @@ class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
         next_id: int,
         context: trigrams.Context,
         *,
-        row: trigrams.TrigramEvaluationRow | None = None,
-        bigram_counts: dict[int, int] | None = None,
-        trigram_counts: dict[int, int] | None = None,
-        bigram_total: int | None = None,
-        trigram_total: int | None = None,
+        counts: trigrams.ResolvedTrigramContextCounts | None = None,
     ) -> float:
         if next_id not in self.candidate_id_set:
             return 0.0
-        if row is not None or all(
-            value is None
-            for value in (bigram_counts, trigram_counts, bigram_total, trigram_total)
-        ):
-            return self.trigram_probability(next_id, context)
-        return super().transition_probability(
-            next_id,
-            context,
-            bigram_counts=bigram_counts,
-            trigram_counts=trigram_counts,
-            bigram_total=bigram_total,
-            trigram_total=trigram_total,
-        )
+        return self.trigram_probability(next_id, context)
 
     def context_probability(
         self,
@@ -112,10 +96,7 @@ class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
         self,
         context: trigrams.Context,
         *,
-        bigram_counts: dict[int, int],
-        trigram_counts: dict[int, int],
-        bigram_total: int,
-        trigram_total: int,
+        counts: trigrams.ResolvedTrigramContextCounts,
     ) -> list[int]:
         return self.top_token_ids(context, top_k=0)
 
@@ -125,15 +106,10 @@ class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
         *,
         top_k: int,
     ) -> trigrams.TrigramEvaluationRow:
-        previous_id = context[1]
-        bigram_counts = dict(self.bigram_transitions.get(previous_id, ()))
-        trigram_counts = dict(self.trigram_transitions.get(context, ()))
+        counts = self.context_counts(context)
         ranked_token_ids = self.top_token_ids(context, top_k=top_k)
         return trigrams.TrigramEvaluationRow(
-            bigram_counts=bigram_counts,
-            trigram_counts=trigram_counts,
-            bigram_total=sum(bigram_counts.values()),
-            trigram_total=sum(trigram_counts.values()),
+            counts=counts,
             greedy_token_id=ngram.greedy_token_id(ranked_token_ids, eos_id=self.eos_id),
             top_k_token_ids=ngram.top_k_token_id_set(ranked_token_ids, top_k=top_k),
         )

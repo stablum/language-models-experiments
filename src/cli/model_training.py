@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import click
 
 from src.cli import model_training_defaults
@@ -293,62 +291,8 @@ from src.corpora import registry as corpora_registry
     help="Optional maximum wall-clock time for the Optuna study.",
 )
 @tracking.clearml_options
-def main(
-    pipeline_name: str,
-    pipeline_version: str,
-    pipeline_local: bool,
-    controller_queue: str,
-    execution_queue: str | None,
-    wait: bool,
-    add_run_number: bool,
-    run_until_stage: str | None,
-    run_stage: str | None,
-    pipeline_controller_id: str | None,
-    model_name: str,
-    tokenizer_model_name: str | None,
-    tokenizer_training_name: str,
-    corpus: str,
-    dataset_id: str | None,
-    source_split: str | None,
-    train_ratio: float,
-    split_seed: int,
-    evaluation_partition: str,
-    text_column: str | None,
-    streaming: bool,
-    limit: int | None,
-    training_limit: int | None,
-    evaluation_limit: int | None,
-    smoothing: float,
-    unigram_weight: float,
-    bigram_weight: float,
-    trigram_weight: float,
-    beta_2: float | None,
-    beta_3: float | None,
-    discount: float,
-    top_k: int,
-    query_prompt: str,
-    query_max_tokens: int,
-    query_top_k: int,
-    query_decoding: str,
-    query_temperature: float,
-    query_seed: int | None,
-    text_normalization: str,
-    optuna_trials: int,
-    optuna_search: tuple[str, ...],
-    optuna_metric: str,
-    optuna_direction: str,
-    optuna_study_name: str | None,
-    optuna_storage: str | None,
-    optuna_load_if_exists: bool,
-    optuna_timeout_seconds: int | None,
-    clearml_project: str,
-    clearml_task_name: str | None,
-    clearml_config_file: Path | None,
-    clearml_connectivity_check: bool,
-    clearml_output_uri: str | None,
-    clearml_tags: tuple[str, ...],
-) -> None:
-    model_training_flow.run(model_training_flow.CliArgs(**locals()))
+def main(**kwargs: object) -> None:
+    model_training_flow.run(model_training_flow.CliArgs(**kwargs))
 
 
 if __name__ == "__main__":
