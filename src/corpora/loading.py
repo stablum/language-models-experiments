@@ -11,11 +11,20 @@ def load_hf_dataset(
     dataset_id: str,
     *,
     config: str | None = None,
+    revision: str | None = None,
     split: str | None = None,
     streaming: bool = False,
 ) -> Any:
     args = (dataset_id,) if config is None else (dataset_id, config)
-    kwargs: dict[str, Any] = {"streaming": streaming}
-    if split is not None:
-        kwargs["split"] = split
-    return datasets.load_dataset(*args, **kwargs)
+    if split is None:
+        return datasets.load_dataset(
+            *args,
+            revision=revision,
+            streaming=streaming,
+        )
+    return datasets.load_dataset(
+        *args,
+        revision=revision,
+        split=split,
+        streaming=streaming,
+    )

@@ -18,7 +18,7 @@ TRAIN_PARTITION = "train"
 VALIDATION_PARTITION = "validation"
 PROJECT_PARTITIONS = (TRAIN_PARTITION, VALIDATION_PARTITION)
 SPLIT_METHOD = "deterministic_blake2b_source_split_row_index"
-SPLIT_PLAN_SCHEMA_VERSION = 1
+SPLIT_PLAN_SCHEMA_VERSION = 2
 SPLIT_PLAN_ARTIFACT = "data-split-plan-json"
 
 
@@ -26,6 +26,7 @@ class DataSplitPlan(core_cfg.FrozenBaseCfg):
     split_id: str
     dataset_name: str
     dataset_id: str
+    dataset_revision: str | None
     source_split: str | None
     source_splits: tuple[str, ...]
     train_ratio: float
@@ -42,6 +43,7 @@ class DataSplitPlan(core_cfg.FrozenBaseCfg):
             "dataset_name": self.dataset_name,
             "corpus": self.dataset_name,
             "dataset_id": self.dataset_id,
+            "dataset_revision": self.dataset_revision,
             "source_split": self.source_split,
             "source_splits": list(self.source_splits),
             "train_ratio": self.train_ratio,
@@ -55,6 +57,7 @@ def build_data_split_plan(
     *,
     dataset_name: str,
     dataset_id: str,
+    dataset_revision: str | None,
     source_split: str | None,
     source_splits: Iterable[str],
     train_ratio: float,
@@ -68,6 +71,7 @@ def build_data_split_plan(
         # This key is part of the historical split ID hash, so keep it stable.
         "corpus": dataset_name,
         "dataset_id": dataset_id,
+        "dataset_revision": dataset_revision,
         "source_split": source_split,
         "source_splits": list(normalized_source_splits),
         "train_ratio": train_ratio,
@@ -81,6 +85,7 @@ def build_data_split_plan(
         split_id=split_id,
         dataset_name=dataset_name,
         dataset_id=dataset_id,
+        dataset_revision=dataset_revision,
         source_split=source_split,
         source_splits=normalized_source_splits,
         train_ratio=train_ratio,
@@ -97,6 +102,12 @@ def data_split_plan_from_payload(payload: Mapping[str, Any]) -> DataSplitPlan | 
         split_id = str(payload["split_id"])
         dataset_name = str(payload.get("dataset_name") or payload["corpus"])
         dataset_id = str(payload["dataset_id"])
+        dataset_revision_value = payload.get("dataset_revision")
+        dataset_revision = (
+            None
+            if dataset_revision_value in (None, "")
+            else str(dataset_revision_value)
+        )
         source_split_value = payload.get("source_split")
         source_split = None if source_split_value is None else str(source_split_value)
         source_splits = tuple(str(item) for item in payload.get("source_splits", ()))
@@ -114,6 +125,7 @@ def data_split_plan_from_payload(payload: Mapping[str, Any]) -> DataSplitPlan | 
         split_id=split_id,
         dataset_name=dataset_name,
         dataset_id=dataset_id,
+        dataset_revision=dataset_revision,
         source_split=source_split,
         source_splits=source_splits,
         train_ratio=train_ratio,
@@ -158,6 +170,7 @@ def split_plan_clearml_parameters(plan: DataSplitPlan) -> dict[str, object]:
     return {
         "split_id": plan.split_id,
         "split_method": plan.split_method,
+        "dataset_revision": plan.dataset_revision or "",
         "source_split": source_split_label(plan.source_split),
         "source_splits": list(plan.source_splits),
         "train_ratio": plan.train_ratio,

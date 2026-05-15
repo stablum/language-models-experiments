@@ -83,11 +83,14 @@ class FileDescriptorCapture:
         self._writer.flush()
 
     def _forward(self) -> None:
-        assert self._read_fd is not None
+        read_fd = self._read_fd
+        if read_fd is None:
+            return
+
         decoder = codecs.getincrementaldecoder(self._encoding)(errors=self._errors)
         try:
             while True:
-                chunk = os.read(self._read_fd, 4096)
+                chunk = os.read(read_fd, 4096)
                 if not chunk:
                     break
                 text = decoder.decode(chunk)
@@ -98,7 +101,7 @@ class FileDescriptorCapture:
             if tail:
                 self._writer.write(tail)
         finally:
-            os.close(self._read_fd)
+            os.close(read_fd)
             self._read_fd = None
 
 

@@ -16,6 +16,7 @@ CorpusLoader = Callable[..., Any]
 class CorpusDefinition(core_cfg.FrozenBaseCfg):
     name: str
     dataset_id: str
+    dataset_revision: str | None
     split: str | None
     text_column: str
     load: CorpusLoader
@@ -27,6 +28,7 @@ def _definition(name: str, module: ModuleType) -> CorpusDefinition:
     return CorpusDefinition(
         name=name,
         dataset_id=module.DATASET_ID,
+        dataset_revision=module.DATASET_REVISION,
         split=module.DEFAULT_SPLIT,
         text_column=module.TEXT_COLUMN,
         load=module.load_dataset,
@@ -55,6 +57,16 @@ def corpus_names() -> tuple[str, ...]:
 
 def get_corpus(name: str) -> CorpusDefinition:
     return CORPORA[name]
+
+
+def dataset_revision_for(
+    corpus_definition: CorpusDefinition,
+    *,
+    dataset_id: str,
+) -> str | None:
+    if dataset_id != corpus_definition.dataset_id:
+        return None
+    return corpus_definition.dataset_revision
 
 
 def split_note_for(

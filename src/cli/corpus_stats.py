@@ -128,6 +128,7 @@ def main(
                 "Data": {
                     "corpus": corpus,
                     "dataset_id": resolved_dataset_id,
+                    "dataset_revision": split_plan.dataset_revision or "",
                     "source_split": data_splits.source_split_label(resolved_source_split),
                     "text_column": resolved_text_column,
                     "streaming": streaming,
@@ -143,6 +144,7 @@ def main(
 
         dataset = corpus_definition.load(
             dataset_id=resolved_dataset_id,
+            revision=split_plan.dataset_revision,
             split=resolved_source_split,
             streaming=streaming,
         )

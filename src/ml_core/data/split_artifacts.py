@@ -52,6 +52,10 @@ def build_cli_split_plan(
     return data_splits.build_data_split_plan(
         dataset_name=corpus,
         dataset_id=dataset_id,
+        dataset_revision=corpora_registry.dataset_revision_for(
+            corpus_definition,
+            dataset_id=dataset_id,
+        ),
         source_split=source_split,
         source_splits=source_splits,
         train_ratio=train_ratio,

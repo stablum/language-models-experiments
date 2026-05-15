@@ -21,6 +21,7 @@ def load_partition_texts(
 ) -> Iterable[str]:
     dataset = corpus_definition.load(
         dataset_id=dataset_id,
+        revision=plan.dataset_revision,
         split=plan.source_split,
         streaming=streaming,
     )

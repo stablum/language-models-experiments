@@ -7,6 +7,7 @@
             "command": "uv",
             "args": [
                 "run",
+                "--locked",
                 "python",
                 "-m",
                 "src.cli.tokenizer_training"
@@ -30,6 +31,7 @@
             "command": "uv",
             "args": [
                 "run",
+                "--locked",
                 "python",
                 "-m",
                 "src.cli.model_training"

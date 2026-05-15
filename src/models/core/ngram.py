@@ -295,7 +295,8 @@ def sample_token(
 
 
 def seeded_rng(seed: int | None) -> random.Random:
-    return random.Random(seed)
+    # Deterministic text sampling RNG; not used for secrets or security choices.
+    return random.Random(seed)  # nosec B311
 
 
 def fallback_token_id(eos_id: int) -> int:

@@ -95,6 +95,7 @@ def train_tokenizer_step(
                 "Data": {
                     "corpus": corpus,
                     "dataset_id": dataset_id,
+                    "dataset_revision": split_plan.dataset_revision or "",
                     "source_split": data_splits.source_split_label(source_split),
                     "training_partition": data_splits.TRAIN_PARTITION,
                     "text_column": text_column,
@@ -265,6 +266,7 @@ def train_model_pipeline_step(
                 "Data": {
                     "corpus": corpus,
                     "dataset_id": dataset_id,
+                    "dataset_revision": split_plan.dataset_revision or "",
                     "source_split": data_splits.source_split_label(source_split),
                     "training_partition": data_splits.TRAIN_PARTITION,
                     "text_column": text_column,
@@ -430,6 +432,7 @@ def evaluate_pipeline_step(
                 "Data": {
                     "corpus": corpus,
                     "dataset_id": dataset_id,
+                    "dataset_revision": split_plan.dataset_revision or "",
                     "source_split": data_splits.source_split_label(source_split),
                     "evaluation_partition": evaluation_partition,
                     "evaluation_partitions": list(evaluation_partitions),
@@ -454,6 +457,7 @@ def evaluate_pipeline_step(
             click.echo(f"Loading dataset rows for {partition} evaluation...")
             dataset = corpus_definition.load(
                 dataset_id=dataset_id,
+                revision=split_plan.dataset_revision,
                 split=split_plan.source_split,
                 streaming=streaming,
             )

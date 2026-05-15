@@ -1,6 +1,6 @@
 services:
   redis:
-    image: redis:8.2.3
+    image: redis:8.2.3@sha256:0908d9af26bf9b985e984a40a5eb82eed229b07a3317eee6843832c3cc3a9619
     container_name: clearml-redis
     restart: unless-stopped
     networks:
@@ -9,7 +9,7 @@ services:
       - ./.clearml/redis:/data
 
   mongo:
-    image: mongo:8.0.15
+    image: mongo:8.0.15@sha256:f4d54619262ae3bc6a0a8efbebcef970b87b8ad70697479a75ce308a6f400158
     container_name: clearml-mongo
     restart: unless-stopped
     command: --setParameter internalQueryMaxBlockingSortMemoryUsageBytes=196100200
@@ -20,7 +20,7 @@ services:
       - ./.clearml/mongo/configdb:/data/configdb
 
   elasticsearch:
-    image: elasticsearch:8.19.9
+    image: elasticsearch:8.19.9@sha256:dee84085936b5b5fc3a6d322ff7545c939f99269b2d94bf19ea4af968893bbc4
     container_name: clearml-elasticsearch
     restart: unless-stopped
     networks:
@@ -48,7 +48,7 @@ services:
       - ./.clearml/elasticsearch:/usr/share/elasticsearch/data
 
   fileserver:
-    image: clearml/server:latest
+    image: clearml/server:latest@sha256:5ec4aed2e40c619da63198c22e765a00b4e3e5c06081a9c0a4ae237df66fb7bb
     container_name: clearml-fileserver
     restart: unless-stopped
     command:
@@ -66,7 +66,7 @@ services:
       - ./.clearml/fileserver:/mnt/fileserver
 
   apiserver:
-    image: clearml/server:latest
+    image: clearml/server:latest@sha256:5ec4aed2e40c619da63198c22e765a00b4e3e5c06081a9c0a4ae237df66fb7bb
     container_name: clearml-apiserver
     restart: unless-stopped
     command:
@@ -100,7 +100,7 @@ services:
       - ./.clearml/fileserver:/mnt/fileserver
 
   webserver:
-    image: clearml/server:latest
+    image: clearml/server:latest@sha256:5ec4aed2e40c619da63198c22e765a00b4e3e5c06081a9c0a4ae237df66fb7bb
     container_name: clearml-webserver
     restart: unless-stopped
     command:
@@ -114,7 +114,7 @@ services:
       - "127.0.0.1:8080:80"
 
   async-delete:
-    image: clearml/server:latest
+    image: clearml/server:latest@sha256:5ec4aed2e40c619da63198c22e765a00b4e3e5c06081a9c0a4ae237df66fb7bb
     container_name: clearml-async-delete
     restart: unless-stopped
     entrypoint:
@@ -147,5 +147,6 @@ services:
 networks:
   backend:
     driver: bridge
+    internal: true
   frontend:
     driver: bridge

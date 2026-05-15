@@ -17,9 +17,9 @@ SENTENCEPIECE_ALGO = "sentencepiece"
 WORDLEVEL_WHITESPACE_ALGO = "wordlevel-whitespace"
 TOKENIZER_ALGOS = (SENTENCEPIECE_ALGO, WORDLEVEL_WHITESPACE_ALGO)
 
-UNK_TOKEN = "[UNK]"  # unknown token
-BOS_TOKEN = "[BOS]"  # beginning of sequence
-EOS_TOKEN = "[EOS]"  # end of sequence
+UNK_TOKEN = "[UNK]"  # unknown token  # nosec B105
+BOS_TOKEN = "[BOS]"  # beginning of sequence  # nosec B105
+EOS_TOKEN = "[EOS]"  # end of sequence  # nosec B105
 SPECIAL_TOKENS = (UNK_TOKEN, BOS_TOKEN, EOS_TOKEN)
 
 
