@@ -1,4 +1,9 @@
-"""Good-Turing row smoothing for fixed-vocabulary n-gram models."""
+"""Good-Turing row smoothing for fixed-vocabulary n-gram models.
+
+For an event with raw count ``c``, Good-Turing uses
+``c_star = (c + 1) N_{c+1} / N_c``. Within one history row ``h``, ``N_r`` is
+the number of candidate next-token types ``w`` with ``c(h, w) = r``.
+"""
 
 from __future__ import annotations
 
@@ -21,10 +26,10 @@ class GoodTuringDistribution(ngram.FrozenNgramModel):
     tokens already handled by Good-Turing counts.
     """
 
-    observed_probabilities: dict[int, float]
-    reserved_mass: float
-    lower_mass: float
-    fallback_count: int
+    observed_probabilities: dict[int, float]  # P_GT(w | h) for seen w.
+    reserved_mass: float  # P_0 = N_1 / N, total mass for unseen w.
+    lower_mass: float  # sum_{unseen w} P_lower(w).
+    fallback_count: int  # number of unseen types when P_lower has no mass.
 
     def probability(
         self,
@@ -39,6 +44,7 @@ class GoodTuringDistribution(ngram.FrozenNgramModel):
         # Good-Turing says how much total mass unseen events get, but not how
         # to split it; the lower-order model supplies that shape.
         if self.lower_mass > 0:
+            # P(w | h) = P_0 * P_lower(w) / sum_{unseen w'} P_lower(w').
             return self.reserved_mass * lower_probability(token_id) / self.lower_mass
         # If the lower-order model is unusable for this unseen slice, fall back
         # to the plain "all unseen types are exchangeable" interpretation.
@@ -61,7 +67,7 @@ def distribution(
     allocate the unseen-event mass through ``lower_probability``.
     """
 
-    candidate_id_set = frozenset(candidate_ids)
+    candidate_id_set = frozenset(candidate_ids)  # V, the candidate vocabulary.
     if not candidate_ids:
         return GoodTuringDistribution(
             observed_probabilities={},
@@ -74,9 +80,9 @@ def distribution(
         token_id: int(count)
         for token_id, count in counts.items()
         if token_id in candidate_id_set and count > 0
-    }
-    unseen_count = max(len(candidate_ids) - len(clean_counts), 0)
-    row_total = total if total is not None else sum(clean_counts.values())
+    }  # positive c(h, w) values inside V.
+    unseen_count = max(len(candidate_ids) - len(clean_counts), 0)  # N_0.
+    row_total = total if total is not None else sum(clean_counts.values())  # c(h).
     if row_total <= 0:
         # With no evidence for this history, make the whole row a pure backoff
         # row. ``lower_mass`` stays at 1 because no observed events are removed.
@@ -92,16 +98,16 @@ def distribution(
     adjusted_counts = {
         token_id: count_star(count, nr)
         for token_id, count in clean_counts.items()
-    }
-    adjusted_total = sum(adjusted_counts.values())
+    }  # c_star(h, w) for seen events.
+    adjusted_total = sum(adjusted_counts.values())  # sum_w c_star(h, w).
     # N_1 / N is the classic estimate for the total probability of unseen
     # types. If every candidate type has been observed, that mass has nowhere
     # valid to go inside this fixed vocabulary row.
     raw_reserved_mass = nr.get(1, 0) / row_total if unseen_count > 0 else 0.0
-    raw_observed_mass = adjusted_total / row_total
+    raw_observed_mass = adjusted_total / row_total  # unnormalized seen mass.
     # Small rows often have gaps in N_r, so the adjusted counts plus unseen mass
     # do not necessarily sum to 1. z normalizes the row after discounting.
-    z = raw_observed_mass + raw_reserved_mass
+    z = raw_observed_mass + raw_reserved_mass  # row normalization constant Z.
     if z <= 0:
         # Degenerate count-of-counts rows can discount everything away; keeping
         # raw counts is better than manufacturing an all-zero observed row.
@@ -187,4 +193,5 @@ def count_star(count: int, nr: Mapping[int, int]) -> float:
         # The unsmoothed estimator is undefined when N_{c+1} is missing. For
         # sparse language-model rows, preserving c avoids erasing rare maxima.
         return float(count)
+    # c_star = (c + 1) N_{c+1} / N_c.
     return (count + 1) * next_frequency / nr[count]

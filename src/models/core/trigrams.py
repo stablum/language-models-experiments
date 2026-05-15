@@ -12,17 +12,17 @@ from src.models.core import formatting, ngram
 from src.tokenizers import core as tok_core
 
 
-Context = tuple[int, int]
+Context = tuple[int, int]  # h = (u, v), the trigram history.
 
 
 class TrigramCounts(ngram.FrozenNgramModel):
     sequence_count: int
     token_count: int
-    unigram_counts: Counter[int]
-    bigram_transitions: dict[int, Counter[int]]
-    trigram_transitions: dict[Context, Counter[int]]
-    bigram_transition_count: int
-    trigram_transition_count: int
+    unigram_counts: Counter[int]  # c(w), unigram event counts.
+    bigram_transitions: dict[int, Counter[int]]  # v -> c(v, w).
+    trigram_transitions: dict[Context, Counter[int]]  # (u, v) -> c(u, v, w).
+    bigram_transition_count: int  # sum_v c(v), bigram event count.
+    trigram_transition_count: int  # sum_{u,v} c(u, v), trigram event count.
 
     @property
     def unigram_count(self) -> int:
@@ -41,27 +41,27 @@ class TrigramTrainingSummary(ngram.NgramTrainingSummary):
 
 
 class InterpolatedTrigramTrainingSummary(TrigramTrainingSummary):
-    unigram_weight: float = 0.0
-    bigram_weight: float = 0.0
-    trigram_weight: float = 0.0
-    beta_2: float | None = None
-    beta_3: float | None = None
+    unigram_weight: float = 0.0  # lambda_1.
+    bigram_weight: float = 0.0  # lambda_2.
+    trigram_weight: float = 0.0  # lambda_3.
+    beta_2: float | None = None  # beta_2, lower-order bigram share.
+    beta_3: float | None = None  # beta_3, trigram share.
 
 
 class InterpolatedTrigramEvaluationSummary(ngram.NgramEvaluationSummary):
-    unigram_weight: float = 0.0
-    bigram_weight: float = 0.0
-    trigram_weight: float = 0.0
-    beta_2: float | None = None
-    beta_3: float | None = None
+    unigram_weight: float = 0.0  # lambda_1.
+    bigram_weight: float = 0.0  # lambda_2.
+    trigram_weight: float = 0.0  # lambda_3.
+    beta_2: float | None = None  # beta_2, lower-order bigram share.
+    beta_3: float | None = None  # beta_3, trigram share.
 
 
 class ResolvedTrigramContextCounts(ngram.FrozenNgramModel):
-    previous_id: int
-    bigram_counts: dict[int, int]
-    trigram_counts: dict[int, int]
-    bigram_total: int
-    trigram_total: int
+    previous_id: int  # v, the second token in h = (u, v).
+    bigram_counts: dict[int, int]  # c(v, w), the lower-order row.
+    trigram_counts: dict[int, int]  # c(u, v, w), the trigram row.
+    bigram_total: int  # c(v) = sum_w c(v, w).
+    trigram_total: int  # c(u, v) = sum_w c(u, v, w).
 
 
 class TrigramEvaluationRow(ngram.FrozenNgramModel):
@@ -254,11 +254,11 @@ class InterpolatedTrigramModel(BaseTrigramModel):
     evaluation_summary_type: ClassVar[type[ngram.NgramEvaluationSummary]] = (
         InterpolatedTrigramEvaluationSummary
     )
-    unigram_weight: float
-    bigram_weight: float
-    trigram_weight: float
-    beta_2: float | None = None
-    beta_3: float | None = None
+    unigram_weight: float  # lambda_1.
+    bigram_weight: float  # lambda_2.
+    trigram_weight: float  # lambda_3.
+    beta_2: float | None = None  # beta_2, lower-order bigram share.
+    beta_3: float | None = None  # beta_3, trigram share.
 
     def evaluation_summary_fields(self) -> dict[str, object]:
         return {
@@ -274,6 +274,8 @@ class InterpolatedTrigramModel(BaseTrigramModel):
         next_id: int,
         counts: ResolvedTrigramContextCounts,
     ) -> float:
+        # next_id is w. This is lambda_1 P_1(w) + lambda_2 P_2(w | v)
+        # + lambda_3 P_3(w | u, v).
         return (
             self.unigram_weight * self.unigram_probability(next_id)
             + self.bigram_weight * self.bigram_probability(
@@ -320,14 +322,14 @@ class InterpolatedTrigramModel(BaseTrigramModel):
 
 
 class DiscountedTrigramEvaluationSummary(ngram.NgramEvaluationSummary):
-    discount: float = 0.0
+    discount: float = 0.0  # D, the absolute discount.
 
 
 class DiscountedTrigramModel(BaseTrigramModel):
     evaluation_summary_type: ClassVar[type[ngram.NgramEvaluationSummary]] = (
         DiscountedTrigramEvaluationSummary
     )
-    discount: float
+    discount: float  # D, the absolute discount.
 
     def evaluation_summary_fields(self) -> dict[str, object]:
         return {"discount": self.discount}
@@ -341,9 +343,11 @@ def collect_trigram_counts(
         normalization.DEFAULT_TEXT_NORMALIZATION
     ),
 ) -> TrigramCounts:
-    unigram_counts: Counter[int] = Counter()
+    unigram_counts: Counter[int] = Counter()  # c(w).
     bigram_transitions: defaultdict[int, Counter[int]] = defaultdict(Counter)
     trigram_transitions: defaultdict[Context, Counter[int]] = defaultdict(Counter)
+    # bigram_transitions[v][w] is c(v, w); trigram_transitions[(u, v)][w]
+    # is c(u, v, w).
     sequence_count = 0
     token_count = 0
     bigram_transition_count = 0
@@ -359,6 +363,7 @@ def collect_trigram_counts(
         unigram_counts.update(token_ids[2:])
 
         for previous_id, next_id in zip(token_ids[1:], token_ids[2:]):
+            # previous_id is v and next_id is w in c(v, w).
             bigram_transitions[previous_id][next_id] += 1
             bigram_transition_count += 1
 
@@ -367,6 +372,7 @@ def collect_trigram_counts(
             token_ids[1:],
             token_ids[2:],
         ):
+            # previous_previous_id is u, previous_id is v, and next_id is w.
             trigram_transitions[(previous_previous_id, previous_id)][next_id] += 1
             trigram_transition_count += 1
 

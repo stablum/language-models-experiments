@@ -1,4 +1,9 @@
-"""Fixed-lambda Jelinek-Mercer token-level autoregressive trigram model."""
+"""Fixed-lambda Jelinek-Mercer token-level autoregressive trigram model.
+
+For history ``h = (u, v)`` and next token ``w``, the interpolation is
+``lambda_3 P_ML(w | u, v) + lambda_2 P_ML(w | v) + lambda_1 P_ML(w)``.
+The optional ``beta_2`` and ``beta_3`` params are the recursive backoff weights.
+"""
 
 from __future__ import annotations
 
@@ -13,10 +18,11 @@ _SCHEMA_TYPE = "jelinek_mercer_trigram"
 
 
 class JelinekMercerTrigramModel(trigrams.InterpolatedTrigramModel):
-    unigram_counts: dict[int, int]
-    unigram_total: int
+    unigram_counts: dict[int, int]  # c(w), unigram counts.
+    unigram_total: int  # N = sum_w c(w), the unigram normalizer.
 
     def unigram_probability(self, token_id: int) -> float:
+        # token_id is w. Return P_ML(w) = c(w) / N.
         return ngram.maximum_likelihood_probability(
             token_id,
             counts=self.unigram_counts,
@@ -30,6 +36,7 @@ class JelinekMercerTrigramModel(trigrams.InterpolatedTrigramModel):
         counts: Mapping[int, int],
         total: int,
     ) -> float:
+        # For h = v or h = (u, v), return P_ML(w | h) = c(h, w) / c(h).
         return ngram.maximum_likelihood_probability(
             token_id,
             counts=counts,
@@ -66,6 +73,7 @@ def train_jelinek_mercer_trigram_model(
     beta_3: float | None = None,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> trigrams.InterpolatedTrigramTrainingSummary:
+    # lambda_i are stored as weights; beta_i are an equivalent recursive form.
     interpolation = interp.resolve_params(
         unigram_weight=unigram_weight,
         bigram_weight=bigram_weight,

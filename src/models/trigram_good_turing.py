@@ -6,6 +6,9 @@ seen exactly r times. In this implementation an "event type" is one candidate
 next token inside a single conditional row, such as ``P(next | prev2, prev1)``.
 The mass reserved for unseen continuations is then backed off to the next lower
 order model.
+
+Notation in comments uses ``h = (u, v)`` for trigram histories, ``w`` for the
+candidate next token, and ``N_r`` for count-of-counts within one row.
 """
 
 from __future__ import annotations
@@ -26,8 +29,8 @@ _SCHEMA_TYPE = "good_turing_trigram"
 
 
 class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
-    unigram_counts: dict[int, int]
-    unigram_total: int
+    unigram_counts: dict[int, int]  # c(w), unigram counts.
+    unigram_total: int  # N = sum_w c(w), the unigram normalizer.
     _unigram_distribution: good_turing.GoodTuringDistribution | None = (
         pydantic.PrivateAttr(default=None)
     )
@@ -48,6 +51,7 @@ class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
         *,
         top_k: int,
     ) -> list[ngram.NgramPrediction]:
+        # context is h = (u, v). trigram_counts[token_id] is c(h, w).
         trigram_counts = dict(self.trigram_transitions.get(context, ()))
         return [
             ngram.NgramPrediction(
@@ -75,9 +79,11 @@ class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
         next_id: int,
         counts: trigrams.ResolvedTrigramContextCounts,
     ) -> float:
+        # next_id is w. counts.trigram_counts is the empirical row c(h, w).
         # Trigram Good-Turing only discounts the current history row. Any mass
         # reserved for unseen trigram continuations backs off to the bigram row.
         def lower_probability(token_id: int) -> float:
+            # P_lower(w) is the Good-Turing-smoothed bigram row P(w | v).
             return self.bigram_probability(
                 token_id,
                 previous_id=counts.previous_id,
@@ -116,7 +122,7 @@ class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
 
     def top_token_ids(self, context: trigrams.Context, *, top_k: int) -> list[int]:
         distribution = self.trigram_distribution(context)
-        previous_id = context[1]
+        previous_id = context[1]  # v, the lower-order bigram history.
         # Ranking unseen trigram continuations follows the same lower-order
         # backoff distribution used when assigning their reserved probability.
         def lower_probability(token_id: int) -> float:
@@ -135,7 +141,7 @@ class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
     def trigram_probability(self, token_id: int, context: trigrams.Context) -> float:
         if token_id not in self.candidate_id_set:
             return 0.0
-        previous_id = context[1]
+        previous_id = context[1]  # v in h = (u, v); token_id is w.
         # Textbook backoff chain for unseen events:
         # trigram row -> bigram row for the same previous token.
         def lower_probability(token_id: int) -> float:
@@ -155,7 +161,7 @@ class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
     ) -> good_turing.GoodTuringDistribution:
         distribution = self._trigram_distributions.get(context)
         if distribution is None:
-            previous_id = context[1]
+            previous_id = context[1]  # v, the lower-order history in P(w | v).
 
             def lower_probability(token_id: int) -> float:
                 return self.bigram_probability(
@@ -181,6 +187,7 @@ class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
         if token_id not in self.candidate_id_set:
             return 0.0
         if counts is not None:
+            # counts[token_id] is c(v, w), with total c(v).
             distribution = self.good_turing_distribution(
                 counts,
                 total=total,
@@ -222,6 +229,7 @@ class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
     def unigram_probability(self, token_id: int) -> float:
         if token_id not in self.candidate_id_set:
             return 0.0
+        # token_id is w. Good-Turing smooths the unigram row c(w).
         return self.unigram_distribution().probability(
             token_id,
             lower_probability=self.uniform_probability,
@@ -253,6 +261,7 @@ class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
     def uniform_probability(self, token_id: int) -> float:
         if token_id not in self.candidate_id_set or self.candidate_count <= 0:
             return 0.0
+        # P_0(w) = 1 / |V| is the final backoff distribution.
         return 1 / self.candidate_count
 
     def good_turing_distribution(
@@ -262,6 +271,7 @@ class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
         lower_probability: good_turing.ProbabilityFn,
         total: int | None = None,
     ) -> good_turing.GoodTuringDistribution:
+        # Build a Good-Turing row from c(h, w) and its lower-order P_lower(w).
         return good_turing.distribution(
             counts,
             candidate_ids=self.candidate_ids,

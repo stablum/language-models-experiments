@@ -1,4 +1,10 @@
-"""Interpolation parameter helpers for trigram models."""
+"""Interpolation parameter helpers for trigram models.
+
+The trigram interpolation is
+``lambda_1 P_1(w) + lambda_2 P_2(w | v) + lambda_3 P_3(w | u, v)``.
+The recursive form uses ``beta_3 = lambda_3`` and
+``beta_2 = lambda_2 / (lambda_1 + lambda_2)`` when lower-order mass is nonzero.
+"""
 
 from __future__ import annotations
 
@@ -13,25 +19,25 @@ from src.ml_core.models import definition as model_def
 from src.models.core import formatting, ngram, trigrams
 
 
-DEFAULT_UNIGRAM_WEIGHT = 0.1
-DEFAULT_BIGRAM_WEIGHT = 0.3
-DEFAULT_TRIGRAM_WEIGHT = 0.6
+DEFAULT_UNIGRAM_WEIGHT = 0.1  # lambda_1.
+DEFAULT_BIGRAM_WEIGHT = 0.3  # lambda_2.
+DEFAULT_TRIGRAM_WEIGHT = 0.6  # lambda_3.
 
 
 class InterpolationSummary(Protocol):
-    unigram_weight: float
-    bigram_weight: float
-    trigram_weight: float
-    beta_2: float | None
-    beta_3: float | None
+    unigram_weight: float  # lambda_1.
+    bigram_weight: float  # lambda_2.
+    trigram_weight: float  # lambda_3.
+    beta_2: float | None  # beta_2, lower-order bigram share.
+    beta_3: float | None  # beta_3, trigram share.
 
 
 class InterpolationParams(ngram.FrozenNgramModel):
-    unigram_weight: float
-    bigram_weight: float
-    trigram_weight: float
-    beta_2: float | None = None
-    beta_3: float | None = None
+    unigram_weight: float  # lambda_1.
+    bigram_weight: float  # lambda_2.
+    trigram_weight: float  # lambda_3.
+    beta_2: float | None = None  # beta_2, lower-order bigram share.
+    beta_3: float | None = None  # beta_3, trigram share.
 
 
 class InterpolatedTrainingSpec(ngram.FrozenNgramModel):
@@ -50,9 +56,10 @@ def normalize_weights(
     bigram_weight: float,
     trigram_weight: float,
 ) -> tuple[float, float, float]:
-    total = unigram_weight + bigram_weight + trigram_weight
+    total = unigram_weight + bigram_weight + trigram_weight  # sum_i lambda_i.
     if total <= 0:
         raise ValueError("At least one interpolation weight must be positive.")
+    # Return normalized lambda_1, lambda_2, lambda_3.
     return unigram_weight / total, bigram_weight / total, trigram_weight / total
 
 
@@ -63,6 +70,8 @@ def weights_from_betas(
 ) -> tuple[float, float, float]:
     validate_beta("beta_2", beta_2)
     validate_beta("beta_3", beta_3)
+    # Recursive interpolation:
+    # P = beta_3 P_3 + (1 - beta_3) [beta_2 P_2 + (1 - beta_2) P_1].
     return (1 - beta_3) * (1 - beta_2), (1 - beta_3) * beta_2, beta_3
 
 
@@ -72,7 +81,7 @@ def betas_from_weights(
     bigram_weight: float,
     trigram_weight: float,
 ) -> tuple[float, float]:
-    lower_weight = unigram_weight + bigram_weight
+    lower_weight = unigram_weight + bigram_weight  # lambda_1 + lambda_2.
     # If lambda_3 is 1, the lower-order branch is unused; beta_2 is arbitrary.
     beta_2 = bigram_weight / lower_weight if lower_weight > 0 else 0.0
     return beta_2, trigram_weight

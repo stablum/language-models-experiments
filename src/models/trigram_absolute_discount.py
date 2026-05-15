@@ -5,6 +5,9 @@ For a history h, absolute discounting uses
 ``lambda(h) = D * T(h) / c(h)``, with T(h) the number of observed next-token
 types in the row. This model backs off from trigram rows to additively-smoothed
 bigram rows.
+
+Notation in comments uses ``h = (u, v)`` for the trigram history, ``w`` for the
+candidate next token, ``D`` for the discount, and ``k`` for add-k smoothing.
 """
 
 from __future__ import annotations
@@ -22,14 +25,14 @@ _SCHEMA_TYPE = "absolute_discount_trigram"
 
 
 class AbsoluteDiscountTrigramTrainingSummary(trigrams.TrigramTrainingSummary):
-    discount: float = 0.0
+    discount: float = 0.0  # D, the absolute discount.
 
 
 class AbsoluteDiscountTrigramModel(trigrams.DiscountedTrigramModel):
     evaluation_summary_type: ClassVar[type[ngram.NgramEvaluationSummary]] = (
         trigrams.DiscountedTrigramEvaluationSummary
     )
-    smoothing: float
+    smoothing: float  # k, the lower-order add-k pseudo-count.
 
     def context_probability(
         self,
@@ -43,6 +46,8 @@ class AbsoluteDiscountTrigramModel(trigrams.DiscountedTrigramModel):
         token_id: int,
         counts: trigrams.ResolvedTrigramContextCounts,
     ) -> float:
+        # token_id is w. counts.trigram_counts[w] is c(h, w), and
+        # counts.trigram_total is c(h) for h = (u, v).
         # Absolute discounting removes D mass from every observed trigram type.
         # The helper redistributes the total removed mass through this lower
         # order bigram probability.
@@ -66,6 +71,7 @@ class AbsoluteDiscountTrigramModel(trigrams.DiscountedTrigramModel):
         counts: dict[int, int],
         total: int,
     ) -> float:
+        # The lower-order history is h = v. Return add-k P_k(w | v).
         # Unlike Kneser-Ney, this model backs off to ordinary bigram counts.
         # Additive smoothing gives every candidate next token a non-zero floor.
         return ngram.additive_smoothed_probability(

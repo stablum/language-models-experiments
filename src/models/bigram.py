@@ -1,4 +1,8 @@
-"""Very small token-level autoregressive bigram model training and querying."""
+"""Very small token-level autoregressive bigram model training and querying.
+
+For history ``h`` and next token ``w``, this model uses the add-k estimator
+``P(w | h) = (c(h, w) + k) / (c(h) + k |V|)``.
+"""
 
 from __future__ import annotations
 
@@ -15,19 +19,19 @@ _SCHEMA_TYPE = "autoregressive_bigram"
 
 
 class BigramTrainingSummary(ngram.NgramTrainingSummary):
-    transition_count: int = 0
+    transition_count: int = 0  # sum_h c(h), the number of bigram events.
 
 
 class BigramEvaluationRow(ngram.FrozenNgramModel):
-    counts: dict[int, int]
-    denominator: float
+    counts: dict[int, int]  # c(h, w), counts for one previous-token history h.
+    denominator: float  # c(h) + k |V|, the add-k normalizer.
     greedy_token_id: int
     top_k_token_ids: frozenset[int]
 
 
 class BigramModel(ngram.BaseNgramModel):
-    smoothing: float
-    transitions: dict[int, tuple[tuple[int, int], ...]]
+    smoothing: float  # k, the additive smoothing pseudo-count.
+    transitions: dict[int, tuple[tuple[int, int], ...]]  # h -> c(h, w).
 
     def context_for_tokens(self, token_ids: list[int]) -> int:
         return token_ids[-1] if token_ids else self.bos_id
@@ -41,12 +45,13 @@ class BigramModel(ngram.BaseNgramModel):
         *,
         top_k: int,
     ) -> list[ngram.NgramPrediction]:
+        # previous_id is h. observed[token_id] is c(h, w) for w = token_id.
         observed = dict(self.transitions.get(previous_id, ()))
         observed_total = sum(
             observed.get(token_id, 0)
             for token_id in self.candidate_ids
         )
-        candidate_count = self.candidate_count
+        candidate_count = self.candidate_count  # |V|, excluding BOS.
         denominator = observed_total + self.smoothing * candidate_count
 
         if denominator <= 0:
@@ -125,6 +130,7 @@ class BigramModel(ngram.BaseNgramModel):
         *,
         top_k: int,
     ) -> BigramEvaluationRow:
+        # Keep only candidate next-token types w in this history row h.
         counts = {
             token_id: count
             for token_id, count in self.transitions.get(previous_id, ())
@@ -147,6 +153,7 @@ class BigramModel(ngram.BaseNgramModel):
         counts: dict[int, int],
     ) -> list[int]:
         if self.smoothing > 0:
+            # Ranking by c(h, w) + k is equivalent to ranking by P(w | h).
             return sorted(
                 self.candidate_ids,
                 key=lambda token_id: (-(counts.get(token_id, 0) + self.smoothing), token_id),
@@ -161,6 +168,7 @@ class BigramModel(ngram.BaseNgramModel):
     ) -> float:
         if row.denominator <= 0 or next_id not in self.candidate_id_set:
             return 0.0
+        # next_id is w. Return (c(h, w) + k) / (c(h) + k |V|).
         return (row.counts.get(next_id, 0) + self.smoothing) / row.denominator
 
 
@@ -208,7 +216,7 @@ def train_bigram_model(
         vocab_size=tokenizer.vocab_size,
         text_normalization=text_normalization,
     )
-    transitions: defaultdict[int, Counter[int]] = defaultdict(Counter)
+    transitions: defaultdict[int, Counter[int]] = defaultdict(Counter)  # h -> c(h, w).
 
     for token_ids in iter_token_sequences(
         texts,
@@ -219,6 +227,7 @@ def train_bigram_model(
         summary.token_count += len(token_ids)
 
         for previous_id, next_id in zip(token_ids, token_ids[1:]):
+            # previous_id is h and next_id is w in c(h, w).
             transitions[previous_id][next_id] += 1
             summary.transition_count += 1
 

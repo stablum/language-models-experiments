@@ -1,4 +1,9 @@
-"""Interpolated add-k token-level autoregressive trigram model."""
+"""Interpolated add-k token-level autoregressive trigram model.
+
+Each row estimate is ``P_k(w | h) = (c(h, w) + k) / (c(h) + k |V|)``.
+The final trigram probability linearly interpolates unigram, bigram, and
+trigram rows with ``lambda_1``, ``lambda_2``, and ``lambda_3``.
+"""
 
 from __future__ import annotations
 
@@ -13,11 +18,12 @@ _SCHEMA_TYPE = "interpolated_add_k_trigram"
 
 
 class AddKTrigramModel(trigrams.InterpolatedTrigramModel):
-    smoothing: float
-    unigram_counts: dict[int, int]
-    unigram_total: int
+    smoothing: float  # k, the additive smoothing pseudo-count.
+    unigram_counts: dict[int, int]  # c(w), unigram counts.
+    unigram_total: int  # N = sum_w c(w), the unigram normalizer.
 
     def unigram_probability(self, token_id: int) -> float:
+        # token_id is w. Return P_k(w) with the empty history h.
         return ngram.additive_smoothed_probability(
             token_id,
             counts=self.unigram_counts,
@@ -33,6 +39,7 @@ class AddKTrigramModel(trigrams.InterpolatedTrigramModel):
         counts: Mapping[int, int],
         total: int,
     ) -> float:
+        # For h = v or h = (u, v), counts[token_id] is c(h, w).
         return ngram.additive_smoothed_probability(
             token_id,
             counts=counts,
@@ -73,6 +80,7 @@ def train_add_k_trigram_model(
     beta_3: float | None = None,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> trigrams.InterpolatedTrigramTrainingSummary:
+    # lambda_i are stored as weights; beta_i are an equivalent recursive form.
     interpolation = interp.resolve_params(
         unigram_weight=unigram_weight,
         bigram_weight=bigram_weight,
