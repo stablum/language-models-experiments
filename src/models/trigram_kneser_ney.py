@@ -5,6 +5,11 @@ The trigram row uses the usual absolute-discount shape:
 the choice of ``P_lower``: lower-order rows are trained from continuation
 counts, so a token is valuable when it appears after many distinct histories,
 not merely when it is frequent overall.
+
+Notation in comments follows the usual language-model literature: ``h`` is the
+history row, ``w`` is the candidate next token, ``D`` is the discount,
+``T(h)`` is the number of observed continuation types, and ``N_{1+}`` is a
+distinct-context count.
 """
 
 from __future__ import annotations
@@ -23,17 +28,18 @@ _SCHEMA_TYPE = "interpolated_kneser_ney_trigram"
 
 
 class KneserNeyTrigramTrainingSummary(trigrams.TrigramTrainingSummary):
-    continuation_unigram_count: int = 0
-    continuation_bigram_type_count: int = 0
-    discount: float = 0.0
+    continuation_unigram_count: int = 0  # sum_w c_KN(w), unigram continuation mass.
+    continuation_bigram_type_count: int = 0  # |{(v, w): N_{1+}(*, v, w) > 0}|.
+    discount: float = 0.0  # D, the absolute discount.
 
 
 class KneserNeyContinuationCounts(ngram.FrozenNgramModel):
     """Continuation-count tables used as Kneser-Ney lower-order evidence.
 
-    ``bigram_transitions[prev][next]`` stores how many distinct left contexts
-    were seen before ``prev, next``. ``unigram_counts[next]`` stores how many
-    distinct previous-token types can precede ``next``.
+    In notation, ``bigram_transitions[v][w]`` stores
+    ``c_KN(v, w) = N_{1+}(*, v, w)``, the number of distinct left contexts
+    ``u`` with ``c(u, v, w) > 0``. ``unigram_counts[w]`` stores ``c_KN(w)``,
+    the number of distinct previous-token types ``v`` that can precede ``w``.
     """
 
     unigram_counts: Counter[int]
@@ -52,8 +58,8 @@ class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
     evaluation_summary_type: ClassVar[type[ngram.NgramEvaluationSummary]] = (
         trigrams.DiscountedTrigramEvaluationSummary
     )
-    unigram_counts: dict[int, int]
-    unigram_total: int
+    unigram_counts: dict[int, int]  # c_KN(w), continuation unigram counts.
+    unigram_total: int  # sum_w c_KN(w), the unigram row total.
 
     def context_probability(
         self,
@@ -67,6 +73,9 @@ class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
         token_id: int,
         counts: trigrams.ResolvedTrigramContextCounts,
     ) -> float:
+        # w is token_id. h = (u, v) is the trigram history, with
+        # v = counts.previous_id. counts.trigram_counts[w] is c(h, w), and
+        # counts.trigram_total is c(h).
         # For trigrams, the observed row is the ordinary c(prev2, prev1, next)
         # row. The backed-off probability is the Kneser-Ney bigram row for the
         # same prev1 token, built from continuation counts at training time.
@@ -96,6 +105,8 @@ class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
         if total is None:
             total = sum(counts.values())
 
+        # Here the history is h = v = previous_id. counts[w] is
+        # c_KN(v, w) = N_{1+}(*, v, w), and total is c_KN(v).
         # This is still discounted interpolation, but the counts are
         # continuation counts: "how many distinct left contexts support this
         # bigram type?" rather than raw bigram frequency.
@@ -114,7 +125,7 @@ class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
         # The unigram KN distribution is also a continuation distribution:
         # tokens that appear after many different predecessors get more mass.
         # Uniform probability is only the final floor for unseen continuations.
-        uniform_probability = 1 / candidate_count
+        uniform_probability = 1 / candidate_count  # P_0(w) = 1 / |V|.
         return self._discounted_interpolation_probability(
             token_id,
             counts=self.unigram_counts,
@@ -130,6 +141,9 @@ class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
         total: int,
         lower_order_probability: float,
     ) -> float:
+        # Symbol map: w = token_id, c(h, w) = counts[w], c(h) = total,
+        # D = self.discount, T(h) = len(counts), and
+        # P_lower(w) = lower_order_probability.
         # Implements max(c - D, 0) / total + (D * T / total) * P_lower, where
         # T is len(counts), the number of observed continuation types in a row.
         return ngram.discounted_interpolation_probability(
@@ -251,13 +265,17 @@ def collect_kneser_ney_continuation_counts(
     bigram_transitions: defaultdict[int, Counter[int]] = defaultdict(Counter)
     unigram_predecessors: defaultdict[int, set[int]] = defaultdict(set)
 
-    for (_, previous_id), next_counts in trigram_transitions.items():
+    for (_left_id, previous_id), next_counts in trigram_transitions.items():
+        # _left_id is u and previous_id is v in the trigram type c(u, v, w).
         for next_id, count in next_counts.items():
             if count <= 0:
                 continue
+            # next_id is w. This increments c_KN(v, w) = N_{1+}(*, v, w)
+            # once for each distinct positive left context u.
             # Each positive trigram type contributes one continuation for the
             # lower-order bigram row, regardless of its raw token frequency.
             bigram_transitions[previous_id][next_id] += 1
+            # Track the support set for c_KN(w) = N_{1+}(*, w).
             unigram_predecessors[next_id].add(previous_id)
 
     return KneserNeyContinuationCounts(
