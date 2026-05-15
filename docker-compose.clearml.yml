@@ -59,7 +59,7 @@ services:
     environment:
       CLEARML__fileserver__delete__allow_batch: "true"
     ports:
-      - "8081:8081"
+      - "127.0.0.1:8081:8081"
     volumes:
       - ./.clearml/logs:/var/log/clearml
       - ./.clearml/config:/opt/clearml/config
@@ -93,7 +93,7 @@ services:
       CLEARML__services__async_urls_delete__enabled: "true"
       CLEARML__services__async_urls_delete__fileserver__url_prefixes: "[${CLEARML_FILES_HOST:-}]"
     ports:
-      - "8008:8008"
+      - "127.0.0.1:8008:8008"
     volumes:
       - ./.clearml/logs:/var/log/clearml
       - ./.clearml/config:/opt/clearml/config
@@ -111,7 +111,7 @@ services:
       - backend
       - frontend
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
 
   async-delete:
     image: clearml/server:latest
