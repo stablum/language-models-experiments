@@ -172,7 +172,7 @@ class BigramModel(ngram.BaseNgramModel):
         return (row.counts.get(next_id, 0) + self.smoothing) / row.denominator
 
 
-def load_bigram_model(model_path: Path) -> BigramModel:
+def load(model_path: Path) -> BigramModel:
     data = ngram.load_json_model_payload(
         model_path,
         model_type=_SCHEMA_TYPE,
@@ -200,7 +200,7 @@ def iter_token_sequences(
     )
 
 
-def train_bigram_model(
+def train(
     texts: Iterable[str],
     *,
     tokenizer_model: Path,
@@ -263,8 +263,8 @@ def format_summary(summary: BigramTrainingSummary) -> list[tuple[str, str]]:
 
 MODEL_DEFINITION = ngram.model_definition(
     module_name=__name__,
-    train_model=train_bigram_model,
+    train_model=train,
     summary_items=format_summary,
-    load_model=load_bigram_model,
+    load_model=load,
     training_option_names=("smoothing",),
 )

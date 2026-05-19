@@ -280,7 +280,7 @@ class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
         )
 
 
-def load_good_turing_trigram_model(model_path: Path) -> GoodTuringTrigramModel:
+def load(model_path: Path) -> GoodTuringTrigramModel:
     data, model_fields = trigrams.load_standard_trigram_model_fields(
         model_path,
         model_type=_SCHEMA_TYPE,
@@ -295,7 +295,7 @@ def load_good_turing_trigram_model(model_path: Path) -> GoodTuringTrigramModel:
     )
 
 
-def train_good_turing_trigram_model(
+def train(
     texts: Iterable[str],
     *,
     tokenizer_model: Path,
@@ -349,8 +349,8 @@ def format_evaluation(summary: ngram.NgramEvaluationSummary) -> list[tuple[str, 
 
 MODEL_DEFINITION = ngram.model_definition(
     module_name=__name__,
-    train_model=train_good_turing_trigram_model,
+    train_model=train,
     summary_items=format_summary,
-    load_model=load_good_turing_trigram_model,
+    load_model=load,
     evaluation_items=format_evaluation,
 )

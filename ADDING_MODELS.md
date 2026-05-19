@@ -61,11 +61,11 @@ class MyModel(ngram.BaseNgramModel):
     ...
 
 
-def load_my_model(model_path: Path) -> MyModel:
+def load(model_path: Path) -> MyModel:
     ...
 
 
-def train_my_model(
+def train(
     texts: Iterable[str],
     *,
     tokenizer_model: Path,
@@ -85,9 +85,9 @@ def format_summary(summary: MyModelTrainingSummary) -> list[tuple[str, str]]:
 
 MODEL_DEFINITION = ngram.model_definition(
     module_name=__name__,
-    train_model=train_my_model,
+    train_model=train,
     summary_items=format_summary,
-    load_model=load_my_model,
+    load_model=load,
     training_option_names=("smoothing",),
 )
 ```
@@ -122,7 +122,7 @@ from `trigrams.BaseTrigramModel`, `trigrams.InterpolatedTrigramModel`, or
 `trigrams.DiscountedTrigramModel`, which provide most of the query/evaluation
 machinery.
 
-`load_<model>_model(model_path)`
+`load(model_path)`
 
 Read the JSON artifact, validate `model_type`, load the tokenizer fields, and
 return the model object. Reuse helpers such as:
@@ -134,7 +134,7 @@ return the model object. Reuse helpers such as:
 - `ngram.parse_token_transitions(...)`
 - `trigrams.parse_trigram_transitions(...)`
 
-`train_<model>_model(...)`
+`train(...)`
 
 This is the function called by `ngram.model_definition(...)`. Its required
 keyword parameters are:
