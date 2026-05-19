@@ -259,12 +259,3 @@ def format_summary(summary: BigramTrainingSummary) -> list[tuple[str, str]]:
         ),
         ("Transitions", f"{summary.transition_count:,}"),
     ]
-
-
-MODEL_DEFINITION = ngram.model_definition(
-    module_name=__name__,
-    train_model=train,
-    summary_items=format_summary,
-    load_model=load,
-    training_option_names=("smoothing",),
-)

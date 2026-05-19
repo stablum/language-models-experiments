@@ -112,21 +112,3 @@ def format_summary(
         ),
         *interp.items(summary),
     ]
-
-
-MODEL_DEFINITION = ngram.model_definition(
-    module_name=__name__,
-    train_model=train,
-    summary_items=format_summary,
-    load_model=load,
-    evaluation_items=interp.evaluation_items,
-    training_option_names=(
-        "smoothing",
-        "unigram_weight",
-        "bigram_weight",
-        "trigram_weight",
-        "beta_2",
-        "beta_3",
-    ),
-    validate_training_options=interp.validate_options,
-)

@@ -7,6 +7,7 @@ import pkgutil
 
 from src.ml_core.models import definition as model_def
 import src.models as model_pkg
+from src.models.core import model_modules
 
 
 def iter_model_definitions() -> tuple[model_def.ModelDefinition, ...]:
@@ -20,7 +21,7 @@ def iter_model_definitions() -> tuple[model_def.ModelDefinition, ...]:
             continue
 
         module = importlib.import_module(f"{model_pkg.__name__}.{module_info.name}")
-        definition = getattr(module, "MODEL_DEFINITION", None)
+        definition = model_modules.model_definition_from_module(module)
         if definition is not None:
             definitions.append(definition)
 

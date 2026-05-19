@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import ClassVar
 
 from src.corpora import normalization
-from src.models.core import formatting, ngram
+from src.models.core import ngram
 from src.tokenizers import core as tok_core
 
 
@@ -443,16 +443,6 @@ def base_training_summary_items(
 
 def discount_item(summary: ngram.NgramPydanticModel) -> tuple[str, str]:
     return "Discount", f"{summary.discount:.3f}"
-
-
-def discounted_evaluation_items(
-    summary: DiscountedTrigramEvaluationSummary,
-) -> list[tuple[str, str]]:
-    return [
-        *ngram.base_evaluation_items(summary),
-        discount_item(summary),
-        *formatting.format_ngram_evaluation_metrics(summary),
-    ]
 
 
 def load_standard_trigram_model_fields(

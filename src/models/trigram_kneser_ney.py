@@ -244,16 +244,6 @@ def format_summary(
     ]
 
 
-MODEL_DEFINITION = ngram.model_definition(
-    module_name=__name__,
-    train_model=train,
-    summary_items=format_summary,
-    load_model=load,
-    evaluation_items=trigrams.discounted_evaluation_items,
-    training_option_names=("discount",),
-)
-
-
 def collect_kneser_ney_continuation_counts(
     trigram_transitions: (
         defaultdict[trigrams.Context, Counter[int]]

@@ -345,12 +345,3 @@ def format_evaluation(summary: ngram.NgramEvaluationSummary) -> list[tuple[str, 
         ("Smoothing", "Good-Turing"),
         *formatting.format_ngram_evaluation_metrics(summary),
     ]
-
-
-MODEL_DEFINITION = ngram.model_definition(
-    module_name=__name__,
-    train_model=train,
-    summary_items=format_summary,
-    load_model=load,
-    evaluation_items=format_evaluation,
-)

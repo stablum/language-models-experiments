@@ -7,13 +7,12 @@ import random
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Callable, Literal, TypeVar
+from typing import Any, Literal
 
 import pydantic
 
 from src.corpora import normalization
 from src.ml_core import json_io
-from src.ml_core.models import definition as model_def
 from src.models.core import formatting
 from src.tokenizers import core as tok_core
 
@@ -228,12 +227,6 @@ class BaseNgramModel(NgramPydanticModel):
         )
 
 
-QueryResult = TypeVar("QueryResult", bound=NgramQueryResult)
-EvaluationSummary = TypeVar("EvaluationSummary", bound=NgramEvaluationSummary)
-LoadedModel = TypeVar("LoadedModel")
-TrainingSummary = TypeVar("TrainingSummary")
-
-
 def divide_or_none(numerator: int, denominator: int) -> float | None:
     if denominator == 0:
         return None
@@ -432,79 +425,6 @@ def load_tokenizer_from_payload(
     return tokenizer_model, tokenizer, int(data.get("vocab_size", tokenizer.vocab_size))
 
 
-def default_tokenizer_model(corpus: str) -> Path:
-    return Path(
-        "artifacts",
-        "tokenizers",
-        f"{corpus}-{tok_core.SENTENCEPIECE_ALGO}-1000.model",
-    )
-
-
-def default_ngram_output(
-    corpus: str,
-    model_suffix: str,
-    tokenizer_model: object = None,
-) -> Path:
-    tokenizer_stem = (
-        Path(tokenizer_model).stem
-        if tokenizer_model
-        else f"{corpus}-{tok_core.SENTENCEPIECE_ALGO}-1000"
-    )
-    return Path("artifacts", "models", f"{tokenizer_stem}-{model_suffix}.json")
-
-
-def resolve_tokenizer_model(options: model_def.ModelOptions) -> Path:
-    tokenizer_model = options.get("tokenizer_model")
-    if tokenizer_model:
-        return Path(tokenizer_model)
-    return default_tokenizer_model(str(options["corpus"]))
-
-
-def resolve_output(options: model_def.ModelOptions, *, model_suffix: str) -> Path:
-    output = options.get("output")
-    if output:
-        return Path(output)
-    return default_ngram_output(
-        str(options["corpus"]),
-        model_suffix,
-        tokenizer_model=options.get("tokenizer_model"),
-    )
-
-
-def resolve_model(options: model_def.ModelOptions, *, model_suffix: str) -> Path:
-    model_path = options.get("model_path")
-    if model_path:
-        return Path(model_path)
-    return default_ngram_output(
-        str(options["corpus"]),
-        model_suffix,
-        tokenizer_model=options.get("tokenizer_model"),
-    )
-
-
-def validate_tokenizer_model(options: model_def.ModelOptions) -> None:
-    tokenizer_model = resolve_tokenizer_model(options)
-    if not tokenizer_model.exists():
-        raise model_def.ModelOptionError(
-            f"Tokenizer model not found: {tokenizer_model}. "
-            "Train it first with src.cli.tokenizer_training."
-        )
-
-
-def validate_model_path(
-    options: model_def.ModelOptions,
-    *,
-    model_suffix: str,
-    label: str,
-) -> None:
-    model_path = resolve_model(options, model_suffix=model_suffix)
-    if not model_path.exists():
-        raise model_def.ModelOptionError(
-            f"{label} model not found: {model_path}. "
-            "Train it first with src.cli.train."
-        )
-
-
 def score_evaluation_transition(
     summary: NgramEvaluationSummary,
     *,
@@ -566,89 +486,6 @@ def discounted_interpolation_probability(
     return discounted_probability + interpolation_weight * lower_order_probability
 
 
-def model_name_from_module(module_name: str) -> str:
-    return module_name.rsplit(".", maxsplit=1)[-1].replace("_", "-")
-
-
-def model_label_from_name(name: str) -> str:
-    return name.replace("-", " ").capitalize()
-
-
-def model_definition(
-    *,
-    module_name: str,
-    train_model: Callable[..., TrainingSummary],
-    load_model: Callable[[Path], LoadedModel],
-    summary_items: model_def.SummaryFormatter,
-    training_option_names: Sequence[str] = (),
-    query_lines: model_def.QueryFormatter | None = None,
-    evaluation_items: model_def.SummaryFormatter | None = None,
-    validate_training_options: model_def.ModelOptionValidator | None = None,
-) -> model_def.ModelDefinition:
-    name = model_name_from_module(module_name)
-    model_label = model_label_from_name(name)
-
-    def train(
-        texts: Iterable[str],
-        options: model_def.ModelOptions,
-    ) -> TrainingSummary:
-        stored_tokenizer_model = options.get("stored_tokenizer_model")
-        training_options = {
-            option_name: options[option_name]
-            for option_name in training_option_names
-            if option_name in options
-        }
-        return train_model(
-            texts,
-            tokenizer_model=resolve_tokenizer_model(options),
-            output_path=resolve_output(options, model_suffix=name),
-            stored_tokenizer_model=(
-                Path(stored_tokenizer_model) if stored_tokenizer_model else None
-            ),
-            text_normalization=options["text_normalization"],
-            **training_options,
-        )
-
-    def validate_options(options: model_def.ModelOptions) -> None:
-        validate_tokenizer_model(options)
-        if validate_training_options is not None:
-            validate_training_options(options)
-
-    def validate_query_options(options: model_def.ModelOptions) -> None:
-        validate_model_path(options, model_suffix=name, label=model_label)
-
-    def query(options: model_def.ModelOptions) -> QueryResult:
-        model = load_model(resolve_model(options, model_suffix=name))
-        return model.query(
-            prompt=options["prompt"],
-            max_tokens=options["max_tokens"],
-            top_k=options["top_k"],
-            decoding=options["decoding"],
-            temperature=options["temperature"],
-            seed=options["seed"],
-        )
-
-    def evaluate(
-        texts: Iterable[str],
-        options: model_def.ModelOptions,
-    ) -> EvaluationSummary:
-        model = load_model(resolve_model(options, model_suffix=name))
-        return model.evaluate(texts, top_k=options["top_k"])
-
-    return model_def.ModelDefinition(
-        name=name,
-        train=train,
-        validate_options=validate_options,
-        summary_items=summary_items,
-        query=query,
-        validate_query_options=validate_query_options,
-        query_lines=query_lines or formatting.format_ngram_query,
-        evaluate=evaluate,
-        validate_evaluation_options=validate_query_options,
-        evaluation_items=evaluation_items or standard_evaluation_items,
-    )
-
-
 def base_training_summary_items(
     *,
     summary: NgramPydanticModel,
@@ -669,13 +506,6 @@ def base_evaluation_items(summary: NgramEvaluationSummary) -> list[tuple[str, st
         ("Model file", formatting.artifact_filename(summary.model_path)),
         ("Tokenizer model file", formatting.artifact_filename(summary.tokenizer_model)),
         ("Text normalization", summary.text_normalization),
-    ]
-
-
-def standard_evaluation_items(summary: NgramEvaluationSummary) -> list[tuple[str, str]]:
-    return [
-        *base_evaluation_items(summary),
-        *formatting.format_ngram_evaluation_metrics(summary),
     ]
 
 

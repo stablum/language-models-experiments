@@ -151,13 +151,3 @@ def format_summary(
         ),
         trigrams.discount_item(summary),
     ]
-
-
-MODEL_DEFINITION = ngram.model_definition(
-    module_name=__name__,
-    train_model=train,
-    summary_items=format_summary,
-    load_model=load,
-    evaluation_items=trigrams.discounted_evaluation_items,
-    training_option_names=("smoothing", "discount"),
-)

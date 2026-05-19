@@ -252,11 +252,3 @@ def items(summary: InterpolationSummary) -> list[tuple[str, str]]:
         weight_item(summary),
         ("Interpolation betas", f"beta_2={beta_2:.3f}, beta_3={beta_3:.3f}"),
     ]
-
-
-def evaluation_items(summary: ngram.NgramEvaluationSummary) -> list[tuple[str, str]]:
-    return [
-        *ngram.base_evaluation_items(summary),
-        *items(summary),
-        *formatting.format_ngram_evaluation_metrics(summary),
-    ]

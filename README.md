@@ -388,7 +388,7 @@ The model training, query, and evaluation CLIs are model-generic. `bigram`, `tri
 
 See [MODELS.md](MODELS.md) for the probability formulas and brief model descriptions.
 
-To add another model, add its code under `src/models/` and expose a module-level `MODEL_DEFINITION`; the model registry discovers concrete model modules automatically.
+To add another model, add its code under `src/models/` and expose module-level `train`, `load`, and `format_summary` functions; the model registry discovers concrete model modules automatically.
 
 ## ClearML
 

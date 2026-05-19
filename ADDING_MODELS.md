@@ -18,17 +18,17 @@ math, serialization, formatting, or count-collection code in `src/models/core`.
 ## Discovery Contract
 
 `src.models.core.registry` imports every non-package module in `src/models`
-whose filename does not start with `_`. A module is registered only when it
-defines this module variable:
+whose filename does not start with `_`. A module is registered when it exposes
+the conventional model functions:
 
-```python
-MODEL_DEFINITION = ...
-```
+- `train(...)`
+- `load(model_path)`
+- `format_summary(summary)`
 
-`MODEL_DEFINITION` must be an instance of `src.ml_core.models.definition.ModelDefinition`.
-For current token n-gram models, create it with
-`src.models.core.ngram.model_definition(...)`; this wires the model into the
-training, evaluation, and query stages with the local conventions.
+`src.models.core.model_modules` adapts those functions into the shared
+`src.ml_core.models.definition.ModelDefinition` contract used by the CLIs and
+pipelines. The registered model name is derived from the module name by
+replacing underscores with hyphens.
 
 Because the registry imports model modules during CLI startup, keep module
 top-level code side-effect free. Do not train, read large artifacts, or call
@@ -81,15 +81,6 @@ def train(
 
 def format_summary(summary: MyModelTrainingSummary) -> list[tuple[str, str]]:
     ...
-
-
-MODEL_DEFINITION = ngram.model_definition(
-    module_name=__name__,
-    train_model=train,
-    summary_items=format_summary,
-    load_model=load,
-    training_option_names=("smoothing",),
-)
 ```
 
 ## Required Pieces
@@ -136,8 +127,8 @@ return the model object. Reuse helpers such as:
 
 `train(...)`
 
-This is the function called by `ngram.model_definition(...)`. Its required
-keyword parameters are:
+This is the function called by the model-module adapter. Its required keyword
+parameters are:
 
 - `tokenizer_model: Path`
 - `output_path: Path`
@@ -154,34 +145,32 @@ and return the training summary. Include these common artifact fields:
 - count tables or learned weights needed by the loader
 - model hyperparameters needed at query/evaluation time
 
+Model hyperparameters should be keyword-only parameters on `train(...)`. The
+adapter infers their option names by excluding the infrastructure parameters
+listed above.
+
 `format_summary(summary)`
 
 Return a `list[tuple[str, str]]` for CLI/ClearML display. Reuse
 `ngram.base_training_summary_items(...)` or
 `trigrams.base_training_summary_items(...)` when possible.
 
-`MODEL_DEFINITION`
+Optional module functions:
 
-This module variable is the actual registry hook. For n-gram models, pass:
-
-- `module_name=__name__`
-- `train_model=<training function>`
-- `summary_items=<summary formatter>`
-- `load_model=<loader>`
-- `training_option_names=(...)` for hyperparameters consumed by the trainer
-- `query_lines=...` only if the standard n-gram query display is not enough
-- `evaluation_items=...` if the standard evaluation display is not enough
-- `validate_training_options=...` for coupled or non-trivial option checks
+- `format_query(result)` if the standard n-gram query display is not enough
+- `format_evaluation(summary)` if the standard evaluation display is not enough
+- `validate_training_options(options)` for coupled or non-trivial option checks
 
 The full model-training pipeline requires both query and evaluation support.
-The n-gram helper supplies query support through the loaded model's `query`
+The adapter supplies query support through the loaded model's `query`
 method and evaluation support through the loaded model's `evaluate` method.
 
 ## Hyperparameters
 
 If a new model uses only existing hyperparameters such as `smoothing`,
 `discount`, `unigram_weight`, `bigram_weight`, `trigram_weight`, `beta_2`, or
-`beta_3`, list the relevant names in `training_option_names`.
+`beta_3`, add them as keyword-only parameters on `train(...)`. The adapter will
+pass through any matching CLI/pipeline option.
 
 If the model needs a brand-new hyperparameter, add it consistently in:
 
@@ -193,7 +182,8 @@ If the model needs a brand-new hyperparameter, add it consistently in:
 - `src/pipelines/language_model/artifacts.py` when it should be logged
 - `src/pipelines/language_model/optuna.py` when it should be searchable
 
-Then include the new name in the model module's `training_option_names`.
+Then add the new keyword-only parameter to the model module's `train(...)`
+signature.
 
 ## N-Gram Starting Points
 
@@ -213,26 +203,11 @@ or formatting into `src/models/core` once a second model needs the same logic.
 
 ## Custom Non-N-Gram Models
 
-For a model that does not fit `ngram.model_definition(...)`, create
-`MODEL_DEFINITION` directly:
-
-```python
-from src.ml_core.models import definition as model_def
-
-
-MODEL_DEFINITION = model_def.ModelDefinition(
-    name="my-model",
-    train=train,
-    validate_options=validate_options,
-    summary_items=format_summary,
-    query=query,
-    validate_query_options=validate_query_options,
-    query_lines=format_query,
-    evaluate=evaluate,
-    validate_evaluation_options=validate_evaluation_options,
-    evaluation_items=format_evaluation,
-)
-```
+For a model that does not fit the current adapter, extend
+`src.models.core.model_modules` with a new convention or strategy. Keep the
+concrete model module as the source of truth, and adapt it into
+`src.ml_core.models.definition.ModelDefinition` in the shared registry layer
+rather than adding one-off registration objects to concrete modules.
 
 The callable signatures are:
 
