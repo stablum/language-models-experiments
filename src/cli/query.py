@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 
+from src.cli import options as cli_options
 from src.cli import stage_resume
 from src.ml_core import pipeline as core_pipeline
 from src.ml_core import pipeline_tasks
@@ -14,7 +15,6 @@ from src.ml_core.cli import config as cli_config
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import model_training as model_pipeline
 from src.pipelines.language_model import query as query_pipeline
-from src.corpora import registry as corpora_registry
 from src.models.core import registry as model_registry
 
 
@@ -71,77 +71,16 @@ def load_query_command_defaults(_config_section: str) -> dict[str, object]:
     show_default=True,
     help="Model-training PipelineController name to search when --model-task-id is omitted.",
 )
-@click.option(
-    "--model",
-    "model_name",
-    type=click.Choice(model_registry.model_names()),
-    default=model_registry.default_model_name(),
-    show_default=True,
-    help="Registered model to query.",
-)
-@click.option(
-    "--tokenizer-model-name",
-    default=None,
-    help="Registered tokenizer model name used by model training.",
-)
-@click.option(
-    "--corpus",
-    type=click.Choice(corpora_registry.corpus_names()),
-    default=corpora_registry.default_corpus_name(),
-    show_default=True,
-    help="Registered corpus used by model training.",
-)
+@cli_options.model_option("Registered model to query.")
+@cli_options.tokenizer_model_name_option
+@cli_options.corpus_option
 @click.option(
     "--model-task-id",
     default=None,
     help="Completed train_model ClearML task ID to query. Overrides pipeline lookup.",
 )
-@click.option(
-    "--model-path",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    default=None,
-    help="Local trained model JSON to query. Overrides pipeline lookup.",
-)
-@click.option(
-    "--prompt",
-    default="",
-    show_default=True,
-    help="Text prefix to condition on.",
-)
-@click.option(
-    "--max-tokens",
-    type=click.IntRange(min=0),
-    default=80,
-    show_default=True,
-    help="Maximum number of new tokens to generate.",
-)
-@click.option(
-    "--top-k",
-    type=click.IntRange(min=1),
-    default=10,
-    show_default=True,
-    help="Number of likely next tokens to print for the prompt.",
-)
-@click.option(
-    "--decoding",
-    type=click.Choice(("sample", "most-probable")),
-    default="sample",
-    show_default=True,
-    help="Generate by sampling or by choosing the most probable next token.",
-)
-@click.option(
-    "--temperature",
-    type=click.FloatRange(min=0.0),
-    default=1.0,
-    show_default=True,
-    help="Sampling temperature. Ignored for most-probable decoding.",
-)
-@click.option(
-    "--seed",
-    type=int,
-    default=None,
-    help="Random seed for reproducible sampling.",
-)
+@cli_options.model_path_option
+@cli_options.query_generation_options
 @tracking.clearml_options
 def main(
     pipeline_name: str,

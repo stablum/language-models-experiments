@@ -8,9 +8,9 @@ The recursive form uses ``beta_3 = lambda_3`` and
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, TypeVar
 
 import pydantic
 
@@ -48,6 +48,37 @@ class InterpolatedTrainingSpec(ngram.FrozenNgramModel):
     params: InterpolationParams
     text_normalization: normalization.TextNormalization
     extra_model_payload: Mapping[str, object] = pydantic.Field(default_factory=dict)
+
+
+InterpolatedModelT = TypeVar(
+    "InterpolatedModelT",
+    bound=trigrams.InterpolatedTrigramModel,
+)
+ExtraFieldsFn = Callable[[dict[str, object]], Mapping[str, object]]
+
+
+def load_interpolated_trigram_model(
+    model_cls: type[InterpolatedModelT],
+    model_path: Path,
+    *,
+    model_type: str,
+    extra_fields: ExtraFieldsFn | None = None,
+) -> InterpolatedModelT:
+    data, model_fields = trigrams.load_standard_trigram_model_fields(
+        model_path,
+        model_type=model_type,
+    )
+    resolved_extra_fields = dict(extra_fields(data)) if extra_fields else {}
+
+    return model_cls(
+        **model_fields,
+        **parse_fields(data),
+        **resolved_extra_fields,
+        unigram_counts=trigrams.parse_unigram_counts(data),
+        unigram_total=int(data["unigram_count"]),
+        bigram_transitions=trigrams.parse_bigram_transitions(data),
+        trigram_transitions=trigrams.parse_trigram_transitions(data),
+    )
 
 
 def normalize_weights(

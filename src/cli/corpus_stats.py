@@ -6,8 +6,8 @@ from pathlib import Path
 
 import click
 
-from src.corpora import normalization
-from src.corpora import registry as corpora_registry
+from src.cli import corpus_source
+from src.cli import options as cli_options
 from src.corpora import stats as corpus_stats
 from src.ml_core import tracking
 from src.ml_core.cli import config as cli_config
@@ -24,36 +24,8 @@ from src.ml_core.data import splits as data_splits
         "and simple whitespace-token statistics."
     ),
 )
-@click.option(
-    "--corpus",
-    type=click.Choice(corpora_registry.corpus_names()),
-    default=corpora_registry.default_corpus_name(),
-    show_default=True,
-    help="Registered corpus to scan.",
-)
-@click.option("--dataset-id", default=None, help="Override the registered Hugging Face dataset ID.")
-@click.option(
-    "--source-split",
-    "--split",
-    "source_split",
-    default=None,
-    help=(
-        "Restrict the source dataset to one named split before scanning. "
-        "Omit to merge all source splits."
-    ),
-)
-@click.option("--text-column", default=None, help="Override the registered text column.")
-@click.option(
-    "--streaming",
-    is_flag=True,
-    help="Stream rows instead of downloading the full dataset first.",
-)
-@click.option(
-    "--limit",
-    type=click.IntRange(min=0),
-    default=None,
-    help="Scan only the first N rows. Useful for quick smoke tests.",
-)
+@cli_options.corpus_data_options
+@cli_options.limit_option("Scan only the first N rows. Useful for quick smoke tests.")
 @click.option(
     "--top-n-lengths",
     type=click.IntRange(min=0),
@@ -68,13 +40,7 @@ from src.ml_core.data import splits as data_splits
     show_default=True,
     help="Characters to show from each longest-row preview.",
 )
-@click.option(
-    "--text-normalization",
-    type=click.Choice(normalization.TEXT_NORMALIZATION_MODES),
-    default=normalization.DEFAULT_TEXT_NORMALIZATION,
-    show_default=True,
-    help="Text normalization applied before computing stats.",
-)
+@cli_options.text_normalization_option("Text normalization applied before computing stats.")
 @tracking.clearml_options
 def main(
     corpus: str,
@@ -93,15 +59,17 @@ def main(
     clearml_output_uri: str | None,
     clearml_tags: tuple[str, ...],
 ) -> None:
-    corpus_definition = corpora_registry.get_corpus(corpus)
-    resolved_dataset_id = dataset_id or corpus_definition.dataset_id
-    resolved_source_split = source_split if source_split is not None else corpus_definition.split
-    resolved_text_column = text_column or corpus_definition.text_column
-    split_plan = split_artifacts.build_cli_split_plan(
-        corpus_definition,
+    source = corpus_source.resolve(
         corpus=corpus,
-        dataset_id=resolved_dataset_id,
-        source_split=resolved_source_split,
+        dataset_id=dataset_id,
+        source_split=source_split,
+        text_column=text_column,
+    )
+    split_plan = split_artifacts.build_cli_split_plan(
+        source.definition,
+        corpus=corpus,
+        dataset_id=source.dataset_id,
+        source_split=source.source_split,
         train_ratio=data_splits.DEFAULT_TRAIN_RATIO,
         split_seed=data_splits.DEFAULT_SPLIT_SEED,
     )
@@ -127,10 +95,10 @@ def main(
                 },
                 "Data": {
                     "corpus": corpus,
-                    "dataset_id": resolved_dataset_id,
+                    "dataset_id": source.dataset_id,
                     "dataset_revision": split_plan.dataset_revision or "",
-                    "source_split": data_splits.source_split_label(resolved_source_split),
-                    "text_column": resolved_text_column,
+                    "source_split": data_splits.source_split_label(source.source_split),
+                    "text_column": source.text_column,
                     "streaming": streaming,
                     "limit": limit,
                     "text_normalization": text_normalization,
@@ -142,10 +110,10 @@ def main(
             }
         )
 
-        dataset = corpus_definition.load(
-            dataset_id=resolved_dataset_id,
+        dataset = source.definition.load(
+            dataset_id=source.dataset_id,
             revision=split_plan.dataset_revision,
-            split=resolved_source_split,
+            split=source.source_split,
             streaming=streaming,
         )
         rows = (
@@ -158,7 +126,7 @@ def main(
 
         stats = corpus_stats.scan_text_column(
             rows,
-            text_column=resolved_text_column,
+            text_column=source.text_column,
             limit=limit,
             top_n_lengths=top_n_lengths,
             preview_chars=preview_chars,
@@ -171,13 +139,13 @@ def main(
             corpus_stats_payload(stats),
             metadata={
                 "corpus": corpus,
-                "source_split": data_splits.source_split_label(resolved_source_split),
+                "source_split": data_splits.source_split_label(source.source_split),
             },
         )
 
     corpus_stats.print_corpus_report(
-        dataset_label=resolved_dataset_id,
-        split=data_splits.source_split_label(resolved_source_split),
+        dataset_label=source.dataset_id,
+        split=data_splits.source_split_label(source.source_split),
         mode="streaming" if streaming else "download/cache",
         limit=limit,
         reported_rows=getattr(dataset, "num_rows", None),

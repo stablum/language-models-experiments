@@ -9,7 +9,9 @@ from types import ModuleType
 from typing import Any, Callable, TypeVar
 
 from src.ml_core.models import definition as model_def
-from src.models.core import formatting, ngram
+from src.models.core import formatting
+from src.models.core import ngram
+from src.models.core import trigram_interpolation as interp
 from src.tokenizers import core as tok_core
 
 
@@ -80,8 +82,6 @@ def inferred_training_options_validator(
     option_names: Sequence[str],
 ) -> model_def.ModelOptionValidator | None:
     if _INTERPOLATION_OPTION_NAMES <= set(option_names):
-        from src.models.core import trigram_interpolation as interp
-
         return interp.validate_options
     return None
 
@@ -256,7 +256,7 @@ def evaluation_param_items(
     summary: ngram.NgramEvaluationSummary,
 ) -> list[tuple[str, str]]:
     if has_interpolation_params(summary):
-        return interpolation_items(summary)
+        return interp.items(summary)
     if hasattr(summary, "discount"):
         return [("Discount", f"{float(getattr(summary, 'discount')):.3f}")]
     return []
@@ -267,45 +267,3 @@ def has_interpolation_params(summary: ngram.NgramEvaluationSummary) -> bool:
         hasattr(summary, name)
         for name in ("unigram_weight", "bigram_weight", "trigram_weight")
     )
-
-
-def interpolation_items(
-    summary: ngram.NgramEvaluationSummary,
-) -> list[tuple[str, str]]:
-    unigram_weight = float(getattr(summary, "unigram_weight"))
-    bigram_weight = float(getattr(summary, "bigram_weight"))
-    trigram_weight = float(getattr(summary, "trigram_weight"))
-    beta_2 = getattr(summary, "beta_2", None)
-    beta_3 = getattr(summary, "beta_3", None)
-    if beta_2 is None or beta_3 is None:
-        beta_2, beta_3 = betas_from_interpolation_weights(
-            unigram_weight=unigram_weight,
-            bigram_weight=bigram_weight,
-            trigram_weight=trigram_weight,
-        )
-
-    return [
-        (
-            "Interpolation weights",
-            formatting.format_interpolation_weights(
-                unigram_weight=unigram_weight,
-                bigram_weight=bigram_weight,
-                trigram_weight=trigram_weight,
-            ),
-        ),
-        (
-            "Interpolation betas",
-            f"beta_2={float(beta_2):.3f}, beta_3={float(beta_3):.3f}",
-        ),
-    ]
-
-
-def betas_from_interpolation_weights(
-    *,
-    unigram_weight: float,
-    bigram_weight: float,
-    trigram_weight: float,
-) -> tuple[float, float]:
-    lower_weight = unigram_weight + bigram_weight  # lambda_1 + lambda_2.
-    beta_2 = bigram_weight / lower_weight if lower_weight > 0 else 0.0
-    return beta_2, trigram_weight

@@ -6,10 +6,10 @@ from pathlib import Path
 
 import click
 
+from src.cli import corpus_source
 from src.cli import model_training_defaults as mt_defaults
 from src.cli import model_training_runs
 from src.ml_core import cfg as core_cfg
-from src.corpora import registry as corpora_registry
 from src.models.core import registry as model_registry
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import model_options as lm_model_options
@@ -195,16 +195,21 @@ def _resolve_run_cfg(resolver: DefaultResolver) -> ResolvedRunCfg:
 
 def _resolve_data_cfg(resolver: DefaultResolver) -> model_pipeline.DataCfg:
     corpus = str(resolver.shared("corpus", stages=ALL_STAGES))
-    corpus_definition = corpora_registry.get_corpus(corpus)
     dataset_id = resolver.shared("dataset_id", stages=DATA_STAGES)
     source_split = resolver.shared("source_split", stages=DATA_STAGES)
     text_column = resolver.shared("text_column", stages=DATA_STAGES)
+    source = corpus_source.resolve(
+        corpus=corpus,
+        dataset_id=str(dataset_id) if dataset_id else None,
+        source_split=str(source_split) if source_split is not None else None,
+        text_column=str(text_column) if text_column else None,
+    )
 
     return model_pipeline.DataCfg(
         corpus=corpus,
-        dataset_id=str(dataset_id or corpus_definition.dataset_id),
-        source_split=source_split if source_split is not None else corpus_definition.split,
-        text_column=str(text_column or corpus_definition.text_column),
+        dataset_id=source.dataset_id,
+        source_split=source.source_split,
+        text_column=source.text_column,
         streaming=bool(resolver.shared("streaming", stages=DATA_STAGES)),
         train_ratio=float(resolver.shared("train_ratio", stages=DATA_STAGES)),
         split_seed=int(resolver.shared("split_seed", stages=DATA_STAGES)),

@@ -45,18 +45,10 @@ class JelinekMercerTrigramModel(trigrams.InterpolatedTrigramModel):
 
 
 def load(model_path: Path) -> JelinekMercerTrigramModel:
-    data, model_fields = trigrams.load_standard_trigram_model_fields(
+    return interp.load_interpolated_trigram_model(
+        JelinekMercerTrigramModel,
         model_path,
         model_type=_SCHEMA_TYPE,
-    )
-
-    return JelinekMercerTrigramModel(
-        **model_fields,
-        **interp.parse_fields(data),
-        unigram_counts=trigrams.parse_unigram_counts(data),
-        unigram_total=int(data["unigram_count"]),
-        bigram_transitions=trigrams.parse_bigram_transitions(data),
-        trigram_transitions=trigrams.parse_trigram_transitions(data),
     )
 
 

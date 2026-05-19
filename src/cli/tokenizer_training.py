@@ -6,15 +6,14 @@ from pathlib import Path
 
 import click
 
+from src.cli import corpus_source
+from src.cli import options as cli_options
 from src.ml_core import pipeline as core_pipeline
 from src.ml_core import pipeline_tasks
 from src.ml_core import tracking
 from src.ml_core.cli import config as cli_config
-from src.ml_core.data import splits as data_splits
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import tokenizer_training as tokenizer_pipeline
-from src.corpora import normalization
-from src.corpora import registry as corpora_registry
 from src.tokenizers import registry as tokenizer_registry
 
 
@@ -37,50 +36,9 @@ def load_tokenizer_training_command_defaults(_config_section: str) -> dict[str, 
 @core_pipeline.pipeline_options(
     default_name=tokenizer_pipeline.TOKENIZER_TRAINING_PIPELINE.default_name
 )
-@click.option(
-    "--corpus",
-    type=click.Choice(corpora_registry.corpus_names()),
-    default=corpora_registry.default_corpus_name(),
-    show_default=True,
-    help="Registered corpus to train on.",
-)
-@click.option("--dataset-id", default=None, help="Override the registered Hugging Face dataset ID.")
-@click.option(
-    "--source-split",
-    "--split",
-    "source_split",
-    default=None,
-    help=(
-        "Restrict the source dataset to one named split before project "
-        "train/validation partitioning. Omit to merge all source splits."
-    ),
-)
-@click.option("--text-column", default=None, help="Override the registered text column.")
-@click.option(
-    "--streaming",
-    is_flag=True,
-    help="Stream rows instead of downloading the full dataset first.",
-)
-@click.option(
-    "--limit",
-    type=click.IntRange(min=0),
-    default=None,
-    help="Train on only the first N rows. Useful for smoke tests.",
-)
-@click.option(
-    "--train-ratio",
-    type=click.FloatRange(min=0.0, max=1.0, min_open=True, max_open=True),
-    default=data_splits.DEFAULT_TRAIN_RATIO,
-    show_default=True,
-    help="Fraction of merged source rows assigned to the reusable training partition.",
-)
-@click.option(
-    "--split-seed",
-    type=int,
-    default=data_splits.DEFAULT_SPLIT_SEED,
-    show_default=True,
-    help="Seed for the reusable deterministic train/validation partition.",
-)
+@cli_options.corpus_data_options
+@cli_options.limit_option("Train on only the first N rows. Useful for smoke tests.")
+@cli_options.split_plan_options
 @click.option(
     "--vocab-size",
     type=click.IntRange(min=1),
@@ -134,13 +92,7 @@ def load_tokenizer_training_command_defaults(_config_section: str) -> dict[str, 
     default=None,
     help="Maximum sentence length passed to SentencePiece.",
 )
-@click.option(
-    "--text-normalization",
-    type=click.Choice(normalization.TEXT_NORMALIZATION_MODES),
-    default=normalization.DEFAULT_TEXT_NORMALIZATION,
-    show_default=True,
-    help="Text normalization applied before tokenizer training.",
-)
+@cli_options.text_normalization_option("Text normalization applied before tokenizer training.")
 @tracking.clearml_options
 def main(
     pipeline_name: str,
@@ -177,11 +129,13 @@ def main(
     if pipeline_local and not wait:
         raise click.ClickException("--no-wait is only supported with --pipeline-queued.")
 
-    corpus_definition = corpora_registry.get_corpus(corpus)
+    source = corpus_source.resolve(
+        corpus=corpus,
+        dataset_id=dataset_id,
+        source_split=source_split,
+        text_column=text_column,
+    )
     resolved_pipeline_name = clearml_task_name or pipeline_name
-    resolved_dataset_id = dataset_id or corpus_definition.dataset_id
-    resolved_source_split = source_split if source_split is not None else corpus_definition.split
-    resolved_text_column = text_column or corpus_definition.text_column
     resolved_artifact_name = artifact_name or tokenizer_registry.default_artifact_name(
         corpus=corpus,
         tokenizer_algo=tokenizer_algo,
@@ -254,9 +208,9 @@ def main(
         {
             "corpus": corpus,
             "tokenizer_model_name": resolved_artifact_name,
-            "dataset_id": resolved_dataset_id,
-            "source_split": resolved_source_split or "",
-            "text_column": resolved_text_column,
+            "dataset_id": source.dataset_id,
+            "source_split": source.source_split or "",
+            "text_column": source.text_column,
             "vocab_size": vocab_size,
             "tokenizer_algo": tokenizer_algo,
             "sentencepiece_model_type": sentencepiece_model_type,
@@ -271,9 +225,9 @@ def main(
         clearml_config_file=resolved_config_file if pipeline_local else None,
         execution_queue=None if pipeline_local else execution_queue,
         corpus=corpus,
-        dataset_id=resolved_dataset_id,
-        source_split=resolved_source_split,
-        text_column=resolved_text_column,
+        dataset_id=source.dataset_id,
+        source_split=source.source_split,
+        text_column=source.text_column,
         streaming=streaming,
         limit=limit,
         train_ratio=train_ratio,

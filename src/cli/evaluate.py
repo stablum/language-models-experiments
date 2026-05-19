@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import click
 
+from src.cli import corpus_source
+from src.cli import options as cli_options
 from src.cli import stage_resume
 from src.ml_core import pipeline as core_pipeline
 from src.ml_core import tracking
 from src.ml_core.cli import config as cli_config
-from src.ml_core.data import splits as data_splits
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import model_training as model_pipeline
-from src.corpora import registry as corpora_registry
 from src.models.core import registry as model_registry
 
 
@@ -31,81 +31,13 @@ def load_evaluate_command_defaults(_config_section: str) -> dict[str, object]:
     default_local=False,
     default_wait=False,
 )
-@click.option(
-    "--model",
-    "model_name",
-    type=click.Choice(model_registry.model_names()),
-    default=model_registry.default_model_name(),
-    show_default=True,
-    help="Registered model to evaluate.",
-)
-@click.option(
-    "--tokenizer-model-name",
-    default=None,
-    help="Registered tokenizer model name used by model training.",
-)
-@click.option(
-    "--corpus",
-    type=click.Choice(corpora_registry.corpus_names()),
-    default=corpora_registry.default_corpus_name(),
-    show_default=True,
-    help="Registered corpus to evaluate on.",
-)
-@click.option("--dataset-id", default=None, help="Override the registered Hugging Face dataset ID.")
-@click.option(
-    "--source-split",
-    "--split",
-    "source_split",
-    default=None,
-    help=(
-        "Restrict the source dataset to one named split before project "
-        "train/validation partitioning. Omit to merge all source splits."
-    ),
-)
-@click.option("--text-column", default=None, help="Override the registered text column.")
-@click.option(
-    "--streaming",
-    is_flag=True,
-    help="Stream rows instead of downloading the full dataset first.",
-)
-@click.option(
-    "--limit",
-    type=click.IntRange(min=0),
-    default=None,
-    help="Evaluate on only the first N rows. Useful for smoke tests.",
-)
-@click.option(
-    "--train-ratio",
-    type=click.FloatRange(min=0.0, max=1.0, min_open=True, max_open=True),
-    default=data_splits.DEFAULT_TRAIN_RATIO,
-    show_default=True,
-    help="Fraction of merged source rows assigned to the reusable training partition.",
-)
-@click.option(
-    "--split-seed",
-    type=int,
-    default=data_splits.DEFAULT_SPLIT_SEED,
-    show_default=True,
-    help="Seed for the reusable deterministic train/validation partition.",
-)
-@click.option(
-    "--evaluation-partition",
-    "--evaluation-split",
-    type=click.Choice(data_splits.PROJECT_PARTITIONS),
-    default=data_splits.VALIDATION_PARTITION,
-    show_default=True,
-    help=(
-        "Primary project partition for unpartitioned summary metrics and Optuna "
-        "objectives. The evaluation stage evaluates all project partitions."
-    ),
-)
-@click.option(
-    "--top-k",
-    type=click.IntRange(min=1),
-    default=5,
-    show_default=True,
-    help="K value for top-k next-token accuracy.",
-)
+@cli_options.model_option("Registered model to evaluate.")
+@cli_options.tokenizer_model_name_option
+@cli_options.corpus_data_options
+@cli_options.limit_option("Evaluate on only the first N rows. Useful for smoke tests.")
+@cli_options.split_plan_options
+@cli_options.evaluation_partition_option
+@cli_options.top_k_option("K value for top-k next-token accuracy.")
 @tracking.clearml_options
 def main(
     pipeline_name: str,
@@ -135,14 +67,16 @@ def main(
     clearml_output_uri: str | None,
     clearml_tags: tuple[str, ...],
 ) -> None:
-    corpus_definition = corpora_registry.get_corpus(corpus)
+    source = corpus_source.resolve(
+        corpus=corpus,
+        dataset_id=dataset_id,
+        source_split=source_split,
+        text_column=text_column,
+    )
     model_definition = model_registry.get_model(model_name)
     if model_definition.evaluate is None or model_definition.evaluation_items is None:
         raise click.ClickException(f"Model does not support evaluation yet: {model_name}")
 
-    resolved_dataset_id = dataset_id or corpus_definition.dataset_id
-    resolved_source_split = source_split if source_split is not None else corpus_definition.split
-    resolved_text_column = text_column or corpus_definition.text_column
     resolved_tokenizer_model_name = stage_resume.require_tokenizer_model_name(
         tokenizer_model_name,
         action="Evaluation",
@@ -165,9 +99,9 @@ def main(
             "model": model_definition.name,
             "tokenizer_model_name": resolved_tokenizer_model_name,
             "corpus": corpus,
-            "dataset_id": resolved_dataset_id,
-            "source_split": resolved_source_split or "",
-            "text_column": resolved_text_column,
+            "dataset_id": source.dataset_id,
+            "source_split": source.source_split or "",
+            "text_column": source.text_column,
             "streaming": streaming,
             "train_ratio": train_ratio,
             "split_seed": split_seed,

@@ -50,19 +50,11 @@ class AddKTrigramModel(trigrams.InterpolatedTrigramModel):
 
 
 def load(model_path: Path) -> AddKTrigramModel:
-    data, model_fields = trigrams.load_standard_trigram_model_fields(
+    return interp.load_interpolated_trigram_model(
+        AddKTrigramModel,
         model_path,
         model_type=_SCHEMA_TYPE,
-    )
-
-    return AddKTrigramModel(
-        **model_fields,
-        smoothing=float(data["smoothing"]),
-        **interp.parse_fields(data),
-        unigram_counts=trigrams.parse_unigram_counts(data),
-        unigram_total=int(data["unigram_count"]),
-        bigram_transitions=trigrams.parse_bigram_transitions(data),
-        trigram_transitions=trigrams.parse_trigram_transitions(data),
+        extra_fields=lambda data: {"smoothing": float(data["smoothing"])},
     )
 
 
