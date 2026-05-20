@@ -85,8 +85,9 @@ def format_summary(summary: TrainingSummary) -> list[tuple[str, str]]:
 `TrainingSummary`
 
 Use a pydantic model, normally by inheriting from `ngram.NgramTrainingSummary`
-or `trigrams.TrigramTrainingSummary`. Add fields for model-specific metrics or
-hyperparameters that should be printed, logged, or uploaded.
+or `trigrams.TrigramTrainingSummary`. Add fields for summary values that should
+be printed, logged, or uploaded, such as training counts, model-family
+diagnostics, or resolved hyperparameters.
 
 Concrete model modules can use module-local names such as `TrainingSummary`
 and `Model`; the module namespace already carries the model identity.
