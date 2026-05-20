@@ -303,30 +303,17 @@ def train(
     stored_tokenizer_model: Path | None = None,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> trigrams.TrigramTrainingSummary:
-    artifacts = trigrams.collect_training_artifacts(
+    return trigrams.train_counted_trigram_model(
         texts,
-        tokenizer_model=tokenizer_model,
-        text_normalization=text_normalization,
+        spec=trigrams.CountedTrigramTrainingSpec(
+            model_type=_SCHEMA_TYPE,
+            tokenizer_model=tokenizer_model,
+            output_path=output_path,
+            stored_tokenizer_model=stored_tokenizer_model,
+            text_normalization=text_normalization,
+        ),
+        summary_type=trigrams.TrigramTrainingSummary,
     )
-    summary = trigrams.TrigramTrainingSummary(
-        output_path=output_path,
-        tokenizer_model=tokenizer_model,
-        vocab_size=artifacts.tokenizer.vocab_size,
-        text_normalization=text_normalization,
-    )
-    trigrams.apply_trigram_counts_to_summary(summary, artifacts.counts)
-
-    model = trigrams.standard_trigram_model_payload(
-        artifacts.tokenizer,
-        model_type=_SCHEMA_TYPE,
-        tokenizer_model=tokenizer_model,
-        stored_tokenizer_model=stored_tokenizer_model,
-        text_normalization=text_normalization,
-        counts=artifacts.counts,
-    )
-    ngram.write_json_model_payload(output_path, model)
-
-    return summary
 
 
 def format_summary(summary: trigrams.TrigramTrainingSummary) -> list[tuple[str, str]]:

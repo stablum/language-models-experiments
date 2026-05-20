@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import click
 
-from src.cli import corpus_source
 from src.cli import options as cli_options
 from src.cli import stage_resume
 from src.ml_core import pipeline as core_pipeline
@@ -13,7 +12,6 @@ from src.ml_core.cli import config as cli_config
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import model_options as lm_model_options
 from src.pipelines.language_model import model_training as model_pipeline
-from src.models.core import registry as model_registry
 
 
 @cli_config.configured_command(
@@ -69,18 +67,28 @@ def main(
     clearml_output_uri: str | None,
     clearml_tags: tuple[str, ...],
 ) -> None:
-    source = corpus_source.resolve(
-        corpus=corpus,
-        dataset_id=dataset_id,
-        source_split=source_split,
-        text_column=text_column,
+    filter_resolution = stage_resume.resolve_model_training_stage_filters(
+        stage_resume.ModelTrainingStageFilterCfg(
+            model_name=model_name,
+            tokenizer_model_name=tokenizer_model_name,
+            action="Model training",
+            corpus=stage_resume.CorpusFilterCfg(
+                corpus=corpus,
+                dataset_id=dataset_id,
+                source_split=source_split,
+                text_column=text_column,
+                streaming=streaming,
+                train_ratio=train_ratio,
+                split_seed=split_seed,
+            ),
+            limit_param="training_limit",
+            limit=limit,
+        ),
+        extra_filters={
+            **lm_model_options.model_hyperparameters_from(locals()),
+            "text_normalization": text_normalization,
+        },
     )
-    model_definition = model_registry.get_model(model_name)
-    resolved_tokenizer_model_name = stage_resume.require_tokenizer_model_name(
-        tokenizer_model_name,
-        action="Model training",
-    )
-    model_hyperparameters = lm_model_options.model_hyperparameters_from(locals())
     stage_resume.reject_pipeline_local(pipeline_local)
     stage_resume.resume_model_training_stage(
         stage_name=lm_def.MODEL_STAGE,
@@ -95,20 +103,7 @@ def main(
         clearml_connectivity_check=clearml_connectivity_check,
         clearml_output_uri=clearml_output_uri,
         clearml_tags=clearml_tags,
-        parameter_filters={
-            "model": model_definition.name,
-            "tokenizer_model_name": resolved_tokenizer_model_name,
-            "corpus": corpus,
-            "dataset_id": source.dataset_id,
-            "source_split": source.source_split or "",
-            "text_column": source.text_column,
-            "streaming": streaming,
-            "train_ratio": train_ratio,
-            "split_seed": split_seed,
-            "training_limit": limit,
-            **model_hyperparameters,
-            "text_normalization": text_normalization,
-        },
+        parameter_filters=filter_resolution.filters,
     )
 
 

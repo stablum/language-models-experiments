@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import click
 
-from src.cli import corpus_source
 from src.cli import options as cli_options
 from src.cli import stage_resume
 from src.ml_core import pipeline as core_pipeline
@@ -12,7 +11,6 @@ from src.ml_core import tracking
 from src.ml_core.cli import config as cli_config
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import model_training as model_pipeline
-from src.models.core import registry as model_registry
 
 
 def load_evaluate_command_defaults(_config_section: str) -> dict[str, object]:
@@ -67,20 +65,34 @@ def main(
     clearml_output_uri: str | None,
     clearml_tags: tuple[str, ...],
 ) -> None:
-    source = corpus_source.resolve(
-        corpus=corpus,
-        dataset_id=dataset_id,
-        source_split=source_split,
-        text_column=text_column,
+    filter_resolution = stage_resume.resolve_model_training_stage_filters(
+        stage_resume.ModelTrainingStageFilterCfg(
+            model_name=model_name,
+            tokenizer_model_name=tokenizer_model_name,
+            action="Evaluation",
+            corpus=stage_resume.CorpusFilterCfg(
+                corpus=corpus,
+                dataset_id=dataset_id,
+                source_split=source_split,
+                text_column=text_column,
+                streaming=streaming,
+                train_ratio=train_ratio,
+                split_seed=split_seed,
+            ),
+            limit_param="evaluation_limit",
+            limit=limit,
+        ),
+        extra_filters={
+            "evaluation_partition": evaluation_partition,
+            "top_k": top_k,
+        },
     )
-    model_definition = model_registry.get_model(model_name)
-    if model_definition.evaluate is None or model_definition.evaluation_items is None:
+    if (
+        filter_resolution.model.evaluate is None
+        or filter_resolution.model.evaluation_items is None
+    ):
         raise click.ClickException(f"Model does not support evaluation yet: {model_name}")
 
-    resolved_tokenizer_model_name = stage_resume.require_tokenizer_model_name(
-        tokenizer_model_name,
-        action="Evaluation",
-    )
     stage_resume.reject_pipeline_local(pipeline_local)
     stage_resume.resume_model_training_stage(
         stage_name=lm_def.EVALUATION_STAGE,
@@ -95,20 +107,7 @@ def main(
         clearml_connectivity_check=clearml_connectivity_check,
         clearml_output_uri=clearml_output_uri,
         clearml_tags=clearml_tags,
-        parameter_filters={
-            "model": model_definition.name,
-            "tokenizer_model_name": resolved_tokenizer_model_name,
-            "corpus": corpus,
-            "dataset_id": source.dataset_id,
-            "source_split": source.source_split or "",
-            "text_column": source.text_column,
-            "streaming": streaming,
-            "train_ratio": train_ratio,
-            "split_seed": split_seed,
-            "evaluation_partition": evaluation_partition,
-            "evaluation_limit": limit,
-            "top_k": top_k,
-        },
+        parameter_filters=filter_resolution.filters,
     )
 
 

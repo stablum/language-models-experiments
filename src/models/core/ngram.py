@@ -27,6 +27,15 @@ class NgramPydanticModel(pydantic.BaseModel):
     )
 
 
+class NgramQueryCfg(NgramPydanticModel):
+    prompt: str = ""
+    max_tokens: int = pydantic.Field(default=80, ge=0)
+    top_k: int = pydantic.Field(default=10, ge=1)
+    decoding: DecodingMode = "sample"
+    temperature: float = pydantic.Field(default=1.0, ge=0)
+    seed: int | None = None
+
+
 class FrozenNgramModel(NgramPydanticModel):
     model_config = pydantic.ConfigDict(
         arbitrary_types_allowed=True,
@@ -164,34 +173,29 @@ class BaseNgramModel(NgramPydanticModel):
     ) -> list[NgramPrediction]:
         raise NotImplementedError
 
-    def query(
-        self,
-        *,
-        prompt: str = "",
-        max_tokens: int = 80,
-        top_k: int = 10,
-        decoding: DecodingMode = "sample",
-        temperature: float = 1.0,
-        seed: int | None = None,
-    ) -> NgramQueryResult:
-        prompt_token_ids = self.encode_prompt(prompt)
+    def query(self, cfg: NgramQueryCfg | None = None) -> NgramQueryResult:
+        resolved_cfg = cfg or NgramQueryCfg()
+        prompt_token_ids = self.encode_prompt(resolved_cfg.prompt)
         context = self.context_for_tokens(prompt_token_ids)
-        next_token_predictions = self.next_token_predictions(context, top_k=top_k)
-        generation_top_k = generation_prediction_top_k(
-            decoding=decoding,
-            temperature=temperature,
+        next_token_predictions = self.next_token_predictions(
+            context,
+            top_k=resolved_cfg.top_k,
         )
-        rng = seeded_rng(seed)
+        generation_top_k = generation_prediction_top_k(
+            decoding=resolved_cfg.decoding,
+            temperature=resolved_cfg.temperature,
+        )
+        rng = seeded_rng(resolved_cfg.seed)
         token_ids = list(prompt_token_ids)
         generated_token_ids: list[int] = []
 
-        for _ in range(max_tokens):
+        for _ in range(resolved_cfg.max_tokens):
             next_id = select_next_token(
                 self.next_token_predictions(context, top_k=generation_top_k),
                 eos_id=self.eos_id,
-                decoding=decoding,
+                decoding=resolved_cfg.decoding,
                 rng=rng,
-                temperature=temperature,
+                temperature=resolved_cfg.temperature,
             )
             if next_id == self.eos_id:
                 break
@@ -212,11 +216,11 @@ class BaseNgramModel(NgramPydanticModel):
         return NgramQueryResult(
             model_path=self.model_path,
             tokenizer_model=self.tokenizer_model,
-            decoding=decoding,
+            decoding=resolved_cfg.decoding,
             bos_id=self.bos_id,
             eos_id=self.eos_id,
             unk_id=self.unk_id,
-            prompt=prompt,
+            prompt=resolved_cfg.prompt,
             prompt_token_ids=prompt_token_ids,
             continuation_text=continuation_text,
             generated_text=generated_text,

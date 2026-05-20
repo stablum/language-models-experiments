@@ -108,37 +108,26 @@ def train(
     discount: float = 0.75,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> AbsoluteDiscountTrigramTrainingSummary:
-    artifacts = trigrams.collect_training_artifacts(
-        texts,
-        tokenizer_model=tokenizer_model,
-        text_normalization=text_normalization,
-    )
-    summary = AbsoluteDiscountTrigramTrainingSummary(
-        output_path=output_path,
-        tokenizer_model=tokenizer_model,
-        vocab_size=artifacts.tokenizer.vocab_size,
-        discount=discount,
-        text_normalization=text_normalization,
-    )
-    # Training stores raw trigram and bigram counts; discounting and additive
-    # smoothing are applied lazily when probabilities are queried.
-    trigrams.apply_trigram_counts_to_summary(summary, artifacts.counts)
+    def payload(
+        _artifacts: trigrams.TrigramTrainingArtifacts,
+        summary: AbsoluteDiscountTrigramTrainingSummary,
+    ) -> dict[str, object]:
+        # Training stores raw counts; smoothing/discounting are applied lazily.
+        return {"smoothing": smoothing, "discount": summary.discount}
 
-    model = {
-        **trigrams.standard_trigram_model_payload(
-            artifacts.tokenizer,
+    return trigrams.train_counted_trigram_model(
+        texts,
+        spec=trigrams.CountedTrigramTrainingSpec(
             model_type=_SCHEMA_TYPE,
             tokenizer_model=tokenizer_model,
+            output_path=output_path,
             stored_tokenizer_model=stored_tokenizer_model,
             text_normalization=text_normalization,
-            counts=artifacts.counts,
         ),
-        "smoothing": smoothing,
-        "discount": summary.discount,
-    }
-    ngram.write_json_model_payload(output_path, model)
-
-    return summary
+        summary_type=AbsoluteDiscountTrigramTrainingSummary,
+        summary_fields={"discount": discount},
+        extra_payload=payload,
+    )
 
 
 def format_summary(

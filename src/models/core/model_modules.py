@@ -132,12 +132,14 @@ def model_definition(
     def query(options: model_def.ModelOptions) -> QueryResult:
         model = load_model(resolve_model(options, model_suffix=name))
         return model.query(
-            prompt=options["prompt"],
-            max_tokens=options["max_tokens"],
-            top_k=options["top_k"],
-            decoding=options["decoding"],
-            temperature=options["temperature"],
-            seed=options["seed"],
+            ngram.NgramQueryCfg(
+                prompt=options["prompt"],
+                max_tokens=options["max_tokens"],
+                top_k=options["top_k"],
+                decoding=options["decoding"],
+                temperature=options["temperature"],
+                seed=options["seed"],
+            ),
         )
 
     def evaluate(

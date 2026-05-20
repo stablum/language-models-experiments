@@ -7,9 +7,43 @@ from pathlib import Path
 
 import click
 
+from src.cli import corpus_source
+from src.ml_core import cfg as core_cfg
 from src.ml_core import pipeline as core_pipeline
 from src.ml_core.cli import config as cli_config
+from src.ml_core.models import definition as model_def
+from src.models.core import registry as model_registry
 from src.pipelines.language_model import model_training as model_pipeline
+
+
+class CorpusFilterCfg(core_cfg.FrozenBaseCfg):
+    """Corpus cfg used to match an existing model-training controller."""
+
+    corpus: str
+    dataset_id: str | None
+    source_split: str | None
+    text_column: str | None
+    streaming: bool
+    train_ratio: float
+    split_seed: int
+
+
+class ModelTrainingStageFilterCfg(core_cfg.FrozenBaseCfg):
+    """Model-stage cfg shared by train/evaluate stage CLIs."""
+
+    model_name: str
+    tokenizer_model_name: str | None
+    action: str
+    corpus: CorpusFilterCfg
+    limit_param: str
+    limit: int | None
+
+
+class StageFilterResolution(core_cfg.BaseCfg):
+    """Resolved model object and ClearML Experiment parameter filters."""
+
+    model: model_def.ModelDefinition
+    filters: dict[str, object]
 
 
 def load_stage_command_defaults(stage_section: str) -> dict[str, object]:
@@ -37,6 +71,42 @@ def reject_pipeline_local(pipeline_local: bool) -> None:
             "Existing PipelineController runs are resumed by re-enqueueing the controller task. "
             "Use --pipeline-queued for stage CLIs."
         )
+
+
+def resolve_model_training_stage_filters(
+    cfg: ModelTrainingStageFilterCfg,
+    *,
+    extra_filters: Mapping[str, object] | None = None,
+) -> StageFilterResolution:
+    source = corpus_source.resolve(
+        corpus=cfg.corpus.corpus,
+        dataset_id=cfg.corpus.dataset_id,
+        source_split=cfg.corpus.source_split,
+        text_column=cfg.corpus.text_column,
+    )
+    model = model_registry.get_model(cfg.model_name)
+    tokenizer_model_name = require_tokenizer_model_name(
+        cfg.tokenizer_model_name,
+        action=cfg.action,
+    )
+    filters = {
+        "model": model.name,
+        "tokenizer_model_name": tokenizer_model_name,
+        "corpus": cfg.corpus.corpus,
+        "dataset_id": source.dataset_id,
+        "source_split": source.source_split or "",
+        "text_column": source.text_column,
+        "streaming": cfg.corpus.streaming,
+        "train_ratio": cfg.corpus.train_ratio,
+        "split_seed": cfg.corpus.split_seed,
+        cfg.limit_param: cfg.limit,
+    }
+    if extra_filters:
+        filters.update(extra_filters)
+    return StageFilterResolution(
+        model=model,
+        filters=filters,
+    )
 
 
 def resume_model_training_stage(

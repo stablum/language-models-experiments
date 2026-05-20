@@ -186,48 +186,40 @@ def train(
     discount: float = 0.75,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> KneserNeyTrigramTrainingSummary:
-    artifacts = trigrams.collect_training_artifacts(
-        texts,
-        tokenizer_model=tokenizer_model,
-        text_normalization=text_normalization,
-    )
-    summary = KneserNeyTrigramTrainingSummary(
-        output_path=output_path,
-        tokenizer_model=tokenizer_model,
-        vocab_size=artifacts.tokenizer.vocab_size,
-        discount=discount,
-        text_normalization=text_normalization,
-    )
-    # KN stores ordinary trigram rows for the highest-order evidence, but the
-    # lower-order rows are continuation tables derived from trigram types.
-    continuation_counts = collect_kneser_ney_continuation_counts(
-        artifacts.counts.trigram_transitions,
-    )
-    trigrams.apply_trigram_counts_to_summary(summary, artifacts.counts)
-    summary.continuation_unigram_count = continuation_counts.unigram_count
-    summary.continuation_bigram_type_count = continuation_counts.bigram_type_count
+    def payload(
+        artifacts: trigrams.TrigramTrainingArtifacts,
+        summary: KneserNeyTrigramTrainingSummary,
+    ) -> dict[str, object]:
+        # KN stores raw trigram rows plus continuation lower-order tables.
+        continuation_counts = collect_kneser_ney_continuation_counts(
+            artifacts.counts.trigram_transitions,
+        )
+        summary.continuation_unigram_count = continuation_counts.unigram_count
+        summary.continuation_bigram_type_count = continuation_counts.bigram_type_count
+        return {
+            "discount": summary.discount,
+            "kneser_ney_unigram_count": summary.continuation_unigram_count,
+            "kneser_ney_unigrams": ngram.token_counts_payload(
+                continuation_counts.unigram_counts
+            ),
+            "kneser_ney_bigram_transitions": ngram.token_transition_payload(
+                continuation_counts.bigram_transitions
+            ),
+        }
 
-    model = {
-        **trigrams.standard_trigram_model_payload(
-            artifacts.tokenizer,
+    return trigrams.train_counted_trigram_model(
+        texts,
+        spec=trigrams.CountedTrigramTrainingSpec(
             model_type=_SCHEMA_TYPE,
             tokenizer_model=tokenizer_model,
+            output_path=output_path,
             stored_tokenizer_model=stored_tokenizer_model,
             text_normalization=text_normalization,
-            counts=artifacts.counts,
         ),
-        "discount": summary.discount,
-        "kneser_ney_unigram_count": summary.continuation_unigram_count,
-        "kneser_ney_unigrams": ngram.token_counts_payload(
-            continuation_counts.unigram_counts
-        ),
-        "kneser_ney_bigram_transitions": ngram.token_transition_payload(
-            continuation_counts.bigram_transitions
-        ),
-    }
-    ngram.write_json_model_payload(output_path, model)
-
-    return summary
+        summary_type=KneserNeyTrigramTrainingSummary,
+        summary_fields={"discount": discount},
+        extra_payload=payload,
+    )
 
 
 def format_summary(

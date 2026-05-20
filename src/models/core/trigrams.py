@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, TypeVar
 
 from src.corpora import normalization
 from src.models.core import ngram
@@ -38,6 +38,17 @@ class TrigramTrainingSummary(ngram.NgramTrainingSummary):
     unigram_count: int = 0
     bigram_transition_count: int = 0
     trigram_transition_count: int = 0
+
+
+SummaryT = TypeVar("SummaryT", bound=TrigramTrainingSummary)
+
+
+class CountedTrigramTrainingSpec(ngram.FrozenNgramModel):
+    model_type: str
+    tokenizer_model: Path
+    output_path: Path
+    stored_tokenizer_model: Path | None = None
+    text_normalization: normalization.TextNormalization
 
 
 class InterpolatedTrigramTrainingSummary(TrigramTrainingSummary):
@@ -402,6 +413,44 @@ def collect_training_artifacts(
         text_normalization=text_normalization,
     )
     return TrigramTrainingArtifacts(tokenizer=tokenizer, counts=counts)
+
+
+def train_counted_trigram_model(
+    texts: Iterable[str],
+    spec: CountedTrigramTrainingSpec,
+    *,
+    summary_type: type[SummaryT],
+    summary_fields: Mapping[str, object] | None = None,
+    extra_payload: (
+        Callable[[TrigramTrainingArtifacts, SummaryT], Mapping[str, object]] | None
+    ) = None,
+) -> SummaryT:
+    artifacts = collect_training_artifacts(
+        texts,
+        tokenizer_model=spec.tokenizer_model,
+        text_normalization=spec.text_normalization,
+    )
+    summary = summary_type(
+        output_path=spec.output_path,
+        tokenizer_model=spec.tokenizer_model,
+        vocab_size=artifacts.tokenizer.vocab_size,
+        text_normalization=spec.text_normalization,
+        **dict(summary_fields or {}),
+    )
+    apply_trigram_counts_to_summary(summary, artifacts.counts)
+    model = standard_trigram_model_payload(
+        artifacts.tokenizer,
+        model_type=spec.model_type,
+        tokenizer_model=spec.tokenizer_model,
+        stored_tokenizer_model=spec.stored_tokenizer_model,
+        text_normalization=spec.text_normalization,
+        counts=artifacts.counts,
+    )
+    if extra_payload is not None:
+        model.update(extra_payload(artifacts, summary))
+    ngram.write_json_model_payload(spec.output_path, model)
+
+    return summary
 
 
 def trigram_counts_payload(counts: TrigramCounts) -> dict[str, object]:
