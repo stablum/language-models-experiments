@@ -15,9 +15,6 @@ from src.models.core import ngram
 from src.tokenizers import core as tok_core
 
 
-_SCHEMA_TYPE = "autoregressive_bigram"
-
-
 class BigramTrainingSummary(ngram.NgramTrainingSummary):
     transition_count: int = 0  # sum_h c(h), the number of bigram events.
 
@@ -175,7 +172,7 @@ class BigramModel(ngram.BaseNgramModel):
 def load(model_path: Path) -> BigramModel:
     data = ngram.load_json_model_payload(
         model_path,
-        model_type=_SCHEMA_TYPE,
+        module_name=__name__,
     )
 
     return BigramModel(
@@ -232,8 +229,7 @@ def train(
             summary.transition_count += 1
 
     model = {
-        "schema_version": 1,
-        "model_type": _SCHEMA_TYPE,
+        **ngram.model_schema_payload(__name__),
         **ngram.tokenizer_model_payload(
             tokenizer,
             tokenizer_model=tokenizer_model,

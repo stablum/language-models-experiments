@@ -21,9 +21,6 @@ from src.models.core import ngram
 from src.models.core import trigrams
 
 
-_SCHEMA_TYPE = "absolute_discount_trigram"
-
-
 class AbsoluteDiscountTrigramTrainingSummary(trigrams.TrigramTrainingSummary):
     discount: float = 0.0  # D, the absolute discount.
 
@@ -86,7 +83,7 @@ class AbsoluteDiscountTrigramModel(trigrams.DiscountedTrigramModel):
 def load(model_path: Path) -> AbsoluteDiscountTrigramModel:
     data, model_fields = trigrams.load_standard_trigram_model_fields(
         model_path,
-        model_type=_SCHEMA_TYPE,
+        module_name=__name__,
     )
 
     return AbsoluteDiscountTrigramModel(
@@ -118,7 +115,7 @@ def train(
     return trigrams.train_counted_trigram_model(
         texts,
         spec=trigrams.CountedTrigramTrainingSpec(
-            model_type=_SCHEMA_TYPE,
+            module_name=__name__,
             tokenizer_model=tokenizer_model,
             output_path=output_path,
             stored_tokenizer_model=stored_tokenizer_model,

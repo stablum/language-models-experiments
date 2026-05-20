@@ -14,9 +14,6 @@ from src.corpora import normalization
 from src.models.core import ngram, trigram_interpolation as interp, trigrams
 
 
-_SCHEMA_TYPE = "jelinek_mercer_trigram"
-
-
 class JelinekMercerTrigramModel(trigrams.InterpolatedTrigramModel):
     unigram_counts: dict[int, int]  # c(w), unigram counts.
     unigram_total: int  # N = sum_w c(w), the unigram normalizer.
@@ -48,7 +45,7 @@ def load(model_path: Path) -> JelinekMercerTrigramModel:
     return interp.load_interpolated_trigram_model(
         JelinekMercerTrigramModel,
         model_path,
-        model_type=_SCHEMA_TYPE,
+        module_name=__name__,
     )
 
 
@@ -76,7 +73,7 @@ def train(
     return interp.train_interpolated_trigram_model(
         texts,
         interp.InterpolatedTrainingSpec(
-            model_type=_SCHEMA_TYPE,
+            module_name=__name__,
             output_path=output_path,
             tokenizer_model=tokenizer_model,
             stored_tokenizer_model=stored_tokenizer_model,

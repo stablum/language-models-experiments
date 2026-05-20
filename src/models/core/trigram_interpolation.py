@@ -41,7 +41,7 @@ class InterpolationParams(ngram.FrozenNgramModel):
 
 
 class InterpolatedTrainingSpec(ngram.FrozenNgramModel):
-    model_type: str
+    module_name: str
     tokenizer_model: Path
     output_path: Path
     stored_tokenizer_model: Path | None = None
@@ -61,12 +61,12 @@ def load_interpolated_trigram_model(
     model_cls: type[InterpolatedModelT],
     model_path: Path,
     *,
-    model_type: str,
+    module_name: str,
     extra_fields: ExtraFieldsFn | None = None,
 ) -> InterpolatedModelT:
     data, model_fields = trigrams.load_standard_trigram_model_fields(
         model_path,
-        model_type=model_type,
+        module_name=module_name,
     )
     resolved_extra_fields = dict(extra_fields(data)) if extra_fields else {}
 
@@ -188,7 +188,7 @@ def train_interpolated_trigram_model(
     model = {
         **trigrams.standard_trigram_model_payload(
             artifacts.tokenizer,
-            model_type=spec.model_type,
+            module_name=spec.module_name,
             tokenizer_model=spec.tokenizer_model,
             stored_tokenizer_model=spec.stored_tokenizer_model,
             text_normalization=spec.text_normalization,

@@ -10,6 +10,7 @@ from typing import Any, Callable, TypeVar
 
 from src.ml_core.models import definition as model_def
 from src.models.core import formatting
+from src.models.core import naming
 from src.models.core import ngram
 from src.models.core import trigram_interpolation as interp
 from src.tokenizers import core as tok_core
@@ -164,11 +165,11 @@ def model_definition(
 
 
 def model_name_from_module(module_name: str) -> str:
-    return module_name.rsplit(".", maxsplit=1)[-1].replace("_", "-")
+    return naming.registered_name_from_module(module_name)
 
 
 def model_label_from_name(name: str) -> str:
-    return name.replace("-", " ").capitalize()
+    return naming.label_from_registered_name(name)
 
 
 def default_tokenizer_model(corpus: str) -> Path:

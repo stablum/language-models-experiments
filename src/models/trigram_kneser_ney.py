@@ -24,9 +24,6 @@ from src.models.core import ngram
 from src.models.core import trigrams
 
 
-_SCHEMA_TYPE = "interpolated_kneser_ney_trigram"
-
-
 class KneserNeyTrigramTrainingSummary(trigrams.TrigramTrainingSummary):
     continuation_unigram_count: int = 0  # sum_w c_KN(w), unigram continuation mass.
     continuation_bigram_type_count: int = 0  # |{(v, w): N_{1+}(*, v, w) > 0}|.
@@ -158,7 +155,7 @@ class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
 def load(model_path: Path) -> KneserNeyTrigramModel:
     data, model_fields = trigrams.load_standard_trigram_model_fields(
         model_path,
-        model_type=_SCHEMA_TYPE,
+        module_name=__name__,
     )
 
     return KneserNeyTrigramModel(
@@ -210,7 +207,7 @@ def train(
     return trigrams.train_counted_trigram_model(
         texts,
         spec=trigrams.CountedTrigramTrainingSpec(
-            model_type=_SCHEMA_TYPE,
+            module_name=__name__,
             tokenizer_model=tokenizer_model,
             output_path=output_path,
             stored_tokenizer_model=stored_tokenizer_model,

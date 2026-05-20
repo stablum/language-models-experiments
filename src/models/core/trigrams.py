@@ -44,7 +44,7 @@ SummaryT = TypeVar("SummaryT", bound=TrigramTrainingSummary)
 
 
 class CountedTrigramTrainingSpec(ngram.FrozenNgramModel):
-    model_type: str
+    module_name: str
     tokenizer_model: Path
     output_path: Path
     stored_tokenizer_model: Path | None = None
@@ -440,7 +440,7 @@ def train_counted_trigram_model(
     apply_trigram_counts_to_summary(summary, artifacts.counts)
     model = standard_trigram_model_payload(
         artifacts.tokenizer,
-        model_type=spec.model_type,
+        module_name=spec.module_name,
         tokenizer_model=spec.tokenizer_model,
         stored_tokenizer_model=spec.stored_tokenizer_model,
         text_normalization=spec.text_normalization,
@@ -497,25 +497,24 @@ def discount_item(summary: ngram.NgramPydanticModel) -> tuple[str, str]:
 def load_standard_trigram_model_fields(
     model_path: Path,
     *,
-    model_type: str,
+    module_name: str,
     label: str | None = None,
 ) -> tuple[dict[str, object], dict[str, object]]:
-    data = ngram.load_json_model_payload(model_path, model_type=model_type, label=label)
+    data = ngram.load_json_model_payload(model_path, module_name=module_name, label=label)
     return data, ngram.load_tokenizer_model_fields(data, model_path)
 
 
 def standard_trigram_model_payload(
     tokenizer: tok_core.TokenizerCodec,
     *,
-    model_type: str,
+    module_name: str,
     tokenizer_model: Path,
     stored_tokenizer_model: Path | None,
     text_normalization: normalization.TextNormalization,
     counts: TrigramCounts,
 ) -> dict[str, object]:
     return {
-        "schema_version": 1,
-        "model_type": model_type,
+        **ngram.model_schema_payload(module_name),
         **ngram.tokenizer_model_payload(
             tokenizer,
             tokenizer_model=tokenizer_model,

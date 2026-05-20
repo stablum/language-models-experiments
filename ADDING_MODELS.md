@@ -50,9 +50,6 @@ from src.corpora import normalization
 from src.models.core import ngram
 
 
-_SCHEMA_TYPE = "my_model"  # Unique model_type stored in the JSON artifact.
-
-
 class MyModelTrainingSummary(ngram.NgramTrainingSummary):
     ...
 
@@ -84,12 +81,6 @@ def format_summary(summary: MyModelTrainingSummary) -> list[tuple[str, str]]:
 ```
 
 ## Required Pieces
-
-`_SCHEMA_TYPE`
-
-Use a short, unique string for the JSON `model_type`. This is not required by
-the registry, but it is the current single-source-of-truth convention for
-checking that a loaded artifact belongs to the expected model class.
 
 `TrainingSummary`
 
@@ -125,6 +116,11 @@ return the model object. Reuse helpers such as:
 - `ngram.parse_token_transitions(...)`
 - `trigrams.parse_trigram_transitions(...)`
 
+The standard helpers derive the artifact `model_type` from `__name__`, so a
+module named `src.models.my_model` stores `model_type: "my_model"`. Do not add
+a second hand-written schema name unless you first introduce a new adapter
+convention that truly needs one.
+
 `train(...)`
 
 This is the function called by the model-module adapter. Its required keyword
@@ -139,7 +135,8 @@ It should train from `texts`, write one JSON model artifact to `output_path`,
 and return the training summary. Include these common artifact fields:
 
 - `schema_version`
-- `model_type`
+- `model_type` from `ngram.model_schema_payload(__name__)` or the standard
+  trigram helpers
 - tokenizer payload from `ngram.tokenizer_model_payload(...)` or
   `trigrams.standard_trigram_model_payload(...)`
 - count tables or learned weights needed by the loader

@@ -14,9 +14,6 @@ from src.corpora import normalization
 from src.models.core import ngram, trigram_interpolation as interp, trigrams
 
 
-_SCHEMA_TYPE = "interpolated_add_k_trigram"
-
-
 class AddKTrigramModel(trigrams.InterpolatedTrigramModel):
     smoothing: float  # k, the additive smoothing pseudo-count.
     unigram_counts: dict[int, int]  # c(w), unigram counts.
@@ -53,7 +50,7 @@ def load(model_path: Path) -> AddKTrigramModel:
     return interp.load_interpolated_trigram_model(
         AddKTrigramModel,
         model_path,
-        model_type=_SCHEMA_TYPE,
+        module_name=__name__,
         extra_fields=lambda data: {"smoothing": float(data["smoothing"])},
     )
 
@@ -83,7 +80,7 @@ def train(
     return interp.train_interpolated_trigram_model(
         texts,
         interp.InterpolatedTrainingSpec(
-            model_type=_SCHEMA_TYPE,
+            module_name=__name__,
             output_path=output_path,
             tokenizer_model=tokenizer_model,
             stored_tokenizer_model=stored_tokenizer_model,

@@ -14,10 +14,12 @@ import pydantic
 from src.corpora import normalization
 from src.ml_core import json_io
 from src.models.core import formatting
+from src.models.core import naming
 from src.tokenizers import core as tok_core
 
 
 DecodingMode = Literal["sample", "most-probable"]
+MODEL_SCHEMA_VERSION = 1
 
 
 class NgramPydanticModel(pydantic.BaseModel):
@@ -352,21 +354,23 @@ def resolve_stored_path(stored_path: Path, model_path: Path) -> Path:
     return stored_path
 
 
-def schema_label(model_type: str) -> str:
-    words = model_type.replace("_", " ")
-    article = "an" if words[:1].lower() in {"a", "e", "i", "o", "u"} else "a"
-    return f"{article} {words} model"
+def model_schema_payload(module_name: str) -> dict[str, object]:
+    return {
+        "schema_version": MODEL_SCHEMA_VERSION,
+        "model_type": naming.model_type_from_module(module_name),
+    }
 
 
 def load_json_model_payload(
     model_path: Path,
     *,
-    model_type: str,
+    module_name: str,
     label: str | None = None,
 ) -> dict[str, Any]:
+    model_type = naming.model_type_from_module(module_name)
     data = json_io.read_mapping(model_path)
     if data.get("model_type") != model_type:
-        raise ValueError(f"Not {label or schema_label(model_type)}: {model_path}")
+        raise ValueError(f"Not {label or naming.schema_label(model_type)}: {model_path}")
     return data
 
 

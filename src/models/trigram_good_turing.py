@@ -25,9 +25,6 @@ from src.models.core import ngram
 from src.models.core import trigrams
 
 
-_SCHEMA_TYPE = "good_turing_trigram"
-
-
 class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
     unigram_counts: dict[int, int]  # c(w), unigram counts.
     unigram_total: int  # N = sum_w c(w), the unigram normalizer.
@@ -283,7 +280,7 @@ class GoodTuringTrigramModel(trigrams.BaseTrigramModel):
 def load(model_path: Path) -> GoodTuringTrigramModel:
     data, model_fields = trigrams.load_standard_trigram_model_fields(
         model_path,
-        model_type=_SCHEMA_TYPE,
+        module_name=__name__,
     )
 
     return GoodTuringTrigramModel(
@@ -306,7 +303,7 @@ def train(
     return trigrams.train_counted_trigram_model(
         texts,
         spec=trigrams.CountedTrigramTrainingSpec(
-            model_type=_SCHEMA_TYPE,
+            module_name=__name__,
             tokenizer_model=tokenizer_model,
             output_path=output_path,
             stored_tokenizer_model=stored_tokenizer_model,
