@@ -15,24 +15,24 @@ def _run_stage_entry(step_fn: Callable[..., str], **kwargs: object) -> str:
 
 
 def train_tokenizer_stage_entry(**kwargs: object) -> str:
-    from src.pipelines.language_model import stages
+    from src.pipelines.language_model import tokenizer_stage
 
-    return _run_stage_entry(stages.train_tokenizer_step, **kwargs)
+    return _run_stage_entry(tokenizer_stage.train_tokenizer_step, **kwargs)
 
 
 def train_model_stage_entry(**kwargs: object) -> str:
-    from src.pipelines.language_model import stages
+    from src.pipelines.language_model import model_stage
 
     return _run_stage_entry(
-        stages.train_model_pipeline_step,
+        model_stage.train_model_pipeline_step,
         **_group_model_hyperparameters(kwargs),
     )
 
 
 def evaluate_stage_entry(**kwargs: object) -> str:
-    from src.pipelines.language_model import stages
+    from src.pipelines.language_model import evaluation_stage
 
-    return _run_stage_entry(stages.evaluate_pipeline_step, **kwargs)
+    return _run_stage_entry(evaluation_stage.evaluate_pipeline_step, **kwargs)
 
 
 def query_stage_entry(**kwargs: object) -> str:

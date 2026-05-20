@@ -6,9 +6,42 @@ from pathlib import Path
 
 import click
 
+from src.ml_core import cfg as core_cfg
 from src.ml_core import tracking
 from src.ml_core.cli import output as cli_out
 from src.pipelines.language_model import definition as lm_def
+
+
+ClearmlTags = str | list[str] | tuple[str, ...] | None
+
+
+class StepRuntimeCfg(core_cfg.FrozenBaseCfg):
+    """Cfg (configuration) shared by ClearML function-step entry points."""
+
+    stage: str
+    clearml_output_uri: str | None = None
+    clearml_tags: ClearmlTags = None
+    clearml_config_file: str | None = None
+    pipeline_stage_index: int | None = None
+    pipeline_stage_total: int | None = None
+    pipeline_stage_title: str | None = None
+
+
+def start_step(cfg: StepRuntimeCfg) -> tracking.ClearMLRun:
+    """Configure ClearML, print the stage title, and return the current step run."""
+
+    configure_step_clearml(cfg.clearml_config_file)
+    emit_pipeline_stage_title(
+        cfg.stage,
+        index=cfg.pipeline_stage_index,
+        total=cfg.pipeline_stage_total,
+        title=cfg.pipeline_stage_title,
+    )
+    return current_step_run(
+        clearml_output_uri=cfg.clearml_output_uri,
+        clearml_tags=cfg.clearml_tags,
+        stage=cfg.stage,
+    )
 
 
 def configure_step_clearml(clearml_config_file: str | None) -> None:
@@ -31,7 +64,7 @@ def emit_pipeline_stage_title(
 def current_step_run(
     *,
     clearml_output_uri: str | None,
-    clearml_tags: str | list[str] | tuple[str, ...] | None,
+    clearml_tags: ClearmlTags,
     stage: str,
 ) -> tracking.ClearMLRun:
     try:
@@ -66,7 +99,7 @@ def require_task_id(clearml_run: tracking.ClearMLRun) -> str:
     return task_id
 
 
-def normalize_tags(clearml_tags: str | list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+def normalize_tags(clearml_tags: ClearmlTags) -> tuple[str, ...]:
     if clearml_tags is None:
         return ()
     if isinstance(clearml_tags, str):

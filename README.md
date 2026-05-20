@@ -63,7 +63,7 @@ Language-model pipeline code is organized here:
 src/pipelines/language_model/tokenizer_training.py  tokenizer-training DAG definition and task wiring
 src/pipelines/language_model/model_training.py      model-training DAG definition and task wiring
 src/pipelines/language_model/definition.py          shared stage names and controller lookup
-src/pipelines/language_model/stages.py          importable train/evaluate/query stage functions
+src/pipelines/language_model/*_stage.py         importable tokenizer/model/evaluation/query stage functions
 src/pipelines/language_model/stage_entries.py   ClearML function-step entry wrappers
 src/pipelines/language_model/artifacts.py       model staging and metric payload helpers
 src/pipelines/language_model/optuna.py          Optuna trial metric helpers

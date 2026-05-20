@@ -31,7 +31,7 @@ def query_pipeline_step(
     tokenizer_model_name: str | None = None,
     command: str = "src.cli.model_training",
     clearml_output_uri: str | None = None,
-    clearml_tags: str | list[str] | tuple[str, ...] | None = None,
+    clearml_tags: stage_runtime.ClearmlTags = None,
     clearml_config_file: str | None = None,
     pipeline_stage_index: int | None = None,
     pipeline_stage_total: int | None = None,
@@ -39,17 +39,16 @@ def query_pipeline_step(
 ) -> str:
     """Query the trained model step artifact."""
     stage = lm_def.QUERY_STAGE
-    stage_runtime.configure_step_clearml(clearml_config_file)
-    stage_runtime.emit_pipeline_stage_title(
-        stage,
-        index=pipeline_stage_index,
-        total=pipeline_stage_total,
-        title=pipeline_stage_title,
-    )
-    clearml_run = stage_runtime.current_step_run(
-        clearml_output_uri=clearml_output_uri,
-        clearml_tags=clearml_tags,
-        stage=stage,
+    clearml_run = stage_runtime.start_step(
+        stage_runtime.StepRuntimeCfg(
+            stage=stage,
+            clearml_output_uri=clearml_output_uri,
+            clearml_tags=clearml_tags,
+            clearml_config_file=clearml_config_file,
+            pipeline_stage_index=pipeline_stage_index,
+            pipeline_stage_total=pipeline_stage_total,
+            pipeline_stage_title=pipeline_stage_title,
+        )
     )
     result = query_model_run(
         clearml_run,
