@@ -71,12 +71,17 @@ class NgramQueryResult(NgramPydanticModel):
 
 
 class NgramTrainingSummary(NgramPydanticModel):
-    output_path: Path
-    tokenizer_model: Path
+    output_path: Path | None = None
+    tokenizer_model: Path | None = None
     vocab_size: int = 0
     sequence_count: int = 0
     token_count: int = 0
     text_normalization: str = "none"
+
+
+class TrainingResult(NgramPydanticModel):
+    summary: NgramTrainingSummary
+    payload: dict[str, object]
 
 
 class NgramEvaluationSummary(NgramPydanticModel):

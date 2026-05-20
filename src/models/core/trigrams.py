@@ -43,14 +43,6 @@ class TrigramTrainingSummary(ngram.NgramTrainingSummary):
 SummaryT = TypeVar("SummaryT", bound=TrigramTrainingSummary)
 
 
-class CountedTrigramTrainingSpec(ngram.FrozenNgramModel):
-    module_name: str
-    tokenizer_model: Path
-    output_path: Path
-    stored_tokenizer_model: Path | None = None
-    text_normalization: normalization.TextNormalization
-
-
 class InterpolatedTrigramTrainingSummary(TrigramTrainingSummary):
     unigram_weight: float = 0.0  # lambda_1.
     bigram_weight: float = 0.0  # lambda_2.
@@ -401,12 +393,11 @@ def collect_trigram_counts(
 def collect_training_artifacts(
     texts: Iterable[str],
     *,
-    tokenizer_model: Path,
+    tokenizer: tok_core.TokenizerCodec,
     text_normalization: normalization.TextNormalization = (
         normalization.DEFAULT_TEXT_NORMALIZATION
     ),
 ) -> TrigramTrainingArtifacts:
-    tokenizer = tok_core.load_tokenizer(tokenizer_model)
     counts = collect_trigram_counts(
         texts,
         tokenizer,
@@ -417,40 +408,31 @@ def collect_training_artifacts(
 
 def train_counted_trigram_model(
     texts: Iterable[str],
-    spec: CountedTrigramTrainingSpec,
+    tokenizer: tok_core.TokenizerCodec,
     *,
+    text_normalization: normalization.TextNormalization,
     summary_type: type[SummaryT],
     summary_fields: Mapping[str, object] | None = None,
     extra_payload: (
         Callable[[TrigramTrainingArtifacts, SummaryT], Mapping[str, object]] | None
     ) = None,
-) -> SummaryT:
+) -> ngram.TrainingResult:
     artifacts = collect_training_artifacts(
         texts,
-        tokenizer_model=spec.tokenizer_model,
-        text_normalization=spec.text_normalization,
+        tokenizer=tokenizer,
+        text_normalization=text_normalization,
     )
     summary = summary_type(
-        output_path=spec.output_path,
-        tokenizer_model=spec.tokenizer_model,
         vocab_size=artifacts.tokenizer.vocab_size,
-        text_normalization=spec.text_normalization,
+        text_normalization=text_normalization,
         **dict(summary_fields or {}),
     )
     apply_trigram_counts_to_summary(summary, artifacts.counts)
-    model = standard_trigram_model_payload(
-        artifacts.tokenizer,
-        module_name=spec.module_name,
-        tokenizer_model=spec.tokenizer_model,
-        stored_tokenizer_model=spec.stored_tokenizer_model,
-        text_normalization=spec.text_normalization,
-        counts=artifacts.counts,
-    )
+    model = trigram_counts_payload(artifacts.counts)
     if extra_payload is not None:
         model.update(extra_payload(artifacts, summary))
-    ngram.write_json_model_payload(spec.output_path, model)
 
-    return summary
+    return ngram.TrainingResult(summary=summary, payload=model)
 
 
 def trigram_counts_payload(counts: TrigramCounts) -> dict[str, object]:
@@ -502,27 +484,6 @@ def load_standard_trigram_model_fields(
 ) -> tuple[dict[str, object], dict[str, object]]:
     data = ngram.load_json_model_payload(model_path, module_name=module_name, label=label)
     return data, ngram.load_tokenizer_model_fields(data, model_path)
-
-
-def standard_trigram_model_payload(
-    tokenizer: tok_core.TokenizerCodec,
-    *,
-    module_name: str,
-    tokenizer_model: Path,
-    stored_tokenizer_model: Path | None,
-    text_normalization: normalization.TextNormalization,
-    counts: TrigramCounts,
-) -> dict[str, object]:
-    return {
-        **ngram.model_schema_payload(module_name),
-        **ngram.tokenizer_model_payload(
-            tokenizer,
-            tokenizer_model=tokenizer_model,
-            stored_tokenizer_model=stored_tokenizer_model,
-            text_normalization=text_normalization,
-        ),
-        **trigram_counts_payload(counts),
-    }
 
 
 def parse_unigram_counts(data: dict[str, object]) -> dict[int, int]:

@@ -200,16 +200,11 @@ def iter_token_sequences(
 def train(
     texts: Iterable[str],
     *,
-    tokenizer_model: Path,
-    output_path: Path,
-    stored_tokenizer_model: Path | None = None,
+    tokenizer: tok_core.TokenizerCodec,
     smoothing: float = 0.1,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
-) -> TrainingSummary:
-    tokenizer = tok_core.load_tokenizer(tokenizer_model)
+) -> ngram.TrainingResult:
     summary = TrainingSummary(
-        output_path=output_path,
-        tokenizer_model=tokenizer_model,
         vocab_size=tokenizer.vocab_size,
         text_normalization=text_normalization,
     )
@@ -228,23 +223,16 @@ def train(
             transitions[previous_id][next_id] += 1
             summary.transition_count += 1
 
-    model = {
-        **ngram.model_schema_payload(__name__),
-        **ngram.tokenizer_model_payload(
-            tokenizer,
-            tokenizer_model=tokenizer_model,
-            stored_tokenizer_model=stored_tokenizer_model,
-            text_normalization=text_normalization,
-        ),
-        "smoothing": smoothing,
-        "sequence_count": summary.sequence_count,
-        "token_count": summary.token_count,
-        "transition_count": summary.transition_count,
-        "transitions": ngram.token_transition_payload(transitions),
-    }
-    ngram.write_json_model_payload(output_path, model)
-
-    return summary
+    return ngram.TrainingResult(
+        summary=summary,
+        payload={
+            "smoothing": smoothing,
+            "sequence_count": summary.sequence_count,
+            "token_count": summary.token_count,
+            "transition_count": summary.transition_count,
+            "transitions": ngram.token_transition_payload(transitions),
+        },
+    )
 
 
 def format_summary(summary: TrainingSummary) -> list[tuple[str, str]]:

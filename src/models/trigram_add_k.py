@@ -12,6 +12,7 @@ from pathlib import Path
 
 from src.corpora import normalization
 from src.models.core import ngram, trigram_interpolation as interp, trigrams
+from src.tokenizers import core as tok_core
 
 
 class Model(trigrams.InterpolatedTrigramModel):
@@ -58,9 +59,7 @@ def load(model_path: Path) -> Model:
 def train(
     texts: Iterable[str],
     *,
-    tokenizer_model: Path,
-    output_path: Path,
-    stored_tokenizer_model: Path | None = None,
+    tokenizer: tok_core.TokenizerCodec,
     smoothing: float = 0.1,
     unigram_weight: float = interp.DEFAULT_UNIGRAM_WEIGHT,
     bigram_weight: float = interp.DEFAULT_BIGRAM_WEIGHT,
@@ -68,7 +67,7 @@ def train(
     beta_2: float | None = None,
     beta_3: float | None = None,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
-) -> trigrams.InterpolatedTrigramTrainingSummary:
+) -> ngram.TrainingResult:
     # lambda_i are stored as weights; beta_i are an equivalent recursive form.
     interpolation = interp.resolve_params(
         unigram_weight=unigram_weight,
@@ -79,15 +78,10 @@ def train(
     )
     return interp.train_interpolated_trigram_model(
         texts,
-        interp.InterpolatedTrainingSpec(
-            module_name=__name__,
-            output_path=output_path,
-            tokenizer_model=tokenizer_model,
-            stored_tokenizer_model=stored_tokenizer_model,
-            text_normalization=text_normalization,
-            params=interpolation,
-            extra_model_payload={"smoothing": smoothing},
-        ),
+        tokenizer,
+        text_normalization=text_normalization,
+        params=interpolation,
+        extra_model_payload={"smoothing": smoothing},
     )
 
 

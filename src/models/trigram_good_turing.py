@@ -23,6 +23,7 @@ from src.models.core import formatting
 from src.models.core import good_turing
 from src.models.core import ngram
 from src.models.core import trigrams
+from src.tokenizers import core as tok_core
 
 
 class Model(trigrams.BaseTrigramModel):
@@ -295,20 +296,13 @@ def load(model_path: Path) -> Model:
 def train(
     texts: Iterable[str],
     *,
-    tokenizer_model: Path,
-    output_path: Path,
-    stored_tokenizer_model: Path | None = None,
+    tokenizer: tok_core.TokenizerCodec,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
-) -> trigrams.TrigramTrainingSummary:
+) -> ngram.TrainingResult:
     return trigrams.train_counted_trigram_model(
         texts,
-        spec=trigrams.CountedTrigramTrainingSpec(
-            module_name=__name__,
-            tokenizer_model=tokenizer_model,
-            output_path=output_path,
-            stored_tokenizer_model=stored_tokenizer_model,
-            text_normalization=text_normalization,
-        ),
+        tokenizer,
+        text_normalization=text_normalization,
         summary_type=trigrams.TrigramTrainingSummary,
     )
 

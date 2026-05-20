@@ -8,6 +8,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, TypeVar
 
+from src.corpora import normalization
 from src.ml_core.models import definition as model_def
 from src.models.core import formatting
 from src.models.core import naming
@@ -17,12 +18,12 @@ from src.tokenizers import core as tok_core
 
 
 LoadedModel = TypeVar("LoadedModel")
-TrainingSummary = TypeVar("TrainingSummary")
 QueryResult = TypeVar("QueryResult")
 EvaluationSummary = TypeVar("EvaluationSummary")
 
 _TRAINING_INFRA_OPTION_NAMES = frozenset(
     (
+        "tokenizer",
         "tokenizer_model",
         "output_path",
         "stored_tokenizer_model",
@@ -90,7 +91,7 @@ def inferred_training_options_validator(
 def model_definition(
     *,
     module_name: str,
-    train_model: Callable[..., TrainingSummary],
+    train_model: Callable[..., ngram.TrainingResult],
     load_model: Callable[[Path], LoadedModel],
     summary_items: model_def.SummaryFormatter,
     training_option_names: Sequence[str] = (),
@@ -104,22 +105,32 @@ def model_definition(
     def train(
         texts: Iterable[str],
         options: model_def.ModelOptions,
-    ) -> TrainingSummary:
+    ) -> ngram.NgramTrainingSummary:
         stored_tokenizer_model = options.get("stored_tokenizer_model")
+        tokenizer_model = resolve_tokenizer_model(options)
+        output_path = resolve_output(options, model_suffix=name)
+        tokenizer = tok_core.load_tokenizer(tokenizer_model)
         training_options = {
             option_name: options[option_name]
             for option_name in training_option_names
             if option_name in options
         }
-        return train_model(
+        result = train_model(
             texts,
-            tokenizer_model=resolve_tokenizer_model(options),
-            output_path=resolve_output(options, model_suffix=name),
+            tokenizer=tokenizer,
+            text_normalization=options["text_normalization"],
+            **training_options,
+        )
+        return save_training_result(
+            result,
+            module_name=module_name,
+            output_path=output_path,
+            tokenizer_model=tokenizer_model,
             stored_tokenizer_model=(
                 Path(stored_tokenizer_model) if stored_tokenizer_model else None
             ),
+            tokenizer=tokenizer,
             text_normalization=options["text_normalization"],
-            **training_options,
         )
 
     def validate_options(options: model_def.ModelOptions) -> None:
@@ -170,6 +181,44 @@ def model_name_from_module(module_name: str) -> str:
 
 def model_label_from_name(name: str) -> str:
     return naming.label_from_registered_name(name)
+
+
+def save_training_result(
+    result: ngram.TrainingResult,
+    *,
+    module_name: str,
+    output_path: Path,
+    tokenizer_model: Path,
+    stored_tokenizer_model: Path | None,
+    tokenizer: tok_core.TokenizerCodec,
+    text_normalization: normalization.TextNormalization,
+) -> ngram.NgramTrainingSummary:
+    schema_payload = ngram.model_schema_payload(module_name)
+    tokenizer_payload = ngram.tokenizer_model_payload(
+        tokenizer,
+        tokenizer_model=tokenizer_model,
+        stored_tokenizer_model=stored_tokenizer_model,
+        text_normalization=text_normalization,
+    )
+    adapter_owned_fields = frozenset((*schema_payload, *tokenizer_payload))
+    overlapping_fields = adapter_owned_fields & result.payload.keys()
+    if overlapping_fields:
+        field_list = ", ".join(sorted(overlapping_fields))
+        raise ValueError(f"Model payload defines adapter-owned fields: {field_list}")
+
+    payload = {
+        **schema_payload,
+        **tokenizer_payload,
+        **result.payload,
+    }
+    ngram.write_json_model_payload(output_path, payload)
+
+    summary = result.summary
+    summary.output_path = output_path
+    summary.tokenizer_model = tokenizer_model
+    summary.vocab_size = tokenizer.vocab_size
+    summary.text_normalization = text_normalization
+    return summary
 
 
 def default_tokenizer_model(corpus: str) -> Path:

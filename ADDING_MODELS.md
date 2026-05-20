@@ -48,6 +48,7 @@ from pathlib import Path
 
 from src.corpora import normalization
 from src.models.core import ngram
+from src.tokenizers import core as tok_core
 
 
 class TrainingSummary(ngram.NgramTrainingSummary):
@@ -65,14 +66,12 @@ def load(model_path: Path) -> Model:
 def train(
     texts: Iterable[str],
     *,
-    tokenizer_model: Path,
-    output_path: Path,
-    stored_tokenizer_model: Path | None = None,
+    tokenizer: tok_core.TokenizerCodec,
     text_normalization: normalization.TextNormalization = (
         normalization.DEFAULT_TEXT_NORMALIZATION
     ),
     # model hyperparameters go here
-) -> TrainingSummary:
+) -> ngram.TrainingResult:
     ...
 
 
@@ -136,22 +135,23 @@ you first introduce a new adapter convention that truly needs one.
 This is the function called by the model-module adapter. Its required keyword
 parameters are:
 
-- `tokenizer_model: Path`
-- `output_path: Path`
-- `stored_tokenizer_model: Path | None = None`
+- `tokenizer: tok_core.TokenizerCodec`
 - `text_normalization: normalization.TextNormalization`
 
-It should train from `texts`, write one JSON model artifact to `output_path`,
-and return the training summary. Simple n-gram modules normally include:
+It should train from `texts` and return `ngram.TrainingResult`, which contains
+the training summary and the module-owned JSON payload. Simple n-gram payloads
+normally include:
 
-- schema fields from `ngram.model_schema_payload(__name__)`
-- tokenizer fields from `ngram.tokenizer_model_payload(...)`
 - count tables or learned weights needed by the loader
 - model hyperparameters needed at query/evaluation time
 
-The standard trigram training helpers write the schema fields, tokenizer
-fields, and common trigram count tables for you. Pass `module_name=__name__`
-in the training spec and add only the extra payload fields your model needs.
+The adapter loads the tokenizer, adds schema and tokenizer fields, writes the
+JSON artifact to its chosen `output_path`, and records the final artifact paths
+on the returned summary. Model modules should not know about staging paths,
+portable tokenizer references, or ClearML upload details.
+
+The standard trigram training helpers build the common trigram count payload
+for you. Add only the extra payload fields your model needs.
 
 Model hyperparameters should be keyword-only parameters on `train(...)`. The
 adapter infers their option names by excluding the infrastructure parameters

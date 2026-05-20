@@ -19,6 +19,7 @@ from typing import ClassVar
 from src.corpora import normalization
 from src.models.core import ngram
 from src.models.core import trigrams
+from src.tokenizers import core as tok_core
 
 
 class TrainingSummary(trigrams.TrigramTrainingSummary):
@@ -98,13 +99,11 @@ def load(model_path: Path) -> Model:
 def train(
     texts: Iterable[str],
     *,
-    tokenizer_model: Path,
-    output_path: Path,
-    stored_tokenizer_model: Path | None = None,
+    tokenizer: tok_core.TokenizerCodec,
     smoothing: float = 0.1,
     discount: float = 0.75,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
-) -> TrainingSummary:
+) -> ngram.TrainingResult:
     def payload(
         _artifacts: trigrams.TrigramTrainingArtifacts,
         summary: TrainingSummary,
@@ -114,13 +113,8 @@ def train(
 
     return trigrams.train_counted_trigram_model(
         texts,
-        spec=trigrams.CountedTrigramTrainingSpec(
-            module_name=__name__,
-            tokenizer_model=tokenizer_model,
-            output_path=output_path,
-            stored_tokenizer_model=stored_tokenizer_model,
-            text_normalization=text_normalization,
-        ),
+        tokenizer,
+        text_normalization=text_normalization,
         summary_type=TrainingSummary,
         summary_fields={"discount": discount},
         extra_payload=payload,
