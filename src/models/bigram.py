@@ -15,18 +15,18 @@ from src.models.core import ngram
 from src.tokenizers import core as tok_core
 
 
-class BigramTrainingSummary(ngram.NgramTrainingSummary):
+class TrainingSummary(ngram.NgramTrainingSummary):
     transition_count: int = 0  # sum_h c(h), the number of bigram events.
 
 
-class BigramEvaluationRow(ngram.FrozenNgramModel):
+class EvaluationRow(ngram.FrozenNgramModel):
     counts: dict[int, int]  # c(h, w), counts for one previous-token history h.
     denominator: float  # c(h) + k |V|, the add-k normalizer.
     greedy_token_id: int
     top_k_token_ids: frozenset[int]
 
 
-class BigramModel(ngram.BaseNgramModel):
+class Model(ngram.BaseNgramModel):
     smoothing: float  # k, the additive smoothing pseudo-count.
     transitions: dict[int, tuple[tuple[int, int], ...]]  # h -> c(h, w).
 
@@ -81,7 +81,7 @@ class BigramModel(ngram.BaseNgramModel):
         top_k: int = 5,
         text_normalization: normalization.TextNormalization | None = None,
     ) -> ngram.NgramEvaluationSummary:
-        row_cache: dict[int, BigramEvaluationRow] = {}
+        row_cache: dict[int, EvaluationRow] = {}
 
         resolved_text_normalization = text_normalization or self.text_normalization
         summary = ngram.NgramEvaluationSummary(
@@ -126,7 +126,7 @@ class BigramModel(ngram.BaseNgramModel):
         previous_id: int,
         *,
         top_k: int,
-    ) -> BigramEvaluationRow:
+    ) -> EvaluationRow:
         # Keep only candidate next-token types w in this history row h.
         counts = {
             token_id: count
@@ -137,7 +137,7 @@ class BigramModel(ngram.BaseNgramModel):
         ranked_token_ids = self.ranked_token_ids(
             counts=counts,
         )
-        return BigramEvaluationRow(
+        return EvaluationRow(
             counts=counts,
             denominator=denominator,
             greedy_token_id=ngram.greedy_token_id(ranked_token_ids, eos_id=self.eos_id),
@@ -161,7 +161,7 @@ class BigramModel(ngram.BaseNgramModel):
         self,
         next_id: int,
         *,
-        row: BigramEvaluationRow,
+        row: EvaluationRow,
     ) -> float:
         if row.denominator <= 0 or next_id not in self.candidate_id_set:
             return 0.0
@@ -169,13 +169,13 @@ class BigramModel(ngram.BaseNgramModel):
         return (row.counts.get(next_id, 0) + self.smoothing) / row.denominator
 
 
-def load(model_path: Path) -> BigramModel:
+def load(model_path: Path) -> Model:
     data = ngram.load_json_model_payload(
         model_path,
         module_name=__name__,
     )
 
-    return BigramModel(
+    return Model(
         **ngram.load_tokenizer_model_fields(data, model_path),
         smoothing=float(data["smoothing"]),
         transitions=ngram.parse_token_transitions(data, "transitions"),
@@ -205,9 +205,9 @@ def train(
     stored_tokenizer_model: Path | None = None,
     smoothing: float = 0.1,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
-) -> BigramTrainingSummary:
+) -> TrainingSummary:
     tokenizer = tok_core.load_tokenizer(tokenizer_model)
-    summary = BigramTrainingSummary(
+    summary = TrainingSummary(
         output_path=output_path,
         tokenizer_model=tokenizer_model,
         vocab_size=tokenizer.vocab_size,
@@ -247,7 +247,7 @@ def train(
     return summary
 
 
-def format_summary(summary: BigramTrainingSummary) -> list[tuple[str, str]]:
+def format_summary(summary: TrainingSummary) -> list[tuple[str, str]]:
     return [
         *ngram.base_training_summary_items(
             summary=summary,

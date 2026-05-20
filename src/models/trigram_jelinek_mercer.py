@@ -14,7 +14,7 @@ from src.corpora import normalization
 from src.models.core import ngram, trigram_interpolation as interp, trigrams
 
 
-class JelinekMercerTrigramModel(trigrams.InterpolatedTrigramModel):
+class Model(trigrams.InterpolatedTrigramModel):
     unigram_counts: dict[int, int]  # c(w), unigram counts.
     unigram_total: int  # N = sum_w c(w), the unigram normalizer.
 
@@ -41,9 +41,9 @@ class JelinekMercerTrigramModel(trigrams.InterpolatedTrigramModel):
         )
 
 
-def load(model_path: Path) -> JelinekMercerTrigramModel:
+def load(model_path: Path) -> Model:
     return interp.load_interpolated_trigram_model(
-        JelinekMercerTrigramModel,
+        Model,
         model_path,
         module_name=__name__,
     )

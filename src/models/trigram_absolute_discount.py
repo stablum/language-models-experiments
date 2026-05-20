@@ -21,11 +21,11 @@ from src.models.core import ngram
 from src.models.core import trigrams
 
 
-class AbsoluteDiscountTrigramTrainingSummary(trigrams.TrigramTrainingSummary):
+class TrainingSummary(trigrams.TrigramTrainingSummary):
     discount: float = 0.0  # D, the absolute discount.
 
 
-class AbsoluteDiscountTrigramModel(trigrams.DiscountedTrigramModel):
+class Model(trigrams.DiscountedTrigramModel):
     evaluation_summary_type: ClassVar[type[ngram.NgramEvaluationSummary]] = (
         trigrams.DiscountedTrigramEvaluationSummary
     )
@@ -80,13 +80,13 @@ class AbsoluteDiscountTrigramModel(trigrams.DiscountedTrigramModel):
         )
 
 
-def load(model_path: Path) -> AbsoluteDiscountTrigramModel:
+def load(model_path: Path) -> Model:
     data, model_fields = trigrams.load_standard_trigram_model_fields(
         model_path,
         module_name=__name__,
     )
 
-    return AbsoluteDiscountTrigramModel(
+    return Model(
         **model_fields,
         smoothing=float(data["smoothing"]),
         discount=float(data["discount"]),
@@ -104,10 +104,10 @@ def train(
     smoothing: float = 0.1,
     discount: float = 0.75,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
-) -> AbsoluteDiscountTrigramTrainingSummary:
+) -> TrainingSummary:
     def payload(
         _artifacts: trigrams.TrigramTrainingArtifacts,
-        summary: AbsoluteDiscountTrigramTrainingSummary,
+        summary: TrainingSummary,
     ) -> dict[str, object]:
         # Training stores raw counts; smoothing/discounting are applied lazily.
         return {"smoothing": smoothing, "discount": summary.discount}
@@ -121,14 +121,14 @@ def train(
             stored_tokenizer_model=stored_tokenizer_model,
             text_normalization=text_normalization,
         ),
-        summary_type=AbsoluteDiscountTrigramTrainingSummary,
+        summary_type=TrainingSummary,
         summary_fields={"discount": discount},
         extra_payload=payload,
     )
 
 
 def format_summary(
-    summary: AbsoluteDiscountTrigramTrainingSummary,
+    summary: TrainingSummary,
 ) -> list[tuple[str, str]]:
     return [
         *trigrams.base_training_summary_items(

@@ -50,15 +50,15 @@ from src.corpora import normalization
 from src.models.core import ngram
 
 
-class MyModelTrainingSummary(ngram.NgramTrainingSummary):
+class TrainingSummary(ngram.NgramTrainingSummary):
     ...
 
 
-class MyModel(ngram.BaseNgramModel):
+class Model(ngram.BaseNgramModel):
     ...
 
 
-def load(model_path: Path) -> MyModel:
+def load(model_path: Path) -> Model:
     ...
 
 
@@ -72,11 +72,11 @@ def train(
         normalization.DEFAULT_TEXT_NORMALIZATION
     ),
     # model hyperparameters go here
-) -> MyModelTrainingSummary:
+) -> TrainingSummary:
     ...
 
 
-def format_summary(summary: MyModelTrainingSummary) -> list[tuple[str, str]]:
+def format_summary(summary: TrainingSummary) -> list[tuple[str, str]]:
     ...
 ```
 
@@ -87,6 +87,9 @@ def format_summary(summary: MyModelTrainingSummary) -> list[tuple[str, str]]:
 Use a pydantic model, normally by inheriting from `ngram.NgramTrainingSummary`
 or `trigrams.TrigramTrainingSummary`. Add fields for model-specific metrics or
 hyperparameters that should be printed, logged, or uploaded.
+
+Concrete model modules can use module-local names such as `TrainingSummary`
+and `Model`; the module namespace already carries the model identity.
 
 `Model`
 

@@ -24,13 +24,13 @@ from src.models.core import ngram
 from src.models.core import trigrams
 
 
-class KneserNeyTrigramTrainingSummary(trigrams.TrigramTrainingSummary):
+class TrainingSummary(trigrams.TrigramTrainingSummary):
     continuation_unigram_count: int = 0  # sum_w c_KN(w), unigram continuation mass.
     continuation_bigram_type_count: int = 0  # |{(v, w): N_{1+}(*, v, w) > 0}|.
     discount: float = 0.0  # D, the absolute discount.
 
 
-class KneserNeyContinuationCounts(ngram.FrozenNgramModel):
+class ContinuationCounts(ngram.FrozenNgramModel):
     """Continuation-count tables used as Kneser-Ney lower-order evidence.
 
     In notation, ``bigram_transitions[v][w]`` stores
@@ -51,7 +51,7 @@ class KneserNeyContinuationCounts(ngram.FrozenNgramModel):
         return sum(len(next_counts) for next_counts in self.bigram_transitions.values())
 
 
-class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
+class Model(trigrams.DiscountedTrigramModel):
     evaluation_summary_type: ClassVar[type[ngram.NgramEvaluationSummary]] = (
         trigrams.DiscountedTrigramEvaluationSummary
     )
@@ -152,13 +152,13 @@ class KneserNeyTrigramModel(trigrams.DiscountedTrigramModel):
         )
 
 
-def load(model_path: Path) -> KneserNeyTrigramModel:
+def load(model_path: Path) -> Model:
     data, model_fields = trigrams.load_standard_trigram_model_fields(
         model_path,
         module_name=__name__,
     )
 
-    return KneserNeyTrigramModel(
+    return Model(
         **model_fields,
         discount=float(data["discount"]),
         unigram_counts=ngram.parse_token_counts(data, "kneser_ney_unigrams"),
@@ -182,10 +182,10 @@ def train(
     stored_tokenizer_model: Path | None = None,
     discount: float = 0.75,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
-) -> KneserNeyTrigramTrainingSummary:
+) -> TrainingSummary:
     def payload(
         artifacts: trigrams.TrigramTrainingArtifacts,
-        summary: KneserNeyTrigramTrainingSummary,
+        summary: TrainingSummary,
     ) -> dict[str, object]:
         # KN stores raw trigram rows plus continuation lower-order tables.
         continuation_counts = collect_kneser_ney_continuation_counts(
@@ -213,14 +213,14 @@ def train(
             stored_tokenizer_model=stored_tokenizer_model,
             text_normalization=text_normalization,
         ),
-        summary_type=KneserNeyTrigramTrainingSummary,
+        summary_type=TrainingSummary,
         summary_fields={"discount": discount},
         extra_payload=payload,
     )
 
 
 def format_summary(
-    summary: KneserNeyTrigramTrainingSummary,
+    summary: TrainingSummary,
 ) -> list[tuple[str, str]]:
     return [
         *trigrams.base_training_summary_items(
@@ -238,7 +238,7 @@ def collect_kneser_ney_continuation_counts(
         defaultdict[trigrams.Context, Counter[int]]
         | dict[trigrams.Context, Counter[int]]
     ),
-) -> KneserNeyContinuationCounts:
+) -> ContinuationCounts:
     """Collapse raw trigram types into continuation-count lower-order rows."""
 
     bigram_transitions: defaultdict[int, Counter[int]] = defaultdict(Counter)
@@ -257,7 +257,7 @@ def collect_kneser_ney_continuation_counts(
             # Track the support set for c_KN(w) = N_{1+}(*, w).
             unigram_predecessors[next_id].add(previous_id)
 
-    return KneserNeyContinuationCounts(
+    return ContinuationCounts(
         unigram_counts=Counter(
             {
                 token_id: len(predecessors)
