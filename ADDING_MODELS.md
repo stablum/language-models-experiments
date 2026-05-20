@@ -7,9 +7,9 @@ This project discovers concrete language-model implementations from
 src/models/my_model.py
 ```
 
-When using the standard n-gram helper, the registered model name is derived
-from the module name by replacing underscores with hyphens. For example,
-`src/models/trigram_add_k.py` is registered as `trigram-add-k`.
+The module adapter derives the registered model name from the module name by
+replacing underscores with hyphens. For example, `src/models/trigram_add_k.py`
+is registered as `trigram-add-k`.
 
 Shared helpers that are useful to more than one model belong under
 `src/models/core`. Keep concrete model modules in `src/models`; keep reusable
@@ -116,10 +116,10 @@ return the model object. Reuse helpers such as:
 - `ngram.parse_token_transitions(...)`
 - `trigrams.parse_trigram_transitions(...)`
 
-The standard helpers derive the artifact `model_type` from `__name__`, so a
-module named `src.models.my_model` stores `model_type: "my_model"`. Do not add
-a second hand-written schema name unless you first introduce a new adapter
-convention that truly needs one.
+Pass `module_name=__name__` to the standard load helpers. They derive the
+artifact `model_type` from the module leaf, so `src.models.my_model` expects
+`model_type: "my_model"`. Do not add a second hand-written schema name unless
+you first introduce a new adapter convention that truly needs one.
 
 `train(...)`
 
@@ -132,15 +132,16 @@ parameters are:
 - `text_normalization: normalization.TextNormalization`
 
 It should train from `texts`, write one JSON model artifact to `output_path`,
-and return the training summary. Include these common artifact fields:
+and return the training summary. Simple n-gram modules normally include:
 
-- `schema_version`
-- `model_type` from `ngram.model_schema_payload(__name__)` or the standard
-  trigram helpers
-- tokenizer payload from `ngram.tokenizer_model_payload(...)` or
-  `trigrams.standard_trigram_model_payload(...)`
+- schema fields from `ngram.model_schema_payload(__name__)`
+- tokenizer fields from `ngram.tokenizer_model_payload(...)`
 - count tables or learned weights needed by the loader
 - model hyperparameters needed at query/evaluation time
+
+The standard trigram training helpers write the schema fields, tokenizer
+fields, and common trigram count tables for you. Pass `module_name=__name__`
+in the training spec and add only the extra payload fields your model needs.
 
 Model hyperparameters should be keyword-only parameters on `train(...)`. The
 adapter infers their option names by excluding the infrastructure parameters
@@ -206,7 +207,9 @@ concrete model module as the source of truth, and adapt it into
 `src.ml_core.models.definition.ModelDefinition` in the shared registry layer
 rather than adding one-off registration objects to concrete modules.
 
-The callable signatures are:
+If you add a new registry convention, adapt it into `ModelDefinition`
+callables with these signatures. These are adapter-level callables, not extra
+functions required on ordinary concrete model modules:
 
 - `train(texts, options) -> summary`
 - `validate_options(options) -> None`
