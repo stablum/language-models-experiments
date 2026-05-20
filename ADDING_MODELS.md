@@ -36,7 +36,7 @@ external services at import time.
 
 ## Usual Module Structure
 
-A typical n-gram model module should define these pieces, in this order:
+A typical n-gram model module should expose these pieces, in this order:
 
 ```python
 """Short explanation of the model and its probability estimate."""
@@ -80,17 +80,23 @@ def format_summary(summary: TrainingSummary) -> list[tuple[str, str]]:
     ...
 ```
 
+Omit the module-local `TrainingSummary` when a shared summary type already has
+all the fields the module needs. In that case, annotate `train(...)` and
+`format_summary(...)` with the shared type directly.
+
 ## Required Pieces
 
-`TrainingSummary`
+`TrainingSummary` or shared summary type
 
-Use a pydantic model, normally by inheriting from `ngram.NgramTrainingSummary`
-or `trigrams.TrigramTrainingSummary`. Add fields for summary values that should
-be printed, logged, or uploaded, such as training counts, model-family
-diagnostics, or resolved hyperparameters.
+Use the nearest shared pydantic summary type, normally
+`ngram.NgramTrainingSummary`, `trigrams.TrigramTrainingSummary`, or
+`trigrams.InterpolatedTrigramTrainingSummary`. Define a module-local
+`TrainingSummary` only when the module needs additional fields beyond that
+base. Add only those additional summary values, such as a new training count,
+model-family diagnostic, or resolved hyperparameter.
 
-Concrete model modules can use module-local names such as `TrainingSummary`
-and `Model`; the module namespace already carries the model identity.
+When a module-local summary class is needed, use a module-local name such as
+`TrainingSummary`; the module namespace already carries the model identity.
 
 `Model`
 
