@@ -229,6 +229,8 @@ ClearML artifact: data-split-plan-json
 
 Tokenizer training uses `--text-normalization lossy-ascii` by default. This keeps the learned vocabulary English-focused and ASCII-only apart from tokenizer-internal markers. Pass `--text-normalization none` when you intentionally want the tokenizer to learn from the original Unicode text.
 
+See [ADDING_TOKENIZERS.md](ADDING_TOKENIZERS.md) for the full tokenizer integration checklist.
+
 ## N-Gram Models
 
 Train a very simple autoregressive token bigram model from the reusable tokenizer:
@@ -380,7 +382,7 @@ so the project creates reusable `train` and `validation` partitions from that so
 split. Pass `--text-column translation.fr` to train on the French side of the default
 pair.
 
-To add another corpus, add a loader module under `src/corpora/` and register a new `CorpusDefinition` in `src/corpora/registry.py`.
+See [ADDING_CORPORA.md](ADDING_CORPORA.md) for the full corpus integration checklist.
 
 ## Models
 
@@ -388,7 +390,7 @@ The model training, query, and evaluation CLIs are model-generic. `bigram`, `tri
 
 See [MODELS.md](MODELS.md) for the probability formulas and brief model descriptions.
 
-To add another model, add its code under `src/models/` and expose module-level `train`, `load`, and `format_summary` functions; the model registry discovers concrete model modules automatically.
+See [ADDING_MODELS.md](ADDING_MODELS.md) for the full model integration checklist.
 
 ## ClearML
 
