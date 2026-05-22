@@ -6,17 +6,32 @@ For history ``h`` and next token ``w``, this model uses the add-k estimator
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import Counter
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 from src.corpora import normalization
-from src.models.core import ngram
+from src.models.core import counting, ngram
 from src.tokenizers import core as tok_core
 
 
 class TrainingSummary(ngram.NgramTrainingSummary):
     transition_count: int = 0  # sum_h c(h), the number of bigram events.
+
+
+class BigramCounts(counting.NgramCorpusCounts):
+    @property
+    def transitions(self) -> dict[int, Counter[int]]:
+        return counting.single_token_context_rows(self.rows(2))
+
+    @property
+    def transition_count(self) -> int:
+        return self.event_count(2)
+
+
+class TrainingArtifacts(ngram.FrozenNgramModel):
+    tokenizer: tok_core.TokenizerCodec
+    counts: BigramCounts
 
 
 class EvaluationRow(ngram.FrozenNgramModel):
@@ -95,11 +110,10 @@ class Model(ngram.BaseNgramModel):
             self.tokenizer,
             text_normalization=resolved_text_normalization,
         ):
-            summary.sequence_count += 1
-            summary.token_count += len(token_ids)
+            counting.observe_sequence(summary, token_ids)
 
-            for previous_id, next_id in zip(token_ids, token_ids[1:]):
-                summary.transition_count += 1
+            for context, next_id in counting.iter_prediction_events(token_ids, order=2):
+                previous_id = counting.single_token_context_id(context)
                 row = row_cache.get(previous_id)
                 if row is None:
                     row = self.evaluation_row(
@@ -108,7 +122,7 @@ class Model(ngram.BaseNgramModel):
                     )
                     row_cache[previous_id] = row
 
-                ngram.score_evaluation_transition(
+                counting.score_evaluation_event(
                     summary,
                     actual_token_id=next_id,
                     greedy_token_id=row.greedy_token_id,
@@ -204,35 +218,81 @@ def train(
     smoothing: float = 0.1,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> ngram.TrainingResult:
-    summary = TrainingSummary(
-        vocab_size=tokenizer.vocab_size,
+    artifacts = collect_training_artifacts(
+        texts,
+        tokenizer=tokenizer,
         text_normalization=text_normalization,
     )
-    transitions: defaultdict[int, Counter[int]] = defaultdict(Counter)  # h -> c(h, w).
-
-    for token_ids in iter_token_sequences(
-        texts,
-        tokenizer,
+    summary = TrainingSummary(
+        vocab_size=artifacts.tokenizer.vocab_size,
         text_normalization=text_normalization,
-    ):
-        summary.sequence_count += 1
-        summary.token_count += len(token_ids)
-
-        for previous_id, next_id in zip(token_ids, token_ids[1:]):
-            # previous_id is h and next_id is w in c(h, w).
-            transitions[previous_id][next_id] += 1
-            summary.transition_count += 1
+    )
+    apply_bigram_counts_to_summary(summary, artifacts.counts)
 
     return ngram.TrainingResult(
         summary=summary,
         payload={
             "smoothing": smoothing,
-            "sequence_count": summary.sequence_count,
-            "token_count": summary.token_count,
-            "transition_count": summary.transition_count,
-            "transitions": ngram.token_transition_payload(transitions),
+            **bigram_counts_payload(artifacts.counts),
         },
     )
+
+
+def collect_bigram_counts(
+    texts: Iterable[str],
+    tokenizer: tok_core.TokenizerCodec,
+    *,
+    text_normalization: normalization.TextNormalization = (
+        normalization.DEFAULT_TEXT_NORMALIZATION
+    ),
+) -> BigramCounts:
+    counts = counting.collect_ngram_counts(
+        iter_token_sequences(
+            texts,
+            tokenizer,
+            text_normalization=text_normalization,
+        ),
+        orders=(2,),
+        prediction_order=2,
+    )
+    return BigramCounts(
+        sequence_count=counts.sequence_count,
+        token_count=counts.token_count,
+        orders=counts.orders,
+    )
+
+
+def collect_training_artifacts(
+    texts: Iterable[str],
+    *,
+    tokenizer: tok_core.TokenizerCodec,
+    text_normalization: normalization.TextNormalization = (
+        normalization.DEFAULT_TEXT_NORMALIZATION
+    ),
+) -> TrainingArtifacts:
+    counts = collect_bigram_counts(
+        texts,
+        tokenizer,
+        text_normalization=text_normalization,
+    )
+    return TrainingArtifacts(tokenizer=tokenizer, counts=counts)
+
+
+def bigram_counts_payload(counts: BigramCounts) -> dict[str, object]:
+    return {
+        "sequence_count": counts.sequence_count,
+        "token_count": counts.token_count,
+        "transition_count": counts.transition_count,
+        "transitions": ngram.token_transition_payload(counts.transitions),
+    }
+
+
+def apply_bigram_counts_to_summary(
+    summary: ngram.NgramPydanticModel,
+    counts: BigramCounts,
+) -> None:
+    counting.apply_sequence_counts(summary, counts)
+    summary.transition_count = counts.transition_count
 
 
 def format_summary(summary: TrainingSummary) -> list[tuple[str, str]]:

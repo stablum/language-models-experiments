@@ -8,25 +8,43 @@ from pathlib import Path
 from typing import ClassVar, TypeVar
 
 from src.corpora import normalization
-from src.models.core import ngram
+from src.models.core import counting, ngram
 from src.tokenizers import core as tok_core
 
 
 Context = tuple[int, int]  # h = (u, v), the trigram history.
 
 
-class TrigramCounts(ngram.FrozenNgramModel):
-    sequence_count: int
-    token_count: int
-    unigram_counts: Counter[int]  # c(w), unigram event counts.
-    bigram_transitions: dict[int, Counter[int]]  # v -> c(v, w).
-    trigram_transitions: dict[Context, Counter[int]]  # (u, v) -> c(u, v, w).
-    bigram_transition_count: int  # sum_v c(v), bigram event count.
-    trigram_transition_count: int  # sum_{u,v} c(u, v), trigram event count.
+class TrigramCounts(counting.NgramCorpusCounts):
+    @property
+    def unigram_counts(self) -> Counter[int]:
+        return self.token_counts(1)
 
     @property
     def unigram_count(self) -> int:
         return sum(self.unigram_counts.values())
+
+    @property
+    def bigram_transitions(self) -> dict[int, Counter[int]]:
+        return counting.single_token_context_rows(self.rows(2))
+
+    @property
+    def trigram_transitions(self) -> dict[Context, Counter[int]]:
+        return {
+            (context[0], context[1]): next_counts
+            for context, next_counts in counting.fixed_context_rows(
+                self.rows(3),
+                context_len=2,
+            ).items()
+        }
+
+    @property
+    def bigram_transition_count(self) -> int:
+        return self.event_count(2)
+
+    @property
+    def trigram_transition_count(self) -> int:
+        return self.event_count(3)
 
 
 class TrigramTrainingArtifacts(ngram.FrozenNgramModel):
@@ -126,22 +144,20 @@ class BaseTrigramModel(ngram.BaseNgramModel):
             self.tokenizer,
             text_normalization=resolved_text_normalization,
         ):
-            summary.sequence_count += 1
-            summary.token_count += len(token_ids)
+            counting.observe_sequence(summary, token_ids)
 
-            for previous_previous_id, previous_id, next_id in zip(
+            for raw_context, next_id in counting.iter_prediction_events(
                 token_ids,
-                token_ids[1:],
-                token_ids[2:],
+                order=3,
             ):
-                summary.transition_count += 1
+                previous_previous_id, previous_id = raw_context
                 context = (previous_previous_id, previous_id)
                 row = row_cache.get(context)
                 if row is None:
                     row = self.evaluation_row(context, top_k=top_k)
                     row_cache[context] = row
 
-                ngram.score_evaluation_transition(
+                counting.score_evaluation_event(
                     summary,
                     actual_token_id=next_id,
                     greedy_token_id=row.greedy_token_id,
@@ -346,47 +362,19 @@ def collect_trigram_counts(
         normalization.DEFAULT_TEXT_NORMALIZATION
     ),
 ) -> TrigramCounts:
-    unigram_counts: Counter[int] = Counter()  # c(w).
-    bigram_transitions: defaultdict[int, Counter[int]] = defaultdict(Counter)
-    trigram_transitions: defaultdict[Context, Counter[int]] = defaultdict(Counter)
-    # bigram_transitions[v][w] is c(v, w); trigram_transitions[(u, v)][w]
-    # is c(u, v, w).
-    sequence_count = 0
-    token_count = 0
-    bigram_transition_count = 0
-    trigram_transition_count = 0
-
-    for token_ids in iter_trigram_token_sequences(
-        texts,
-        tokenizer,
-        text_normalization=text_normalization,
-    ):
-        sequence_count += 1
-        token_count += len(token_ids)
-        unigram_counts.update(token_ids[2:])
-
-        for previous_id, next_id in zip(token_ids[1:], token_ids[2:]):
-            # previous_id is v and next_id is w in c(v, w).
-            bigram_transitions[previous_id][next_id] += 1
-            bigram_transition_count += 1
-
-        for previous_previous_id, previous_id, next_id in zip(
-            token_ids,
-            token_ids[1:],
-            token_ids[2:],
-        ):
-            # previous_previous_id is u, previous_id is v, and next_id is w.
-            trigram_transitions[(previous_previous_id, previous_id)][next_id] += 1
-            trigram_transition_count += 1
-
+    counts = counting.collect_ngram_counts(
+        iter_trigram_token_sequences(
+            texts,
+            tokenizer,
+            text_normalization=text_normalization,
+        ),
+        orders=(1, 2, 3),
+        prediction_order=3,
+    )
     return TrigramCounts(
-        sequence_count=sequence_count,
-        token_count=token_count,
-        unigram_counts=unigram_counts,
-        bigram_transitions=bigram_transitions,
-        trigram_transitions=trigram_transitions,
-        bigram_transition_count=bigram_transition_count,
-        trigram_transition_count=trigram_transition_count,
+        sequence_count=counts.sequence_count,
+        token_count=counts.token_count,
+        orders=counts.orders,
     )
 
 
@@ -452,8 +440,7 @@ def apply_trigram_counts_to_summary(
     summary: ngram.NgramPydanticModel,
     counts: TrigramCounts,
 ) -> None:
-    summary.sequence_count = counts.sequence_count
-    summary.token_count = counts.token_count
+    counting.apply_sequence_counts(summary, counts)
     summary.unigram_count = counts.unigram_count
     summary.bigram_transition_count = counts.bigram_transition_count
     summary.trigram_transition_count = counts.trigram_transition_count
