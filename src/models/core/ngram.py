@@ -102,14 +102,17 @@ class NgramEvaluationSummary(NgramPydanticModel):
 
     @property
     def next_token_accuracy(self) -> float | None:
+        """Return the greedy next-token accuracy over evaluated events."""
         return divide_or_none(self.correct_next_token_count, self.transition_count)
 
     @property
     def top_k_accuracy(self) -> float | None:
+        """Return the top-k next-token accuracy over evaluated events."""
         return divide_or_none(self.top_k_correct_next_token_count, self.transition_count)
 
     @property
     def average_negative_log_likelihood(self) -> float | None:
+        """Return the mean NLL per prediction event, or infinity for zeros."""
         if self.transition_count == 0:
             return None
         if self.zero_probability_count:
@@ -118,6 +121,7 @@ class NgramEvaluationSummary(NgramPydanticModel):
 
     @property
     def cross_entropy_bits(self) -> float | None:
+        """Return the average negative log-likelihood measured in bits."""
         average_nll = self.average_negative_log_likelihood
         if average_nll is None:
             return None
@@ -125,6 +129,7 @@ class NgramEvaluationSummary(NgramPydanticModel):
 
     @property
     def perplexity(self) -> float | None:
+        """Return exp(mean NLL), the standard token-level perplexity."""
         average_nll = self.average_negative_log_likelihood
         if average_nll is None:
             return None
@@ -148,6 +153,7 @@ class BaseNgramModel(NgramPydanticModel):
 
     @property
     def cand_ids(self) -> tuple[int, ...]:
+        """Return candidate next-token IDs, excluding BOS as a target."""
         # cand = candidate next-token IDs, i.e. V without BOS.
         if not self._cand_ids:
             self._cand_ids = tuple(
@@ -159,6 +165,7 @@ class BaseNgramModel(NgramPydanticModel):
 
     @property
     def cand_id_set(self) -> frozenset[int]:
+        """Return the candidate next-token IDs as a cached membership set."""
         # cand = candidate next-token ID set for O(1) membership tests.
         if not self._cand_id_set:
             self._cand_id_set = frozenset(self.cand_ids)
@@ -166,10 +173,12 @@ class BaseNgramModel(NgramPydanticModel):
 
     @property
     def cand_count(self) -> int:
+        """Return the number of candidate next-token IDs."""
         # cand = candidate vocabulary size |V|.
         return len(self.cand_ids)
 
     def encode_prompt(self, prompt: str) -> list[int]:
+        """Normalize and tokenize a query prompt with the model tokenizer."""
         return tok_core.encode_prompt(
             self.tokenizer,
             prompt,
@@ -177,9 +186,11 @@ class BaseNgramModel(NgramPydanticModel):
         )
 
     def context_for_tokens(self, token_ids: list[int]) -> Any:
+        """Build a model-specific history context from prompt token IDs."""
         raise NotImplementedError
 
     def advance_context(self, context: Any, next_id: int) -> Any:
+        """Update a model-specific history context after generating one token."""
         raise NotImplementedError
 
     def next_token_predictions(
@@ -188,9 +199,11 @@ class BaseNgramModel(NgramPydanticModel):
         *,
         top_k: int,
     ) -> list[NgramPrediction]:
+        """Return ranked next-token predictions for a model-specific context."""
         raise NotImplementedError
 
     def query(self, cfg: NgramQueryCfg | None = None) -> NgramQueryResult:
+        """Generate a continuation and expose the initial next-token row."""
         cfg = cfg or NgramQueryCfg()
         prompt_ids = self.encode_prompt(cfg.prompt)  # ids = token IDs for prompt.
         context = self.context_for_tokens(prompt_ids)
@@ -250,6 +263,7 @@ class BaseNgramModel(NgramPydanticModel):
 
 
 def divide_or_none(numerator: int, denom: int) -> float | None:
+    """Divide counts while representing empty denominators as None."""
     if denom == 0:
         return None
     return numerator / denom
@@ -263,6 +277,7 @@ def select_next_token(
     rng: random.Random,
     temperature: float,
 ) -> int:
+    """Choose the next token according to the requested decoding policy."""
     if decoding == "most-probable":
         return most_probable_token(preds, eos_id=eos_id)
     if decoding == "sample":
@@ -275,6 +290,7 @@ def most_probable_token(
     *,
     eos_id: int,
 ) -> int:
+    """Return the highest-probability token, falling back to EOS if empty."""
     if not preds:
         return fallback_token_id(eos_id)
     return preds[0].token_id
@@ -287,6 +303,7 @@ def sample_token(
     rng: random.Random,
     temperature: float,
 ) -> int:
+    """Sample one token from temperature-scaled next-token probabilities."""
     if not preds:
         return fallback_token_id(eos_id)
     if temperature == 0:
@@ -306,10 +323,12 @@ def sample_token(
 
 
 def fallback_token_id(eos_id: int) -> int:
+    """Return a safe terminal token when a prediction row is unavailable."""
     return eos_id if eos_id >= 0 else 0
 
 
 def generation_prediction_top_k(*, decoding: DecodingMode, temperature: float) -> int:
+    """Choose how many candidates generation must request from the model."""
     # top_k=0 means "all candidates"; greedy paths only need the first row.
     if decoding == "most-probable" or temperature == 0:
         return 1
@@ -321,6 +340,7 @@ def sorted_predictions(
     *,
     top_k: int,
 ) -> list[NgramPrediction]:
+    """Sort predictions by probability and optionally truncate to top-k."""
     ranked_preds = sorted(
         preds,
         key=lambda pred: (-pred.prob, pred.token_id),
@@ -329,16 +349,19 @@ def sorted_predictions(
 
 
 def greedy_id(ranked_ids: Sequence[int], *, eos_id: int) -> int:
+    """Return the first ranked token ID, or a fallback terminal token."""
     if ranked_ids:
         return ranked_ids[0]
     return fallback_token_id(eos_id)
 
 
 def top_k_id_set(ranked_ids: Sequence[int], *, top_k: int) -> frozenset[int]:
+    """Return the top-k ranked token IDs as a membership set."""
     return frozenset(ranked_ids[:top_k]) if top_k > 0 else frozenset()
 
 
 def resolve_stored_path(stored_path: Path, model_path: Path) -> Path:
+    """Resolve artifact-relative paths beside their serialized model file."""
     if stored_path.is_absolute() or stored_path.exists():
         return stored_path
 
@@ -350,6 +373,7 @@ def resolve_stored_path(stored_path: Path, model_path: Path) -> Path:
 
 
 def model_schema_payload(module_name: str) -> dict[str, object]:
+    """Build the common schema envelope for a model artifact."""
     return {
         "schema_version": MODEL_SCHEMA_VERSION,
         "model_type": naming.model_type_from_module(module_name),
@@ -362,6 +386,7 @@ def load_json_model_payload(
     module_name: str,
     label: str | None = None,
 ) -> dict[str, Any]:
+    """Read and validate a JSON model artifact for one model module."""
     model_type = naming.model_type_from_module(module_name)
     data = json_io.read_mapping(model_path)
     if data.get("model_type") != model_type:
@@ -370,6 +395,7 @@ def load_json_model_payload(
 
 
 def write_json_model_payload(output_path: Path, model: dict[str, object]) -> None:
+    """Write a JSON model artifact to its chosen output path."""
     json_io.write_json(output_path, model)
 
 
@@ -380,6 +406,7 @@ def tokenizer_model_payload(
     stored_tokenizer_model: Path | None,
     text_normalization: normalization.TextNormalization,
 ) -> dict[str, object]:
+    """Build tokenizer metadata fields stored inside model artifacts."""
     return tok_core.tokenizer_payload(
         tokenizer,
         tokenizer_model=tokenizer_model,
@@ -392,6 +419,7 @@ def load_tokenizer_model_fields(
     data: dict[str, object],
     model_path: Path,
 ) -> dict[str, object]:
+    """Load tokenizer-dependent constructor fields from model JSON data."""
     tokenizer_model = resolve_stored_path(Path(data["tokenizer_model"]), model_path)
     tokenizer = tok_core.load_tokenizer(
         tokenizer_model,
@@ -425,6 +453,7 @@ def score_evaluation_transition(
     top_k_ids: frozenset[int],
     prob: float,
 ) -> None:
+    """Accumulate accuracy and log-loss metrics for one prediction event."""
     if actual_id == greedy_id:
         summary.correct_next_token_count += 1
     if actual_id in top_k_ids:
@@ -444,6 +473,7 @@ def add_k_prob(
     smoothing: float,
     cand_count: int,
 ) -> float:
+    """Compute the Lidstone/add-k probability for one candidate token."""
     denom = tot + smoothing * cand_count  # denom = c(h) + k |V|.
     if denom <= 0:
         return 0.0
@@ -456,6 +486,7 @@ def ml_prob(
     counts: Mapping[int, int],
     tot: int,
 ) -> float:
+    """Compute the maximum-likelihood probability for one candidate token."""
     if tot <= 0:
         return 0.0
     return counts.get(token_id, 0) / tot
@@ -469,6 +500,7 @@ def discounted_interp_prob(
     discount: float,
     lower_prob: float,
 ) -> float:
+    """Compute one discounted row probability interpolated with lower order."""
     if tot <= 0:
         return lower_prob
 
@@ -483,6 +515,7 @@ def base_training_summary_items(
     summary: NgramTrainingSummary,
     artifact_label: str,
 ) -> list[tuple[str, str]]:
+    """Format common training-summary fields for model display."""
     return [
         ("Tokenizer model file", formatting.artifact_filename(summary.tokenizer_model)),
         (artifact_label, formatting.artifact_filename(summary.output_path)),
@@ -494,6 +527,7 @@ def base_training_summary_items(
 
 
 def base_evaluation_items(summary: NgramEvaluationSummary) -> list[tuple[str, str]]:
+    """Format common evaluation artifact fields for model display."""
     return [
         ("Model file", formatting.artifact_filename(summary.model_path)),
         ("Tokenizer model file", formatting.artifact_filename(summary.tokenizer_model)),
@@ -505,6 +539,7 @@ def parse_token_transitions(
     data: dict[str, object],
     key: str,
 ) -> dict[int, tuple[tuple[int, int], ...]]:
+    """Parse sparse token transition rows from serialized JSON data."""
     return {
         int(prev_id): tuple(
             (int(next_id), int(count))
@@ -515,6 +550,7 @@ def parse_token_transitions(
 
 
 def parse_token_counts(data: dict[str, object], key: str) -> dict[int, int]:
+    """Parse serialized token-count pairs into an integer-keyed mapping."""
     return {
         int(token_id): int(count)
         for token_id, count in data[key]
@@ -524,6 +560,7 @@ def parse_token_counts(data: dict[str, object], key: str) -> dict[int, int]:
 def token_transition_payload(
     transitions: defaultdict[int, Counter[int]] | dict[int, Counter[int]],
 ) -> dict[str, list[tuple[int, int]]]:
+    """Serialize sparse transition counters into deterministic JSON rows."""
     return {
         str(prev_id): sorted(next_counts.items())
         for prev_id, next_counts in sorted(transitions.items())
@@ -531,6 +568,7 @@ def token_transition_payload(
 
 
 def token_counts_payload(counts: Counter[int] | Mapping[int, int]) -> list[tuple[int, int]]:
+    """Serialize token counts as sorted token-count pairs."""
     return sorted(counts.items())
 
 
@@ -542,6 +580,7 @@ def iter_token_sequences(
     min_length: int,
     text_normalization: normalization.TextNormalization = "none",
 ) -> Iterator[list[int]]:
+    """Yield normalized token sequences with configured BOS/EOS handling."""
     yield from tok_core.iter_token_sequences(
         texts,
         tokenizer,

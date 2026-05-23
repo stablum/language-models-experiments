@@ -22,10 +22,12 @@ class TrainingSummary(ngram.NgramTrainingSummary):
 class BigramCounts(counting.NgramCorpusCounts):
     @property
     def transitions(self) -> dict[int, Counter[int]]:
+        """Return bigram transition rows keyed by the previous token h."""
         return counting.single_token_context_rows(self.rows(2))
 
     @property
     def transition_count(self) -> int:
+        """Return the number of observed bigram prediction events."""
         return self.event_count(2)
 
 
@@ -41,9 +43,11 @@ class Model(ngram.BaseNgramModel):
     transitions: dict[int, tuple[tuple[int, int], ...]]  # h -> c(h, w).
 
     def context_for_tokens(self, token_ids: list[int]) -> int:
+        """Choose the latest token, or BOS, as the bigram history h."""
         return token_ids[-1] if token_ids else self.bos_id
 
     def advance_context(self, context: int, next_id: int) -> int:
+        """Advance the bigram history h to the generated next token w."""
         return next_id
 
     def next_token_predictions(
@@ -52,6 +56,7 @@ class Model(ngram.BaseNgramModel):
         *,
         top_k: int,
     ) -> list[ngram.NgramPrediction]:
+        """Return the top next-token probabilities for one bigram history h."""
         # prev_id is h. obs[token_id] is c(h, w) for w = token_id.
         obs = dict(self.transitions.get(prev_id, ()))
         obs_tot = sum(
@@ -91,6 +96,7 @@ class Model(ngram.BaseNgramModel):
         top_k: int = 5,
         text_normalization: normalization.TextNormalization | None = None,
     ) -> ngram.NgramEvaluationSummary:
+        """Score texts by cached bigram rows and aggregate evaluation metrics."""
         row_cache: dict[int, EvaluationRow] = {}
 
         text_norm = text_normalization or self.text_normalization
@@ -136,6 +142,7 @@ class Model(ngram.BaseNgramModel):
         *,
         top_k: int,
     ) -> EvaluationRow:
+        """Precompute one history row for repeated evaluation events."""
         # Keep only candidate next-token types w in this history row h.
         counts = {
             token_id: count
@@ -158,6 +165,7 @@ class Model(ngram.BaseNgramModel):
         *,
         counts: dict[int, int],
     ) -> list[int]:
+        """Rank candidate next-token IDs by their bigram probability."""
         if self.smoothing > 0:
             # Ranking by c(h, w) + k is equivalent to ranking by P(w | h).
             return sorted(
@@ -172,6 +180,7 @@ class Model(ngram.BaseNgramModel):
         *,
         row: EvaluationRow,
     ) -> float:
+        """Compute P(w | h) for one next token from a cached row."""
         if row.denom <= 0 or next_id not in self.cand_id_set:
             return 0.0
         # next_id is w. Return (c(h, w) + k) / denom.
@@ -179,6 +188,7 @@ class Model(ngram.BaseNgramModel):
 
 
 def load(model_path: Path) -> Model:
+    """Load a serialized bigram JSON artifact into a queryable model."""
     data = ngram.load_json_model_payload(
         model_path,
         module_name=__name__,
@@ -197,6 +207,7 @@ def iter_token_sequences(
     *,
     text_normalization: normalization.TextNormalization = "none",
 ) -> Iterator[list[int]]:
+    """Yield tokenized sentences with one BOS context token for bigrams."""
     yield from ngram.iter_token_sequences(
         texts,
         tokenizer,
@@ -213,6 +224,7 @@ def train(
     smoothing: float = 0.1,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> ngram.TrainingResult[TrainingSummary]:
+    """Collect bigram counts and return the JSON-ready training payload."""
     counts = collect_bigram_counts(
         texts,
         tokenizer=tokenizer,
@@ -246,6 +258,7 @@ def collect_bigram_counts(
         normalization.DEFAULT_TEXT_NORMALIZATION
     ),
 ) -> BigramCounts:
+    """Count c(h, w) rows for all bigram prediction events in the corpus."""
     counts = counting.collect_ngram_counts(
         iter_token_sequences(
             texts,
@@ -263,6 +276,7 @@ def collect_bigram_counts(
 
 
 def format_summary(summary: TrainingSummary) -> list[tuple[str, str]]:
+    """Format bigram training metrics for CLI and tracker display."""
     return [
         *ngram.base_training_summary_items(
             summary=summary,

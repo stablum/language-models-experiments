@@ -19,6 +19,7 @@ class NgramOrderCounts(ngram.FrozenNgramModel):
 
     @property
     def token_counts(self) -> Counter[int]:
+        """Return unigram counts as c(w) for order-1 rows."""
         if self.order != 1:
             raise ValueError("token_counts is only defined for unigram counts")
         return Counter(self.rows.get((), Counter()))
@@ -30,18 +31,22 @@ class NgramCorpusCounts(ngram.FrozenNgramModel):
     orders: dict[int, NgramOrderCounts]
 
     def order_counts(self, order: int) -> NgramOrderCounts:
+        """Return collected counts for a requested n-gram order."""
         try:
             return self.orders[order]
         except KeyError as error:
             raise KeyError(f"No counts collected for {order}-grams") from error
 
     def rows(self, order: int) -> TransitionRows:
+        """Return transition rows h -> c(h, w) for one n-gram order."""
         return self.order_counts(order).rows
 
     def event_count(self, order: int) -> int:
+        """Return the number of prediction events counted for one order."""
         return self.order_counts(order).event_count
 
     def token_counts(self, order: int = 1) -> Counter[int]:
+        """Return token counts for an order, normally unigram c(w)."""
         return self.order_counts(order).token_counts
 
 
@@ -93,6 +98,7 @@ def collect_ngram_counts(
 
 
 def normalize_orders(orders: Iterable[int], *, prediction_order: int) -> tuple[int, ...]:
+    """Validate requested count orders and return them sorted and unique."""
     if prediction_order < 1:
         raise ValueError("prediction_order must be positive")
 
@@ -118,17 +124,20 @@ def iter_prediction_events(
     *,
     order: int,
 ) -> Iterator[tuple[Context, int]]:
+    """Yield each n-gram history h with its predicted next token w."""
     for next_idx in prediction_indices(tok_ids, order=order):
         yield context_at(tok_ids, next_idx, order=order), tok_ids[next_idx]
 
 
 def prediction_indices(tok_ids: Sequence[int], *, order: int) -> range:
+    """Return sequence positions that have enough history for prediction."""
     if order < 1:
         raise ValueError("order must be positive")
     return range(order - 1, len(tok_ids))
 
 
 def context_at(tok_ids: Sequence[int], next_idx: int, *, order: int) -> Context:
+    """Return the n-gram history h immediately before one token index."""
     if order < 1:
         raise ValueError("order must be positive")
 
@@ -142,6 +151,7 @@ def observe_sequence(
     summary: ngram.NgramEvaluationSummary,
     tok_ids: Sequence[int],
 ) -> None:
+    """Update evaluation sequence and token totals for one tokenized text."""
     summary.sequence_count += 1
     summary.token_count += len(tok_ids)
 
@@ -154,6 +164,7 @@ def score_evaluation_event(
     top_k_ids: frozenset[int],
     prob: float,
 ) -> None:
+    """Update evaluation metrics for one observed next-token event."""
     summary.transition_count += 1
     ngram.score_evaluation_transition(
         summary,
@@ -167,6 +178,7 @@ def score_evaluation_event(
 def single_token_context_rows(
     rows: Mapping[Context, Counter[int]],
 ) -> dict[int, Counter[int]]:
+    """Flatten one-token context tuples into integer-keyed transition rows."""
     return {
         single_token_context_id(context): Counter(next_counts)
         for context, next_counts in rows.items()
@@ -174,6 +186,7 @@ def single_token_context_rows(
 
 
 def single_token_context_id(context: Context) -> int:
+    """Extract the token ID from a one-token history context."""
     if len(context) != 1:
         raise ValueError(f"Expected a 1-token context, got {len(context)}")
     return context[0]
