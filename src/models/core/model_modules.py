@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import io
 import inspect
+import token
+import tokenize
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from types import ModuleType
@@ -22,6 +25,8 @@ QueryResult = TypeVar("QueryResult")
 EvaluationSummary = TypeVar("EvaluationSummary")
 TrainingSummaryT = TypeVar("TrainingSummaryT", bound=ngram.NgramTrainingSummary)
 
+REGISTRY_FLAG = "REGISTER_MODEL"
+
 _TRAINING_INFRA_OPTION_NAMES = frozenset(
     (
         "tokenizer",
@@ -34,6 +39,79 @@ _TRAINING_INFRA_OPTION_NAMES = frozenset(
 _INTERPOLATION_OPTION_NAMES = frozenset(
     ("unigram_weight", "bigram_weight", "trigram_weight", "beta_2", "beta_3")
 )
+
+
+def registry_enabled(module_path: Path, *, module_name: str) -> bool:
+    return registry_enabled_from_source(
+        module_path.read_text(encoding="utf-8"),
+        module_name=module_name,
+    )
+
+
+def registry_enabled_from_source(source: str, *, module_name: str) -> bool:
+    depth = 0
+    statement: list[tokenize.TokenInfo] = []
+    stream = tokenize.generate_tokens(io.StringIO(source).readline)
+
+    try:
+        for item in stream:
+            if item.type == tokenize.INDENT:
+                depth += 1
+                continue
+            if item.type == tokenize.DEDENT:
+                depth -= 1
+                continue
+            if depth != 0 or item.type in (tokenize.COMMENT, tokenize.NL):
+                continue
+            if item.type in (tokenize.NEWLINE, tokenize.ENDMARKER):
+                enabled = registry_flag_value(statement, module_name=module_name)
+                if enabled is not None:
+                    return enabled
+                statement.clear()
+                continue
+
+            statement.append(item)
+    except tokenize.TokenError:
+        # Let importlib surface syntax errors unless the opt-out flag was already seen.
+        return True
+
+    return True
+
+
+def registry_flag_value(
+    statement: Sequence[tokenize.TokenInfo],
+    *,
+    module_name: str,
+) -> bool | None:
+    if (
+        not statement
+        or statement[0].type != tokenize.NAME
+        or statement[0].string != REGISTRY_FLAG
+    ):
+        return None
+
+    equals_idx = next(
+        (
+            idx
+            for idx, item in enumerate(statement[1:], start=1)
+            if item.exact_type == token.EQUAL
+        ),
+        None,
+    )
+    if equals_idx is None:
+        return None
+
+    value_tokens = statement[equals_idx + 1 :]
+    if (
+        len(value_tokens) == 1
+        and value_tokens[0].type == tokenize.NAME
+        and value_tokens[0].string in ("False", "True")
+    ):
+        return value_tokens[0].string == "True"
+
+    raise TypeError(
+        f"{module_name}.{REGISTRY_FLAG} must be assigned a literal bool."
+    )
 
 
 def model_definition_from_module(module: ModuleType) -> model_def.ModelDefinition | None:

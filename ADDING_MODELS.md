@@ -30,6 +30,17 @@ the conventional model functions:
 pipelines. The registered model name is derived from the module name by
 replacing underscores with hyphens.
 
+To keep a work-in-progress module in `src/models` without registering or
+importing it, add this top-level source flag:
+
+```python
+REGISTER_MODEL = False
+```
+
+The registry reads this as a discovery-time opt-out before importing the
+module. Leave the flag absent or set it to `True` when the model should be
+registered.
+
 Because the registry imports model modules during CLI startup, keep module
 top-level code side-effect free. Do not train, read large artifacts, or call
 external services at import time.
