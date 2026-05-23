@@ -82,7 +82,7 @@ Most omitted CLI options are read from [config.toml](config.toml). The precedenc
 command line option > environment variable > config.toml > built-in default
 ```
 
-The checked-in config uses the repo-local ClearML server, points the ClearML SDK at `clearml.conf`, checks ClearML endpoint connectivity before SDK task initialization, uses download/cache dataset loading by default, and leaves row limits unset for full runs. Edit `config.toml` to change everyday defaults, or point one command at another file:
+The checked-in config uses the repo-local ClearML server, points the ClearML SDK at `clearml.conf`, checks ClearML endpoint connectivity before SDK task initialization, uses download/cache dataset loading by default, and leaves row limits unset for full runs. It is currently an experiment preset: `[train]` selects `trigram-good-turing`, and `[optuna]` runs 50 trials that maximize `next_token_accuracy`. Pass `--optuna-trials 0` when you want one ordinary model-training pipeline run instead of hyperparameter optimization. Edit `config.toml` to change everyday defaults, or point one command at another file:
 
 ```powershell
 $env:LME_CONFIG_FILE = "config.smoke.toml"
@@ -115,9 +115,9 @@ else:
 
 This avoids mutable random-number-generator state entirely. Extra calls to `random` elsewhere in the program cannot shift the split assignments, and streaming the corpus does not require a precomputed list of row IDs. The split artifact stores the recipe, not the corpus rows or membership lists, so reproducibility depends on the upstream dataset ID, source split names, row order, ratio, seed, and split algorithm staying stable.
 
-Every tokenizer, training, evaluation, and pipeline stage task logs a split ID and uploads a `data-split-plan-json` artifact. Model training inherits the split plan from the resolved tokenizer task, and evaluation inherits the split plan embedded in the trained model JSON. This keeps tokenizer training, model training, and validation evaluation on the same reusable partition definition.
+Every tokenizer, training, evaluation, and pipeline stage task logs a split ID and uploads a `data-split-plan-json` artifact. Model training inherits the split plan from the resolved tokenizer task, and evaluation inherits the split plan embedded in the trained model JSON. This keeps tokenizer training, model training, and partitioned evaluation metrics on the same reusable partition definition.
 
-Evaluation defaults to the `validation` partition. To intentionally inspect training-partition metrics, pass `--evaluation-partition train`.
+The evaluation stage scores both project partitions, `train` and `validation`. `--evaluation-partition` defaults to `validation` and selects the primary partition used for unprefixed summary fields and Optuna objective lookup; partition-prefixed metrics such as `train/perplexity` and `validation/perplexity` are still recorded for both partitions.
 
 ## Corpus Stats
 
@@ -146,17 +146,17 @@ uv run python -m src.cli.tokenizer_training --streaming
 Then run language-model training, evaluation, and a final query. The model-training pipeline resolves the latest completed tokenizer-training run that matches the configured `corpus` and `tokenizer_model_name`, then downloads the tokenizer from that stage task's ClearML output model.
 
 ```powershell
-uv run python -m src.cli.model_training --model bigram --streaming
+uv run python -m src.cli.model_training --model bigram --streaming --optuna-trials 0
 ```
 
 For a quick smoke test:
 
 ```powershell
-uv run python -m src.cli.tokenizer_training --streaming --limit 50 --vocab-size 100 --artifact-name tinystories-sentencepiece-smoke --no-sentencepiece-hard-vocab-limit --clearml-tag smoke
-uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-smoke --streaming --limit 50 --clearml-tag smoke
+uv run python -m src.cli.tokenizer_training --corpus tinystories --streaming --limit 50 --vocab-size 100 --artifact-name tinystories-sentencepiece-smoke --no-sentencepiece-hard-vocab-limit --clearml-tag smoke
+uv run python -m src.cli.model_training --corpus tinystories --model bigram --tokenizer-model-name tinystories-sentencepiece-smoke --streaming --limit 50 --optuna-trials 0 --clearml-tag smoke
 ```
 
-With the checked-in defaults, this can also be shortened to:
+With the checked-in experiment preset, the bare command starts the configured Good-Turing Optuna study against the default BabyLM tokenizer model:
 
 ```powershell
 uv run python -m src.cli.model_training
@@ -185,7 +185,7 @@ Pipeline stage parameters use the same config sections as their stage CLIs: shar
 By default, the controller and step tasks execute locally through ClearML PipelineController. To enqueue the controller and step tasks on ClearML agents, pass queues explicitly:
 
 ```powershell
-uv run python -m src.cli.model_training --pipeline-queued --controller-queue services --execution-queue default
+uv run python -m src.cli.model_training --pipeline-queued --controller-queue services --execution-queue default --optuna-trials 0
 ```
 
 The controller task monitors the main non-model artifacts, and the stage tasks store model files as ClearML Models:
@@ -204,7 +204,7 @@ query debug sample: Query / result generated-text sample
 
 The `train_tokenizer` stage task is resolved from tokenizer training by `corpus` plus `tokenizer_model_name`. Among matching tokenizer-training controller runs, the newest completed run with a completed `train_tokenizer` stage and a matching output model wins. The `train_model` stage task ID is the canonical model producer for evaluation and for repeatable query pipelines; downstream stages retrieve its ClearML output model and linked tokenizer input model.
 
-Use `--training-limit` and `--evaluation-limit` when those stages should use different row counts. These limits are applied after partitioning, so they do not create overlapping train/validation slices. Use `--source-split` only when you want to restrict the source rows before partitioning; leave it unset to merge all source splits. Use `--evaluation-partition` to choose which reusable project partition is evaluated. Use `--query-prompt`, `--query-max-tokens`, `--query-decoding`, `--query-temperature`, and `--query-seed` to control the mandatory final query.
+Use `--training-limit` and `--evaluation-limit` when those stages should use different row counts. These limits are applied after partitioning, so they do not create overlapping train/validation slices. Use `--source-split` only when you want to restrict the source rows before partitioning; leave it unset to merge all source splits. Use `--evaluation-partition` to choose the primary evaluation partition for summary fields and Optuna objectives; both project partitions are evaluated. Use `--query-prompt`, `--query-max-tokens`, `--query-decoding`, `--query-temperature`, and `--query-seed` to control the mandatory final query.
 
 ## Tokenizers
 
@@ -234,10 +234,12 @@ See [ADDING_TOKENIZERS.md](docs/ADDING_TOKENIZERS.md) for the full tokenizer int
 
 ## N-Gram Models
 
+The checked-in config enables Optuna by default, so the single-run examples in this section include `--optuna-trials 0`.
+
 Train a very simple autoregressive token bigram model from the reusable tokenizer:
 
 ```powershell
-uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
+uv run python -m src.cli.model_training --corpus tinystories --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --streaming --optuna-trials 0
 ```
 
 The command stores the trained language model as a ClearML output model, links the tokenizer as a ClearML input model, and prints the model-training task ID.
@@ -253,7 +255,7 @@ The model stores readable indented JSON with sparse transition counts for `P(nex
 Train an interpolated add-k trigram model:
 
 ```powershell
-uv run python -m src.cli.model_training --model trigram-add-k --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
+uv run python -m src.cli.model_training --corpus tinystories --model trigram-add-k --tokenizer-model-name tinystories-sentencepiece-1000 --streaming --optuna-trials 0
 ```
 
 The add-k trigram model estimates `P(next_token | previous_previous_token, previous_token)` with linear interpolation over add-k smoothed unigram, bigram, and trigram probabilities. The default weights are `0.1 / 0.3 / 0.6`; adjust them with `--unigram-weight`, `--bigram-weight`, and `--trigram-weight`, or set recursive interpolation values with `--beta-2` and `--beta-3`. The model artifact records both lambdas and betas.
@@ -261,7 +263,7 @@ The add-k trigram model estimates `P(next_token | previous_previous_token, previ
 Train a Jelinek-Mercer trigram model:
 
 ```powershell
-uv run python -m src.cli.model_training --model trigram-jelinek-mercer --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
+uv run python -m src.cli.model_training --corpus tinystories --model trigram-jelinek-mercer --tokenizer-model-name tinystories-sentencepiece-1000 --streaming --optuna-trials 0
 ```
 
 The Jelinek-Mercer trigram model uses the same fixed interpolation weights over unigram, bigram, and trigram probabilities, but those component probabilities are unsmoothed maximum-likelihood estimates. It also accepts either flat lambda weights or recursive beta values.
@@ -269,7 +271,7 @@ The Jelinek-Mercer trigram model uses the same fixed interpolation weights over 
 Train an absolute-discount trigram model:
 
 ```powershell
-uv run python -m src.cli.model_training --model trigram-absolute-discount --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
+uv run python -m src.cli.model_training --corpus tinystories --model trigram-absolute-discount --tokenizer-model-name tinystories-sentencepiece-1000 --streaming --optuna-trials 0
 ```
 
 The absolute-discount trigram model subtracts a fixed discount from observed trigram counts, then backs off to an ordinary add-k smoothed bigram distribution with the reserved probability mass. The default discount is `0.75`; adjust it with `--discount`.
@@ -277,7 +279,7 @@ The absolute-discount trigram model subtracts a fixed discount from observed tri
 Train an interpolated Kneser-Ney trigram model:
 
 ```powershell
-uv run python -m src.cli.model_training --model trigram-kneser-ney --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
+uv run python -m src.cli.model_training --corpus tinystories --model trigram-kneser-ney --tokenizer-model-name tinystories-sentencepiece-1000 --streaming --optuna-trials 0
 ```
 
 This is the recursive discounted/interpolated model usually called interpolated Kneser-Ney smoothing. It discounts the trigram distribution, interpolates with a lower-order Kneser-Ney bigram distribution built from continuation counts, then recursively discounts and interpolates that lower-order distribution down to a uniform base. The default discount is `0.75`; adjust it with `--discount`.
@@ -285,7 +287,7 @@ This is the recursive discounted/interpolated model usually called interpolated 
 Train a Good-Turing trigram model:
 
 ```powershell
-uv run python -m src.cli.model_training --model trigram-good-turing --tokenizer-model-name tinystories-sentencepiece-1000 --streaming
+uv run python -m src.cli.model_training --corpus tinystories --model trigram-good-turing --tokenizer-model-name tinystories-sentencepiece-1000 --streaming --optuna-trials 0
 ```
 
 The Good-Turing model adjusts each trigram row from its count-of-counts, reserves the estimated unseen mass for unseen continuations, and recursively backs off through Good-Turing bigram and unigram distributions. It has no smoothing hyperparameter.
@@ -293,19 +295,19 @@ The Good-Turing model adjusts each trigram row from its count-of-counts, reserve
 The model-training pipeline runs one canonical query stage after model training. Configure that query with pipeline options:
 
 ```powershell
-uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --query-max-tokens 80 --query-seed 1
+uv run python -m src.cli.model_training --corpus tinystories --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --query-max-tokens 80 --query-seed 1 --optuna-trials 0
 ```
 
 Condition the sample on a prompt:
 
 ```powershell
-uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --query-prompt "Once upon" --query-max-tokens 80 --query-seed 1
+uv run python -m src.cli.model_training --corpus tinystories --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --query-prompt "Once upon" --query-max-tokens 80 --query-seed 1 --optuna-trials 0
 ```
 
 Ask for the most probable continuation after a prompt:
 
 ```powershell
-uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --query-prompt "Once upon" --query-decoding most-probable --query-max-tokens 80
+uv run python -m src.cli.model_training --corpus tinystories --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --query-prompt "Once upon" --query-decoding most-probable --query-max-tokens 80 --optuna-trials 0
 ```
 
 The same query and evaluation commands work with `--model trigram-add-k`, `--model trigram-jelinek-mercer`, `--model trigram-absolute-discount`, `--model trigram-good-turing`, or `--model trigram-kneser-ney` after training that model.
@@ -313,23 +315,23 @@ The same query and evaluation commands work with `--model trigram-add-k`, `--mod
 For repeated prompt and sampling exploration, use the query CLI. It resolves the newest completed `train_model` stage matching `model`, `corpus`, and `tokenizer_model_name`, then creates a fresh single-stage `query` pipeline for each query:
 
 ```powershell
-uv run python -m src.cli.query --model bigram --prompt "Once upon" --temperature 0.7 --seed 2
-uv run python -m src.cli.query --model bigram --prompt "Once upon" --temperature 1.2 --seed 3
+uv run python -m src.cli.query --corpus tinystories --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --prompt "Once upon" --temperature 0.7 --seed 2
+uv run python -m src.cli.query --corpus tinystories --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --prompt "Once upon" --temperature 1.2 --seed 3
 ```
 
 Use `--model-training-controller-id` to query a specific model-training run, `--model-task-id` to query a specific completed `train_model` task, or `--model-path` for a local trained model JSON. The query command normalizes prompts with the mode stored in the model file. It also prints the most likely next tokens for the prompt, with special tokens shown as labels such as `[EOS]`. ClearML stores the structured query payload as the `query-result` artifact and the generated prompt/continuation text as a `Query` / `result` Debug Samples text file. The bigram model conditions on the last prompt token; the trigram models condition on the last two prompt tokens. `--decoding most-probable` chooses the highest-probability next token at each step.
 
-The model-training pipeline also runs evaluation on the configured partition:
+The model-training pipeline also runs evaluation on both project partitions:
 
 ```powershell
-uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --evaluation-limit 1000
+uv run python -m src.cli.model_training --corpus tinystories --model bigram --tokenizer-model-name tinystories-sentencepiece-1000 --evaluation-limit 1000 --optuna-trials 0
 ```
 
-The evaluation stage reports next-token accuracy, top-k accuracy, average negative log-likelihood, cross-entropy, and perplexity on the `validation` partition by default. ClearML records the partition in the Data/Data split sections and prefixes evaluation metric series with the partition name, such as `validation/perplexity`. Pass `--evaluation-partition train` only when you intentionally want training-partition diagnostics.
+The evaluation stage reports next-token accuracy, top-k accuracy, average negative log-likelihood, cross-entropy, and perplexity for `train` and `validation`. ClearML records the primary partition in the Data and Data split parameter sections and prefixes metric series with the partition name, such as `validation/perplexity`. Pass `--evaluation-partition train` when you intentionally want training-partition metrics to drive unprefixed evaluation summary fields and Optuna objectives.
 
 ### Optuna Hyperparameter Optimization
 
-`src.cli.model_training` can run an Optuna study where each trial launches the full model-training pipeline. A successful trial always completes `train_model`, `evaluate`, and `query`; Optuna then reads the selected metric from the evaluation summary artifact. The default objective is `perplexity` with `minimize`.
+`src.cli.model_training` can run an Optuna study where each trial launches the full model-training pipeline. A successful trial always completes `train_model`, `evaluate`, and `query`; Optuna then reads the selected metric from the evaluation summary artifact. The built-in CLI defaults are zero trials, `perplexity`, and `minimize`, but the checked-in `config.toml` currently overrides them to 50 trials, `next_token_accuracy`, and `maximize`.
 
 ```powershell
 uv run python -m src.cli.model_training --streaming --limit 1000 --optuna-trials 10 --optuna-search smoothing=float:1e-4:1.0:log --optuna-search discount=float:0.1:0.95
@@ -430,13 +432,13 @@ For most experiments, refresh tokenizer training only when the corpus/tokenizer 
 
 ```powershell
 uv run python -m src.cli.tokenizer_training --streaming
-uv run python -m src.cli.model_training --model bigram --streaming
+uv run python -m src.cli.model_training --model bigram --streaming --optuna-trials 0
 ```
 
 You can also stop and resume the same model-training PipelineController run at stage boundaries. Start the model-training DAG through model training:
 
 ```powershell
-uv run python -m src.cli.model_training --run-until-stage train_model --model bigram --streaming
+uv run python -m src.cli.model_training --run-until-stage train_model --model bigram --streaming --optuna-trials 0
 ```
 
 Then resume the newest eligible controller run for evaluation or run repeatable queries from the completed model stage:
@@ -450,8 +452,8 @@ uv run python -m src.cli.query --model bigram --prompt "Once upon"
 Stage resume commands re-enqueue the controller task on the controller queue, so run a ClearML agent for queued continuation. The query command does not re-enqueue the model-training controller; it creates a new single-stage query pipeline and links it to the resolved model stage. You can disambiguate model-training runs with `--model-training-controller-id`, or use the model-training CLI directly:
 
 ```powershell
-uv run python -m src.cli.model_training --run-until-stage train_model --model bigram --streaming
-uv run python -m src.cli.model_training --pipeline-queued --no-wait --run-stage evaluate --model bigram --streaming
+uv run python -m src.cli.model_training --run-until-stage train_model --model bigram --streaming --optuna-trials 0
+uv run python -m src.cli.model_training --pipeline-queued --no-wait --run-stage evaluate --model bigram --streaming --optuna-trials 0
 ```
 
 The pipeline, stage, and query CLIs connect options as grouped ClearML hyperparameter sections, report final metrics, upload useful non-model artifacts, and register trained tokenizer/model files as ClearML Models. Pipeline stage identity comes from the controller task plus child task names and `parent` links, not custom stage tags. Evaluation metrics in ClearML are partition-prefixed, split plans are uploaded as `data-split-plan-json`, and query stages publish generated-text samples under Debug Samples. Use `--clearml-project`, `--pipeline-name`, `--tokenizer-training-name`, `--model-training-name`, `--pipeline-version`, `--clearml-config-file`, `--clearml-output-uri`, and repeated `--clearml-tag` options to customize the pipeline runs.
@@ -465,8 +467,8 @@ uv sync
 docker compose -f docker-compose.clearml.yml up -d
 Copy-Item clearml.local.conf.example clearml.conf
 
-uv run python -m src.cli.tokenizer_training --streaming --limit 50 --vocab-size 100 --artifact-name tinystories-sentencepiece-smoke --no-sentencepiece-hard-vocab-limit --clearml-tag smoke
-uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-sentencepiece-smoke --streaming --limit 50 --clearml-tag smoke
+uv run python -m src.cli.tokenizer_training --corpus tinystories --streaming --limit 50 --vocab-size 100 --artifact-name tinystories-sentencepiece-smoke --no-sentencepiece-hard-vocab-limit --clearml-tag smoke
+uv run python -m src.cli.model_training --corpus tinystories --model bigram --tokenizer-model-name tinystories-sentencepiece-smoke --streaming --limit 50 --optuna-trials 0 --clearml-tag smoke
 ```
 
 Expected result:

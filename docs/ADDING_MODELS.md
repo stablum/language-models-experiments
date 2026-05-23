@@ -194,9 +194,9 @@ pass through any matching CLI/pipeline option.
 If the model needs a brand-new hyperparameter, add it consistently in:
 
 - `src/pipelines/language_model/model_options.py`
-- `src/cli/model_training.py`
-- `src/cli/train.py`
+- `src/cli/options.py`
 - `src/cli/model_training_flow.py`
+- `src/cli/train.py`
 - `src/cli/model_training_defaults.py`
 - `src/pipelines/language_model/artifacts.py` when it should be logged
 - `src/pipelines/language_model/optuna.py` when it should be searchable

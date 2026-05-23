@@ -190,13 +190,13 @@ Prefer writing explicit metadata when the file format allows it.
 After adding the algorithm, run a small tokenizer-training job:
 
 ```powershell
-uv run python -m src.cli.tokenizer_training --streaming --limit 50 --vocab-size 100 --tokenizer-algo my-tokenizer --artifact-name tinystories-my-tokenizer-smoke
+uv run python -m src.cli.tokenizer_training --corpus tinystories --streaming --limit 50 --vocab-size 100 --tokenizer-algo my-tokenizer --artifact-name tinystories-my-tokenizer-smoke
 ```
 
 Then train a tiny model from the new tokenizer:
 
 ```powershell
-uv run python -m src.cli.model_training --model bigram --tokenizer-model-name tinystories-my-tokenizer-smoke --streaming --limit 50
+uv run python -m src.cli.model_training --corpus tinystories --model bigram --tokenizer-model-name tinystories-my-tokenizer-smoke --streaming --limit 50 --optuna-trials 0
 ```
 
 Check that:
