@@ -298,7 +298,7 @@ def train(
     *,
     tokenizer: tok_core.TokenizerCodec,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
-) -> ngram.TrainingResult:
+) -> ngram.TrainingResult[trigrams.TrigramTrainingSummary]:
     return trigrams.train_counted_trigram_model(
         texts,
         tokenizer,

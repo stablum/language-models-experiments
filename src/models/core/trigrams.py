@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
-from typing import ClassVar, TypeVar
+from typing import ClassVar, Protocol, TypeVar
 
 from src.corpora import normalization
 from src.models.core import counting, ngram
@@ -59,6 +59,10 @@ class TrigramTrainingSummary(ngram.NgramTrainingSummary):
 
 
 SummaryT = TypeVar("SummaryT", bound=TrigramTrainingSummary)
+
+
+class DiscountSummary(Protocol):
+    discount: float  # D, the absolute discount.
 
 
 class InterpolatedTrigramTrainingSummary(TrigramTrainingSummary):
@@ -404,7 +408,7 @@ def train_counted_trigram_model(
     extra_payload: (
         Callable[[TrigramTrainingArtifacts, SummaryT], Mapping[str, object]] | None
     ) = None,
-) -> ngram.TrainingResult:
+) -> ngram.TrainingResult[SummaryT]:
     artifacts = collect_training_artifacts(
         texts,
         tokenizer=tokenizer,
@@ -420,7 +424,7 @@ def train_counted_trigram_model(
     if extra_payload is not None:
         model.update(extra_payload(artifacts, summary))
 
-    return ngram.TrainingResult(summary=summary, payload=model)
+    return ngram.TrainingResult[SummaryT](summary=summary, payload=model)
 
 
 def trigram_counts_payload(counts: TrigramCounts) -> dict[str, object]:
@@ -437,7 +441,7 @@ def trigram_counts_payload(counts: TrigramCounts) -> dict[str, object]:
 
 
 def apply_trigram_counts_to_summary(
-    summary: ngram.NgramPydanticModel,
+    summary: SummaryT,
     counts: TrigramCounts,
 ) -> None:
     counting.apply_sequence_counts(summary, counts)
@@ -448,7 +452,7 @@ def apply_trigram_counts_to_summary(
 
 def base_training_summary_items(
     *,
-    summary: ngram.NgramPydanticModel,
+    summary: TrigramTrainingSummary,
     artifact_label: str,
 ) -> list[tuple[str, str]]:
     return [
@@ -459,7 +463,7 @@ def base_training_summary_items(
     ]
 
 
-def discount_item(summary: ngram.NgramPydanticModel) -> tuple[str, str]:
+def discount_item(summary: DiscountSummary) -> tuple[str, str]:
     return "Discount", f"{summary.discount:.3f}"
 
 

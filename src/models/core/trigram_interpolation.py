@@ -159,7 +159,7 @@ def train_interpolated_trigram_model(
     params: InterpolationParams,
     text_normalization: normalization.TextNormalization,
     extra_model_payload: Mapping[str, object] | None = None,
-) -> ngram.TrainingResult:
+) -> ngram.TrainingResult[trigrams.InterpolatedTrigramTrainingSummary]:
     artifacts = trigrams.collect_training_artifacts(
         texts,
         tokenizer=tokenizer,
@@ -182,7 +182,10 @@ def train_interpolated_trigram_model(
         **payload(summary),
     }
 
-    return ngram.TrainingResult(summary=summary, payload=model)
+    return ngram.TrainingResult[trigrams.InterpolatedTrigramTrainingSummary](
+        summary=summary,
+        payload=model,
+    )
 
 
 def validate_options(options: model_def.ModelOptions) -> None:

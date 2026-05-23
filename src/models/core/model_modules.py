@@ -6,7 +6,7 @@ import inspect
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, TypeGuard, TypeVar
 
 from src.corpora import normalization
 from src.ml_core.models import definition as model_def
@@ -20,6 +20,7 @@ from src.tokenizers import core as tok_core
 LoadedModel = TypeVar("LoadedModel")
 QueryResult = TypeVar("QueryResult")
 EvaluationSummary = TypeVar("EvaluationSummary")
+TrainingSummaryT = TypeVar("TrainingSummaryT", bound=ngram.NgramTrainingSummary)
 
 _TRAINING_INFRA_OPTION_NAMES = frozenset(
     (
@@ -91,7 +92,7 @@ def inferred_training_options_validator(
 def model_definition(
     *,
     module_name: str,
-    train_model: Callable[..., ngram.TrainingResult],
+    train_model: Callable[..., ngram.TrainingResult[Any]],
     load_model: Callable[[Path], LoadedModel],
     summary_items: model_def.SummaryFormatter,
     training_option_names: Sequence[str] = (),
@@ -184,7 +185,7 @@ def model_label_from_name(name: str) -> str:
 
 
 def save_training_result(
-    result: ngram.TrainingResult,
+    result: ngram.TrainingResult[TrainingSummaryT],
     *,
     module_name: str,
     output_path: Path,
@@ -192,7 +193,7 @@ def save_training_result(
     stored_tokenizer_model: Path | None,
     tokenizer: tok_core.TokenizerCodec,
     text_normalization: normalization.TextNormalization,
-) -> ngram.NgramTrainingSummary:
+) -> TrainingSummaryT:
     schema_payload = ngram.model_schema_payload(module_name)
     tokenizer_payload = ngram.tokenizer_model_payload(
         tokenizer,
@@ -314,7 +315,9 @@ def evaluation_param_items(
     return []
 
 
-def has_interpolation_params(summary: ngram.NgramEvaluationSummary) -> bool:
+def has_interpolation_params(
+    summary: ngram.NgramEvaluationSummary,
+) -> TypeGuard[interp.InterpolationSummary]:
     return all(
         hasattr(summary, name)
         for name in ("unigram_weight", "bigram_weight", "trigram_weight")

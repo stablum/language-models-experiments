@@ -71,7 +71,7 @@ def train(
         normalization.DEFAULT_TEXT_NORMALIZATION
     ),
     # model hyperparameters go here
-) -> ngram.TrainingResult:
+) -> ngram.TrainingResult[TrainingSummary]:
     ...
 
 
@@ -138,9 +138,9 @@ parameters are:
 - `tokenizer: tok_core.TokenizerCodec`
 - `text_normalization: normalization.TextNormalization`
 
-It should train from `texts` and return `ngram.TrainingResult`, which contains
-the training summary and the module-owned JSON payload. Simple n-gram payloads
-normally include:
+It should train from `texts` and return `ngram.TrainingResult[SummaryType]`,
+which contains the training summary and the module-owned JSON payload. Simple
+n-gram payloads normally include:
 
 - count tables or learned weights needed by the loader
 - model hyperparameters needed at query/evaluation time

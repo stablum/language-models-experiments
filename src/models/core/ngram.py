@@ -7,7 +7,7 @@ import random
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Generic, Literal, TypeVar
 
 import pydantic
 
@@ -79,8 +79,11 @@ class NgramTrainingSummary(NgramPydanticModel):
     text_normalization: str = "none"
 
 
-class TrainingResult(NgramPydanticModel):
-    summary: NgramTrainingSummary
+TrainingSummaryT = TypeVar("TrainingSummaryT", bound=NgramTrainingSummary)
+
+
+class TrainingResult(NgramPydanticModel, Generic[TrainingSummaryT]):
+    summary: TrainingSummaryT
     payload: dict[str, object]
 
 
@@ -501,7 +504,7 @@ def discounted_interpolation_probability(
 
 def base_training_summary_items(
     *,
-    summary: NgramPydanticModel,
+    summary: NgramTrainingSummary,
     artifact_label: str,
 ) -> list[tuple[str, str]]:
     return [

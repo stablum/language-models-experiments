@@ -181,7 +181,7 @@ def train(
     tokenizer: tok_core.TokenizerCodec,
     discount: float = 0.75,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
-) -> ngram.TrainingResult:
+) -> ngram.TrainingResult[TrainingSummary]:
     def payload(
         artifacts: trigrams.TrigramTrainingArtifacts,
         summary: TrainingSummary,

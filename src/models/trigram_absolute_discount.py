@@ -103,7 +103,7 @@ def train(
     smoothing: float = 0.1,
     discount: float = 0.75,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
-) -> ngram.TrainingResult:
+) -> ngram.TrainingResult[TrainingSummary]:
     def payload(
         _artifacts: trigrams.TrigramTrainingArtifacts,
         summary: TrainingSummary,

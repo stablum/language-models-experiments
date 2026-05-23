@@ -217,7 +217,7 @@ def train(
     tokenizer: tok_core.TokenizerCodec,
     smoothing: float = 0.1,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
-) -> ngram.TrainingResult:
+) -> ngram.TrainingResult[TrainingSummary]:
     artifacts = collect_training_artifacts(
         texts,
         tokenizer=tokenizer,
@@ -229,7 +229,7 @@ def train(
     )
     apply_bigram_counts_to_summary(summary, artifacts.counts)
 
-    return ngram.TrainingResult(
+    return ngram.TrainingResult[TrainingSummary](
         summary=summary,
         payload={
             "smoothing": smoothing,
@@ -288,7 +288,7 @@ def bigram_counts_payload(counts: BigramCounts) -> dict[str, object]:
 
 
 def apply_bigram_counts_to_summary(
-    summary: ngram.NgramPydanticModel,
+    summary: TrainingSummary,
     counts: BigramCounts,
 ) -> None:
     counting.apply_sequence_counts(summary, counts)

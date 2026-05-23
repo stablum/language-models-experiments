@@ -67,7 +67,7 @@ def train(
     beta_2: float | None = None,
     beta_3: float | None = None,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
-) -> ngram.TrainingResult:
+) -> ngram.TrainingResult[trigrams.InterpolatedTrigramTrainingSummary]:
     # lambda_i are stored as weights; beta_i are an equivalent recursive form.
     interpolation = interp.resolve_params(
         unigram_weight=unigram_weight,

@@ -139,7 +139,7 @@ def context_at(token_ids: Sequence[int], next_idx: int, *, order: int) -> Contex
 
 
 def apply_sequence_counts(
-    summary: ngram.NgramPydanticModel,
+    summary: ngram.NgramTrainingSummary,
     counts: NgramCorpusCounts,
 ) -> None:
     summary.sequence_count = counts.sequence_count
@@ -147,7 +147,7 @@ def apply_sequence_counts(
 
 
 def observe_sequence(
-    summary: ngram.NgramPydanticModel,
+    summary: ngram.NgramEvaluationSummary,
     token_ids: Sequence[int],
 ) -> None:
     summary.sequence_count += 1
