@@ -59,7 +59,7 @@ class Model(ngram.BaseNgramModel):
             for token_id in self.candidate_ids
         )
         candidate_count = self.candidate_count  # |V|, excluding BOS.
-        denominator = observed_total + self.smoothing * candidate_count
+        denominator = observed_total + self.smoothing * candidate_count  # c(h) + k |V|.
 
         if denominator <= 0:
             return []
