@@ -149,7 +149,11 @@ class BaseNgramModel(NgramPydanticModel):
     @property
     def candidate_ids(self) -> tuple[int, ...]:
         if not self._candidate_ids:
-            self._candidate_ids = candidate_token_ids(self.vocab_size, self.bos_id)
+            self._candidate_ids = tuple(
+                token_id
+                for token_id in range(self.vocab_size)
+                if token_id != self.bos_id
+            )
         return self._candidate_ids
 
     @property
@@ -195,7 +199,8 @@ class BaseNgramModel(NgramPydanticModel):
             decoding=resolved_cfg.decoding,
             temperature=resolved_cfg.temperature,
         )
-        rng = seeded_rng(resolved_cfg.seed)
+        # Deterministic text sampling RNG; not used for secrets or security choices.
+        rng = random.Random(resolved_cfg.seed)  # nosec B311
         token_ids = list(prompt_token_ids)
         generated_token_ids: list[int] = []
 
@@ -245,10 +250,6 @@ def divide_or_none(numerator: int, denominator: int) -> float | None:
     if denominator == 0:
         return None
     return numerator / denominator
-
-
-def candidate_token_ids(vocab_size: int, bos_id: int) -> tuple[int, ...]:
-    return tuple(token_id for token_id in range(vocab_size) if token_id != bos_id)
 
 
 def select_next_token(
@@ -301,11 +302,6 @@ def sample_token(
     )[0]
 
 
-def seeded_rng(seed: int | None) -> random.Random:
-    # Deterministic text sampling RNG; not used for secrets or security choices.
-    return random.Random(seed)  # nosec B311
-
-
 def fallback_token_id(eos_id: int) -> int:
     return eos_id if eos_id >= 0 else 0
 
@@ -317,16 +313,15 @@ def generation_prediction_top_k(*, decoding: DecodingMode, temperature: float) -
     return 0
 
 
-def prediction_sort_key(prediction: NgramPrediction) -> tuple[float, int]:
-    return -prediction.probability, prediction.token_id
-
-
 def sorted_predictions(
     predictions: Iterable[NgramPrediction],
     *,
     top_k: int,
 ) -> list[NgramPrediction]:
-    ranked_predictions = sorted(predictions, key=prediction_sort_key)
+    ranked_predictions = sorted(
+        predictions,
+        key=lambda prediction: (-prediction.probability, prediction.token_id),
+    )
     return ranked_predictions[:top_k] if top_k > 0 else ranked_predictions
 
 
@@ -338,17 +333,6 @@ def greedy_token_id(ranked_token_ids: Sequence[int], *, eos_id: int) -> int:
 
 def top_k_token_id_set(ranked_token_ids: Sequence[int], *, top_k: int) -> frozenset[int]:
     return frozenset(ranked_token_ids[:top_k]) if top_k > 0 else frozenset()
-
-
-def load_pieces(
-    data: dict[str, object],
-    tokenizer: tok_core.TokenizerCodec,
-    vocab_size: int,
-) -> tuple[str, ...]:
-    stored_pieces = data.get("pieces")
-    if stored_pieces:
-        return tuple(str(piece) for piece in stored_pieces)
-    return tuple(tokenizer.id_to_piece(index) for index in range(vocab_size))
 
 
 def resolve_stored_path(stored_path: Path, model_path: Path) -> Path:
@@ -401,44 +385,33 @@ def tokenizer_model_payload(
     )
 
 
-def tokenizer_model_fields(
-    data: dict[str, object],
-    tokenizer: tok_core.TokenizerCodec,
-    vocab_size: int,
-) -> dict[str, object]:
-    return {
-        "vocab_size": vocab_size,
-        "bos_id": int(data["bos_id"]),
-        "eos_id": int(data["eos_id"]),
-        "unk_id": int(data["unk_id"]),
-        "pieces": load_pieces(data, tokenizer, vocab_size),
-        "text_normalization": str(data.get("text_normalization", "none")),
-    }
-
-
 def load_tokenizer_model_fields(
     data: dict[str, object],
     model_path: Path,
 ) -> dict[str, object]:
-    tokenizer_model, tokenizer, vocab_size = load_tokenizer_from_payload(data, model_path)
-    return {
-        "model_path": model_path,
-        "tokenizer_model": tokenizer_model,
-        "tokenizer": tokenizer,
-        **tokenizer_model_fields(data, tokenizer, vocab_size),
-    }
-
-
-def load_tokenizer_from_payload(
-    data: dict[str, object],
-    model_path: Path,
-) -> tuple[Path, tok_core.TokenizerCodec, int]:
     tokenizer_model = resolve_stored_path(Path(data["tokenizer_model"]), model_path)
     tokenizer = tok_core.load_tokenizer(
         tokenizer_model,
         tokenizer_algo=str(data["tokenizer_algo"]) if data.get("tokenizer_algo") else None,
     )
-    return tokenizer_model, tokenizer, int(data.get("vocab_size", tokenizer.vocab_size))
+    vocab_size = int(data.get("vocab_size", tokenizer.vocab_size))
+    stored_pieces = data.get("pieces")
+    pieces = (
+        tuple(str(piece) for piece in stored_pieces)
+        if stored_pieces
+        else tuple(tokenizer.id_to_piece(index) for index in range(vocab_size))
+    )
+    return {
+        "model_path": model_path,
+        "tokenizer_model": tokenizer_model,
+        "tokenizer": tokenizer,
+        "vocab_size": vocab_size,
+        "bos_id": int(data["bos_id"]),
+        "eos_id": int(data["eos_id"]),
+        "unk_id": int(data["unk_id"]),
+        "pieces": pieces,
+        "text_normalization": str(data.get("text_normalization", "none")),
+    }
 
 
 def score_evaluation_transition(

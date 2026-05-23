@@ -160,13 +160,14 @@ def train_interpolated_trigram_model(
     text_normalization: normalization.TextNormalization,
     extra_model_payload: Mapping[str, object] | None = None,
 ) -> ngram.TrainingResult[trigrams.InterpolatedTrigramTrainingSummary]:
-    artifacts = trigrams.collect_training_artifacts(
+    counts = trigrams.collect_trigram_counts(
         texts,
         tokenizer=tokenizer,
         text_normalization=text_normalization,
     )
     summary = trigrams.InterpolatedTrigramTrainingSummary(
-        vocab_size=artifacts.tokenizer.vocab_size,
+        vocab_size=tokenizer.vocab_size,
+        **trigrams.trigram_summary_fields(counts),
         unigram_weight=params.unigram_weight,
         bigram_weight=params.bigram_weight,
         trigram_weight=params.trigram_weight,
@@ -174,10 +175,9 @@ def train_interpolated_trigram_model(
         beta_3=params.beta_3,
         text_normalization=text_normalization,
     )
-    trigrams.apply_trigram_counts_to_summary(summary, artifacts.counts)
 
     model = {
-        **trigrams.trigram_counts_payload(artifacts.counts),
+        **trigrams.trigram_counts_payload(counts),
         **dict(extra_model_payload or {}),
         **payload(summary),
     }
@@ -252,20 +252,16 @@ def parse_fields(data: dict[str, object]) -> dict[str, object]:
     return fields
 
 
-def weight_item(summary: InterpolationSummary) -> tuple[str, str]:
-    return (
-        "Interpolation weights",
-        formatting.format_interpolation_weights(
-            unigram_weight=summary.unigram_weight,
-            bigram_weight=summary.bigram_weight,
-            trigram_weight=summary.trigram_weight,
-        ),
-    )
-
-
 def items(summary: InterpolationSummary) -> list[tuple[str, str]]:
     beta_2, beta_3 = betas(summary)
     return [
-        weight_item(summary),
+        (
+            "Interpolation weights",
+            formatting.format_interpolation_weights(
+                unigram_weight=summary.unigram_weight,
+                bigram_weight=summary.bigram_weight,
+                trigram_weight=summary.trigram_weight,
+            ),
+        ),
         ("Interpolation betas", f"beta_2={beta_2:.3f}, beta_3={beta_3:.3f}"),
     ]

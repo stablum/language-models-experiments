@@ -30,13 +30,12 @@ class TrigramCounts(counting.NgramCorpusCounts):
 
     @property
     def trigram_transitions(self) -> dict[Context, Counter[int]]:
-        return {
-            (context[0], context[1]): next_counts
-            for context, next_counts in counting.fixed_context_rows(
-                self.rows(3),
-                context_len=2,
-            ).items()
-        }
+        transitions: dict[Context, Counter[int]] = {}
+        for context, next_counts in self.rows(3).items():
+            if len(context) != 2:
+                raise ValueError(f"Expected a 2-token context, got {len(context)}")
+            transitions[(context[0], context[1])] = Counter(next_counts)
+        return transitions
 
     @property
     def bigram_transition_count(self) -> int:
@@ -45,11 +44,6 @@ class TrigramCounts(counting.NgramCorpusCounts):
     @property
     def trigram_transition_count(self) -> int:
         return self.event_count(3)
-
-
-class TrigramTrainingArtifacts(ngram.FrozenNgramModel):
-    tokenizer: tok_core.TokenizerCodec
-    counts: TrigramCounts
 
 
 class TrigramTrainingSummary(ngram.NgramTrainingSummary):
@@ -382,22 +376,6 @@ def collect_trigram_counts(
     )
 
 
-def collect_training_artifacts(
-    texts: Iterable[str],
-    *,
-    tokenizer: tok_core.TokenizerCodec,
-    text_normalization: normalization.TextNormalization = (
-        normalization.DEFAULT_TEXT_NORMALIZATION
-    ),
-) -> TrigramTrainingArtifacts:
-    counts = collect_trigram_counts(
-        texts,
-        tokenizer,
-        text_normalization=text_normalization,
-    )
-    return TrigramTrainingArtifacts(tokenizer=tokenizer, counts=counts)
-
-
 def train_counted_trigram_model(
     texts: Iterable[str],
     tokenizer: tok_core.TokenizerCodec,
@@ -406,23 +384,23 @@ def train_counted_trigram_model(
     summary_type: type[SummaryT],
     summary_fields: Mapping[str, object] | None = None,
     extra_payload: (
-        Callable[[TrigramTrainingArtifacts, SummaryT], Mapping[str, object]] | None
+        Callable[[TrigramCounts, SummaryT], Mapping[str, object]] | None
     ) = None,
 ) -> ngram.TrainingResult[SummaryT]:
-    artifacts = collect_training_artifacts(
+    counts = collect_trigram_counts(
         texts,
         tokenizer=tokenizer,
         text_normalization=text_normalization,
     )
     summary = summary_type(
-        vocab_size=artifacts.tokenizer.vocab_size,
+        vocab_size=tokenizer.vocab_size,
         text_normalization=text_normalization,
+        **trigram_summary_fields(counts),
         **dict(summary_fields or {}),
     )
-    apply_trigram_counts_to_summary(summary, artifacts.counts)
-    model = trigram_counts_payload(artifacts.counts)
+    model = trigram_counts_payload(counts)
     if extra_payload is not None:
-        model.update(extra_payload(artifacts, summary))
+        model.update(extra_payload(counts, summary))
 
     return ngram.TrainingResult[SummaryT](summary=summary, payload=model)
 
@@ -440,14 +418,14 @@ def trigram_counts_payload(counts: TrigramCounts) -> dict[str, object]:
     }
 
 
-def apply_trigram_counts_to_summary(
-    summary: SummaryT,
-    counts: TrigramCounts,
-) -> None:
-    counting.apply_sequence_counts(summary, counts)
-    summary.unigram_count = counts.unigram_count
-    summary.bigram_transition_count = counts.bigram_transition_count
-    summary.trigram_transition_count = counts.trigram_transition_count
+def trigram_summary_fields(counts: TrigramCounts) -> dict[str, int]:
+    return {
+        "sequence_count": counts.sequence_count,
+        "token_count": counts.token_count,
+        "unigram_count": counts.unigram_count,
+        "bigram_transition_count": counts.bigram_transition_count,
+        "trigram_transition_count": counts.trigram_transition_count,
+    }
 
 
 def base_training_summary_items(
@@ -495,7 +473,7 @@ def context_transition_payload(
     transitions: defaultdict[Context, Counter[int]] | dict[Context, Counter[int]],
 ) -> dict[str, list[tuple[int, int]]]:
     return {
-        context_key(previous_previous_id, previous_id): sorted(next_counts.items())
+        f"{previous_previous_id},{previous_id}": sorted(next_counts.items())
         for (
             previous_previous_id,
             previous_id,
@@ -507,13 +485,14 @@ def parse_context_transitions(
     data: dict[str, object],
     key: str,
 ) -> dict[Context, tuple[tuple[int, int], ...]]:
-    return {
-        parse_context_key(context_key): tuple(
+    transitions: dict[Context, tuple[tuple[int, int], ...]] = {}
+    for raw_context, next_counts in data[key].items():
+        previous_previous_id, previous_id = raw_context.split(",", maxsplit=1)
+        transitions[(int(previous_previous_id), int(previous_id))] = tuple(
             (int(next_id), int(count))
             for next_id, count in next_counts
         )
-        for context_key, next_counts in data[key].items()
-    }
+    return transitions
 
 
 def iter_trigram_token_sequences(
@@ -529,12 +508,3 @@ def iter_trigram_token_sequences(
         min_length=3,
         text_normalization=text_normalization,
     )
-
-
-def context_key(previous_previous_id: int, previous_id: int) -> str:
-    return f"{previous_previous_id},{previous_id}"
-
-
-def parse_context_key(key: str) -> Context:
-    previous_previous_id, previous_id = key.split(",", maxsplit=1)
-    return int(previous_previous_id), int(previous_id)

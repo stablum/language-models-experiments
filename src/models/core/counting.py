@@ -138,14 +138,6 @@ def context_at(token_ids: Sequence[int], next_idx: int, *, order: int) -> Contex
     return tuple(token_ids[context_start:next_idx])
 
 
-def apply_sequence_counts(
-    summary: ngram.NgramTrainingSummary,
-    counts: NgramCorpusCounts,
-) -> None:
-    summary.sequence_count = counts.sequence_count
-    summary.token_count = counts.token_count
-
-
 def observe_sequence(
     summary: ngram.NgramEvaluationSummary,
     token_ids: Sequence[int],
@@ -185,20 +177,3 @@ def single_token_context_id(context: Context) -> int:
     if len(context) != 1:
         raise ValueError(f"Expected a 1-token context, got {len(context)}")
     return context[0]
-
-
-def fixed_context_rows(
-    rows: Mapping[Context, Counter[int]],
-    *,
-    context_len: int,
-) -> dict[Context, Counter[int]]:
-    fixed_rows: dict[Context, Counter[int]] = {}
-    for context, next_counts in rows.items():
-        require_context_len(context, context_len)
-        fixed_rows[context] = Counter(next_counts)
-    return fixed_rows
-
-
-def require_context_len(context: Context, context_len: int) -> None:
-    if len(context) != context_len:
-        raise ValueError(f"Expected a {context_len}-token context, got {len(context)}")

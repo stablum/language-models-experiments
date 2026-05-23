@@ -183,12 +183,12 @@ def train(
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> ngram.TrainingResult[TrainingSummary]:
     def payload(
-        artifacts: trigrams.TrigramTrainingArtifacts,
+        counts: trigrams.TrigramCounts,
         summary: TrainingSummary,
     ) -> dict[str, object]:
         # KN stores raw trigram rows plus continuation lower-order tables.
         continuation_counts = collect_kneser_ney_continuation_counts(
-            artifacts.counts.trigram_transitions,
+            counts.trigram_transitions,
         )
         summary.continuation_unigram_count = continuation_counts.unigram_count
         summary.continuation_bigram_type_count = continuation_counts.bigram_type_count

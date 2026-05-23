@@ -29,11 +29,6 @@ class BigramCounts(counting.NgramCorpusCounts):
         return self.event_count(2)
 
 
-class TrainingArtifacts(ngram.FrozenNgramModel):
-    tokenizer: tok_core.TokenizerCodec
-    counts: BigramCounts
-
-
 class EvaluationRow(ngram.FrozenNgramModel):
     counts: dict[int, int]  # c(h, w), counts for one previous-token history h.
     denominator: float  # c(h) + k |V|, the add-k normalizer.
@@ -218,22 +213,27 @@ def train(
     smoothing: float = 0.1,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> ngram.TrainingResult[TrainingSummary]:
-    artifacts = collect_training_artifacts(
+    counts = collect_bigram_counts(
         texts,
         tokenizer=tokenizer,
         text_normalization=text_normalization,
     )
     summary = TrainingSummary(
-        vocab_size=artifacts.tokenizer.vocab_size,
+        vocab_size=tokenizer.vocab_size,
+        sequence_count=counts.sequence_count,
+        token_count=counts.token_count,
+        transition_count=counts.transition_count,
         text_normalization=text_normalization,
     )
-    apply_bigram_counts_to_summary(summary, artifacts.counts)
 
     return ngram.TrainingResult[TrainingSummary](
         summary=summary,
         payload={
             "smoothing": smoothing,
-            **bigram_counts_payload(artifacts.counts),
+            "sequence_count": counts.sequence_count,
+            "token_count": counts.token_count,
+            "transition_count": counts.transition_count,
+            "transitions": ngram.token_transition_payload(counts.transitions),
         },
     )
 
@@ -260,39 +260,6 @@ def collect_bigram_counts(
         token_count=counts.token_count,
         orders=counts.orders,
     )
-
-
-def collect_training_artifacts(
-    texts: Iterable[str],
-    *,
-    tokenizer: tok_core.TokenizerCodec,
-    text_normalization: normalization.TextNormalization = (
-        normalization.DEFAULT_TEXT_NORMALIZATION
-    ),
-) -> TrainingArtifacts:
-    counts = collect_bigram_counts(
-        texts,
-        tokenizer,
-        text_normalization=text_normalization,
-    )
-    return TrainingArtifacts(tokenizer=tokenizer, counts=counts)
-
-
-def bigram_counts_payload(counts: BigramCounts) -> dict[str, object]:
-    return {
-        "sequence_count": counts.sequence_count,
-        "token_count": counts.token_count,
-        "transition_count": counts.transition_count,
-        "transitions": ngram.token_transition_payload(counts.transitions),
-    }
-
-
-def apply_bigram_counts_to_summary(
-    summary: TrainingSummary,
-    counts: BigramCounts,
-) -> None:
-    counting.apply_sequence_counts(summary, counts)
-    summary.transition_count = counts.transition_count
 
 
 def format_summary(summary: TrainingSummary) -> list[tuple[str, str]]:

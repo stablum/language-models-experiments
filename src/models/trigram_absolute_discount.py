@@ -105,7 +105,7 @@ def train(
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> ngram.TrainingResult[TrainingSummary]:
     def payload(
-        _artifacts: trigrams.TrigramTrainingArtifacts,
+        _counts: trigrams.TrigramCounts,
         summary: TrainingSummary,
     ) -> dict[str, object]:
         # Training stores raw counts; smoothing/discounting are applied lazily.
