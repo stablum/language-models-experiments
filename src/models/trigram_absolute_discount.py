@@ -32,52 +32,52 @@ class Model(trigrams.DiscountedTrigramModel):
     )
     smoothing: float  # k, the lower-order add-k pseudo-count.
 
-    def context_probability(
+    def context_prob(
         self,
         next_id: int,
         counts: trigrams.ResolvedTrigramContextCounts,
     ) -> float:
-        return self.trigram_probability(next_id, counts)
+        return self.trigram_prob(next_id, counts)
 
-    def trigram_probability(
+    def trigram_prob(
         self,
         token_id: int,
         counts: trigrams.ResolvedTrigramContextCounts,
     ) -> float:
         # token_id is w. counts.trigram_counts[w] is c(h, w), and
-        # counts.trigram_total is c(h) for h = (u, v).
+        # counts.trigram_tot is c(h) for h = (u, v).
         # Absolute discounting removes D mass from every observed trigram type.
         # The helper redistributes the total removed mass through this lower
         # order bigram probability.
-        lower_order_probability = self.lower_order_probability(
+        lower_prob = self.lower_order_prob(
             token_id,
             counts=counts.bigram_counts,
-            total=counts.bigram_total,
+            tot=counts.bigram_tot,
         )
-        return ngram.discounted_interpolation_probability(
+        return ngram.discounted_interp_prob(
             token_id,
             counts=counts.trigram_counts,
-            total=counts.trigram_total,
+            tot=counts.trigram_tot,
             discount=self.discount,
-            lower_order_probability=lower_order_probability,
+            lower_prob=lower_prob,
         )
 
-    def lower_order_probability(
+    def lower_order_prob(
         self,
         token_id: int,
         *,
         counts: dict[int, int],
-        total: int,
+        tot: int,
     ) -> float:
         # The lower-order history is h = v. Return add-k P_k(w | v).
         # Unlike Kneser-Ney, this model backs off to ordinary bigram counts.
         # Additive smoothing gives every candidate next token a non-zero floor.
-        return ngram.additive_smoothed_probability(
+        return ngram.add_k_prob(
             token_id,
             counts=counts,
-            total=total,
+            tot=tot,
             smoothing=self.smoothing,
-            candidate_count=self.candidate_count,
+            cand_count=self.cand_count,
         )
 
 

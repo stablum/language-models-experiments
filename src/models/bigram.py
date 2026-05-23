@@ -31,9 +31,9 @@ class BigramCounts(counting.NgramCorpusCounts):
 
 class EvaluationRow(ngram.FrozenNgramModel):
     counts: dict[int, int]  # c(h, w), counts for one previous-token history h.
-    denominator: float  # c(h) + k |V|, the add-k normalizer.
-    greedy_token_id: int
-    top_k_token_ids: frozenset[int]
+    denom: float  # denom = c(h) + k |V|, the add-k normalizer.
+    greedy_id: int
+    top_k_ids: frozenset[int]
 
 
 class Model(ngram.BaseNgramModel):
@@ -48,20 +48,20 @@ class Model(ngram.BaseNgramModel):
 
     def next_token_predictions(
         self,
-        previous_id: int,
+        prev_id: int,
         *,
         top_k: int,
     ) -> list[ngram.NgramPrediction]:
-        # previous_id is h. observed[token_id] is c(h, w) for w = token_id.
-        observed = dict(self.transitions.get(previous_id, ()))
-        observed_total = sum(
-            observed.get(token_id, 0)
-            for token_id in self.candidate_ids
+        # prev_id is h. obs[token_id] is c(h, w) for w = token_id.
+        obs = dict(self.transitions.get(prev_id, ()))
+        obs_tot = sum(
+            obs.get(token_id, 0)
+            for token_id in self.cand_ids
         )
-        candidate_count = self.candidate_count  # |V|, excluding BOS.
-        denominator = observed_total + self.smoothing * candidate_count  # c(h) + k |V|.
+        cand_count = self.cand_count  # cand = |V|, excluding BOS.
+        denom = obs_tot + self.smoothing * cand_count  # c(h) + k |V|.
 
-        if denominator <= 0:
+        if denom <= 0:
             return []
 
         return ngram.sorted_predictions(
@@ -69,17 +69,17 @@ class Model(ngram.BaseNgramModel):
                 ngram.NgramPrediction(
                     token_id=token_id,
                     piece=self.pieces[token_id],
-                    count=observed.get(token_id, 0),
-                    probability=ngram.additive_smoothed_probability(
+                    count=obs.get(token_id, 0),
+                    prob=ngram.add_k_prob(
                         token_id,
-                        counts=observed,
-                        total=observed_total,
+                        counts=obs,
+                        tot=obs_tot,
                         smoothing=self.smoothing,
-                        candidate_count=candidate_count,
+                        cand_count=cand_count,
                     ),
                 )
-                for token_id in self.candidate_ids
-                if observed.get(token_id, 0) > 0 or self.smoothing > 0
+                for token_id in self.cand_ids
+                if obs.get(token_id, 0) > 0 or self.smoothing > 0
             ),
             top_k=top_k,
         )
@@ -93,36 +93,36 @@ class Model(ngram.BaseNgramModel):
     ) -> ngram.NgramEvaluationSummary:
         row_cache: dict[int, EvaluationRow] = {}
 
-        resolved_text_normalization = text_normalization or self.text_normalization
+        text_norm = text_normalization or self.text_normalization
         summary = ngram.NgramEvaluationSummary(
             model_path=self.model_path,
             tokenizer_model=self.tokenizer_model,
             top_k=top_k,
-            text_normalization=resolved_text_normalization,
+            text_normalization=text_norm,
         )
-        for token_ids in iter_token_sequences(
+        for tok_ids in iter_token_sequences(
             texts,
             self.tokenizer,
-            text_normalization=resolved_text_normalization,
+            text_normalization=text_norm,
         ):
-            counting.observe_sequence(summary, token_ids)
+            counting.observe_sequence(summary, tok_ids)
 
-            for context, next_id in counting.iter_prediction_events(token_ids, order=2):
-                previous_id = counting.single_token_context_id(context)
-                row = row_cache.get(previous_id)
+            for context, next_id in counting.iter_prediction_events(tok_ids, order=2):
+                prev_id = counting.single_token_context_id(context)
+                row = row_cache.get(prev_id)
                 if row is None:
                     row = self.evaluation_row(
-                        previous_id,
+                        prev_id,
                         top_k=top_k,
                     )
-                    row_cache[previous_id] = row
+                    row_cache[prev_id] = row
 
                 counting.score_evaluation_event(
                     summary,
-                    actual_token_id=next_id,
-                    greedy_token_id=row.greedy_token_id,
-                    top_k_token_ids=row.top_k_token_ids,
-                    probability=self.transition_probability(
+                    actual_id=next_id,
+                    greedy_id=row.greedy_id,
+                    top_k_ids=row.top_k_ids,
+                    prob=self.transition_prob(
                         next_id,
                         row=row,
                     ),
@@ -132,28 +132,28 @@ class Model(ngram.BaseNgramModel):
 
     def evaluation_row(
         self,
-        previous_id: int,
+        prev_id: int,
         *,
         top_k: int,
     ) -> EvaluationRow:
         # Keep only candidate next-token types w in this history row h.
         counts = {
             token_id: count
-            for token_id, count in self.transitions.get(previous_id, ())
-            if token_id in self.candidate_id_set
+            for token_id, count in self.transitions.get(prev_id, ())
+            if token_id in self.cand_id_set
         }
-        denominator = sum(counts.values()) + self.smoothing * len(self.candidate_ids)
-        ranked_token_ids = self.ranked_token_ids(
+        denom = sum(counts.values()) + self.smoothing * len(self.cand_ids)
+        ranked_ids = self.ranked_ids(
             counts=counts,
         )
         return EvaluationRow(
             counts=counts,
-            denominator=denominator,
-            greedy_token_id=ngram.greedy_token_id(ranked_token_ids, eos_id=self.eos_id),
-            top_k_token_ids=ngram.top_k_token_id_set(ranked_token_ids, top_k=top_k),
+            denom=denom,
+            greedy_id=ngram.greedy_id(ranked_ids, eos_id=self.eos_id),
+            top_k_ids=ngram.top_k_id_set(ranked_ids, top_k=top_k),
         )
 
-    def ranked_token_ids(
+    def ranked_ids(
         self,
         *,
         counts: dict[int, int],
@@ -161,21 +161,21 @@ class Model(ngram.BaseNgramModel):
         if self.smoothing > 0:
             # Ranking by c(h, w) + k is equivalent to ranking by P(w | h).
             return sorted(
-                self.candidate_ids,
+                self.cand_ids,
                 key=lambda token_id: (-(counts.get(token_id, 0) + self.smoothing), token_id),
             )
         return sorted(counts, key=lambda token_id: (-counts[token_id], token_id))
 
-    def transition_probability(
+    def transition_prob(
         self,
         next_id: int,
         *,
         row: EvaluationRow,
     ) -> float:
-        if row.denominator <= 0 or next_id not in self.candidate_id_set:
+        if row.denom <= 0 or next_id not in self.cand_id_set:
             return 0.0
-        # next_id is w. Return (c(h, w) + k) / (c(h) + k |V|).
-        return (row.counts.get(next_id, 0) + self.smoothing) / row.denominator
+        # next_id is w. Return (c(h, w) + k) / denom.
+        return (row.counts.get(next_id, 0) + self.smoothing) / row.denom
 
 
 def load(model_path: Path) -> Model:

@@ -50,7 +50,7 @@ class NgramPrediction(NgramPydanticModel):
     token_id: int
     piece: str
     count: int
-    probability: float
+    prob: float  # prob = P(w | h), the next-token probability.
 
 
 class NgramQueryResult(NgramPydanticModel):
@@ -79,11 +79,11 @@ class NgramTrainingSummary(NgramPydanticModel):
     text_normalization: str = "none"
 
 
-TrainingSummaryT = TypeVar("TrainingSummaryT", bound=NgramTrainingSummary)
+TrainSummaryT = TypeVar("TrainSummaryT", bound=NgramTrainingSummary)
 
 
-class TrainingResult(NgramPydanticModel, Generic[TrainingSummaryT]):
-    summary: TrainingSummaryT
+class TrainingResult(NgramPydanticModel, Generic[TrainSummaryT]):
+    summary: TrainSummaryT
     payload: dict[str, object]
 
 
@@ -143,28 +143,31 @@ class BaseNgramModel(NgramPydanticModel):
     unk_id: int
     pieces: tuple[str, ...]
     text_normalization: str = "none"
-    _candidate_ids: tuple[int, ...] = pydantic.PrivateAttr(default=())
-    _candidate_id_set: frozenset[int] = pydantic.PrivateAttr(default_factory=frozenset)
+    _cand_ids: tuple[int, ...] = pydantic.PrivateAttr(default=())
+    _cand_id_set: frozenset[int] = pydantic.PrivateAttr(default_factory=frozenset)
 
     @property
-    def candidate_ids(self) -> tuple[int, ...]:
-        if not self._candidate_ids:
-            self._candidate_ids = tuple(
+    def cand_ids(self) -> tuple[int, ...]:
+        # cand = candidate next-token IDs, i.e. V without BOS.
+        if not self._cand_ids:
+            self._cand_ids = tuple(
                 token_id
                 for token_id in range(self.vocab_size)
                 if token_id != self.bos_id
             )
-        return self._candidate_ids
+        return self._cand_ids
 
     @property
-    def candidate_id_set(self) -> frozenset[int]:
-        if not self._candidate_id_set:
-            self._candidate_id_set = frozenset(self.candidate_ids)
-        return self._candidate_id_set
+    def cand_id_set(self) -> frozenset[int]:
+        # cand = candidate next-token ID set for O(1) membership tests.
+        if not self._cand_id_set:
+            self._cand_id_set = frozenset(self.cand_ids)
+        return self._cand_id_set
 
     @property
-    def candidate_count(self) -> int:
-        return len(self.candidate_ids)
+    def cand_count(self) -> int:
+        # cand = candidate vocabulary size |V|.
+        return len(self.cand_ids)
 
     def encode_prompt(self, prompt: str) -> list[int]:
         return tok_core.encode_prompt(
@@ -188,72 +191,72 @@ class BaseNgramModel(NgramPydanticModel):
         raise NotImplementedError
 
     def query(self, cfg: NgramQueryCfg | None = None) -> NgramQueryResult:
-        resolved_cfg = cfg or NgramQueryCfg()
-        prompt_token_ids = self.encode_prompt(resolved_cfg.prompt)
-        context = self.context_for_tokens(prompt_token_ids)
-        next_token_predictions = self.next_token_predictions(
+        cfg = cfg or NgramQueryCfg()
+        prompt_ids = self.encode_prompt(cfg.prompt)  # ids = token IDs for prompt.
+        context = self.context_for_tokens(prompt_ids)
+        next_preds = self.next_token_predictions(
             context,
-            top_k=resolved_cfg.top_k,
+            top_k=cfg.top_k,
         )
-        generation_top_k = generation_prediction_top_k(
-            decoding=resolved_cfg.decoding,
-            temperature=resolved_cfg.temperature,
+        gen_top_k = generation_prediction_top_k(
+            decoding=cfg.decoding,
+            temperature=cfg.temperature,
         )
         # Deterministic text sampling RNG; not used for secrets or security choices.
-        rng = random.Random(resolved_cfg.seed)  # nosec B311
-        token_ids = list(prompt_token_ids)
-        generated_token_ids: list[int] = []
+        rng = random.Random(cfg.seed)  # nosec B311
+        all_ids = list(prompt_ids)  # ids = prompt plus generated token IDs.
+        gen_ids: list[int] = []  # gen = generated continuation token IDs.
 
-        for _ in range(resolved_cfg.max_tokens):
+        for _ in range(cfg.max_tokens):
             next_id = select_next_token(
-                self.next_token_predictions(context, top_k=generation_top_k),
+                self.next_token_predictions(context, top_k=gen_top_k),
                 eos_id=self.eos_id,
-                decoding=resolved_cfg.decoding,
+                decoding=cfg.decoding,
                 rng=rng,
-                temperature=resolved_cfg.temperature,
+                temperature=cfg.temperature,
             )
             if next_id == self.eos_id:
                 break
 
-            generated_token_ids.append(next_id)
-            token_ids.append(next_id)
+            gen_ids.append(next_id)
+            all_ids.append(next_id)
             context = self.advance_context(context, next_id)
 
-        prompt_text = self.tokenizer.decode(prompt_token_ids)
-        generated_text = self.tokenizer.decode(token_ids)
+        prompt_text = self.tokenizer.decode(prompt_ids)
+        generated_text = self.tokenizer.decode(all_ids)
         continuation_text = tok_core.decode_continuation(
             self.tokenizer,
             generated_text=generated_text,
             prompt_text=prompt_text,
-            generated_token_ids=generated_token_ids,
+            generated_token_ids=gen_ids,
         )
 
         return NgramQueryResult(
             model_path=self.model_path,
             tokenizer_model=self.tokenizer_model,
-            decoding=resolved_cfg.decoding,
+            decoding=cfg.decoding,
             bos_id=self.bos_id,
             eos_id=self.eos_id,
             unk_id=self.unk_id,
-            prompt=resolved_cfg.prompt,
-            prompt_token_ids=prompt_token_ids,
+            prompt=cfg.prompt,
+            prompt_token_ids=prompt_ids,
             continuation_text=continuation_text,
             generated_text=generated_text,
-            generated_token_ids=generated_token_ids,
-            token_ids=token_ids,
-            next_token_predictions=next_token_predictions,
+            generated_token_ids=gen_ids,
+            token_ids=all_ids,
+            next_token_predictions=next_preds,
             text_normalization=self.text_normalization,
         )
 
 
-def divide_or_none(numerator: int, denominator: int) -> float | None:
-    if denominator == 0:
+def divide_or_none(numerator: int, denom: int) -> float | None:
+    if denom == 0:
         return None
-    return numerator / denominator
+    return numerator / denom
 
 
 def select_next_token(
-    predictions: Sequence[NgramPrediction],
+    preds: Sequence[NgramPrediction],
     *,
     eos_id: int,
     decoding: DecodingMode,
@@ -261,43 +264,43 @@ def select_next_token(
     temperature: float,
 ) -> int:
     if decoding == "most-probable":
-        return most_probable_token(predictions, eos_id=eos_id)
+        return most_probable_token(preds, eos_id=eos_id)
     if decoding == "sample":
-        return sample_token(predictions, eos_id=eos_id, rng=rng, temperature=temperature)
+        return sample_token(preds, eos_id=eos_id, rng=rng, temperature=temperature)
     raise ValueError(f"Unsupported decoding mode: {decoding}")
 
 
 def most_probable_token(
-    predictions: Sequence[NgramPrediction],
+    preds: Sequence[NgramPrediction],
     *,
     eos_id: int,
 ) -> int:
-    if not predictions:
+    if not preds:
         return fallback_token_id(eos_id)
-    return predictions[0].token_id
+    return preds[0].token_id
 
 
 def sample_token(
-    predictions: Sequence[NgramPrediction],
+    preds: Sequence[NgramPrediction],
     *,
     eos_id: int,
     rng: random.Random,
     temperature: float,
 ) -> int:
-    if not predictions:
+    if not preds:
         return fallback_token_id(eos_id)
     if temperature == 0:
-        return predictions[0].token_id
+        return preds[0].token_id
     if temperature < 0:
         raise ValueError("temperature must be non-negative")
 
-    weights = [prediction.probability ** (1 / temperature) for prediction in predictions]
-    if not any(weights):
-        return predictions[0].token_id
+    ws = [pred.prob ** (1 / temperature) for pred in preds]  # w = sample weights.
+    if not any(ws):
+        return preds[0].token_id
 
     return rng.choices(
-        [prediction.token_id for prediction in predictions],
-        weights=weights,
+        [pred.token_id for pred in preds],
+        weights=ws,
         k=1,
     )[0]
 
@@ -314,25 +317,25 @@ def generation_prediction_top_k(*, decoding: DecodingMode, temperature: float) -
 
 
 def sorted_predictions(
-    predictions: Iterable[NgramPrediction],
+    preds: Iterable[NgramPrediction],
     *,
     top_k: int,
 ) -> list[NgramPrediction]:
-    ranked_predictions = sorted(
-        predictions,
-        key=lambda prediction: (-prediction.probability, prediction.token_id),
+    ranked_preds = sorted(
+        preds,
+        key=lambda pred: (-pred.prob, pred.token_id),
     )
-    return ranked_predictions[:top_k] if top_k > 0 else ranked_predictions
+    return ranked_preds[:top_k] if top_k > 0 else ranked_preds
 
 
-def greedy_token_id(ranked_token_ids: Sequence[int], *, eos_id: int) -> int:
-    if ranked_token_ids:
-        return ranked_token_ids[0]
+def greedy_id(ranked_ids: Sequence[int], *, eos_id: int) -> int:
+    if ranked_ids:
+        return ranked_ids[0]
     return fallback_token_id(eos_id)
 
 
-def top_k_token_id_set(ranked_token_ids: Sequence[int], *, top_k: int) -> frozenset[int]:
-    return frozenset(ranked_token_ids[:top_k]) if top_k > 0 else frozenset()
+def top_k_id_set(ranked_ids: Sequence[int], *, top_k: int) -> frozenset[int]:
+    return frozenset(ranked_ids[:top_k]) if top_k > 0 else frozenset()
 
 
 def resolve_stored_path(stored_path: Path, model_path: Path) -> Path:
@@ -399,7 +402,7 @@ def load_tokenizer_model_fields(
     pieces = (
         tuple(str(piece) for piece in stored_pieces)
         if stored_pieces
-        else tuple(tokenizer.id_to_piece(index) for index in range(vocab_size))
+        else tuple(tokenizer.id_to_piece(idx) for idx in range(vocab_size))
     )
     return {
         "model_path": model_path,
@@ -417,62 +420,62 @@ def load_tokenizer_model_fields(
 def score_evaluation_transition(
     summary: NgramEvaluationSummary,
     *,
-    actual_token_id: int,
-    greedy_token_id: int,
-    top_k_token_ids: frozenset[int],
-    probability: float,
+    actual_id: int,
+    greedy_id: int,
+    top_k_ids: frozenset[int],
+    prob: float,
 ) -> None:
-    if actual_token_id == greedy_token_id:
+    if actual_id == greedy_id:
         summary.correct_next_token_count += 1
-    if actual_token_id in top_k_token_ids:
+    if actual_id in top_k_ids:
         summary.top_k_correct_next_token_count += 1
 
-    if probability <= 0:
+    if prob <= 0:
         summary.zero_probability_count += 1
     else:
-        summary.negative_log_likelihood -= math.log(probability)
+        summary.negative_log_likelihood -= math.log(prob)
 
 
-def additive_smoothed_probability(
+def add_k_prob(
     token_id: int,
     *,
     counts: Mapping[int, int],
-    total: int,
+    tot: int,
     smoothing: float,
-    candidate_count: int,
+    cand_count: int,
 ) -> float:
-    denominator = total + smoothing * candidate_count
-    if denominator <= 0:
+    denom = tot + smoothing * cand_count  # denom = c(h) + k |V|.
+    if denom <= 0:
         return 0.0
-    return (counts.get(token_id, 0) + smoothing) / denominator
+    return (counts.get(token_id, 0) + smoothing) / denom
 
 
-def maximum_likelihood_probability(
+def ml_prob(
     token_id: int,
     *,
     counts: Mapping[int, int],
-    total: int,
+    tot: int,
 ) -> float:
-    if total <= 0:
+    if tot <= 0:
         return 0.0
-    return counts.get(token_id, 0) / total
+    return counts.get(token_id, 0) / tot
 
 
-def discounted_interpolation_probability(
+def discounted_interp_prob(
     token_id: int,
     *,
     counts: Mapping[int, int],
-    total: int,
+    tot: int,
     discount: float,
-    lower_order_probability: float,
+    lower_prob: float,
 ) -> float:
-    if total <= 0:
-        return lower_order_probability
+    if tot <= 0:
+        return lower_prob
 
-    observed_count = counts.get(token_id, 0)
-    discounted_probability = max(observed_count - discount, 0.0) / total
-    interpolation_weight = discount * len(counts) / total
-    return discounted_probability + interpolation_weight * lower_order_probability
+    obs_count = counts.get(token_id, 0)  # obs = observed count c(h, w).
+    disc_prob = max(obs_count - discount, 0.0) / tot
+    interp_w = discount * len(counts) / tot  # w = interpolation weight lambda(h).
+    return disc_prob + interp_w * lower_prob
 
 
 def base_training_summary_items(
@@ -503,11 +506,11 @@ def parse_token_transitions(
     key: str,
 ) -> dict[int, tuple[tuple[int, int], ...]]:
     return {
-        int(previous_id): tuple(
+        int(prev_id): tuple(
             (int(next_id), int(count))
             for next_id, count in next_counts
         )
-        for previous_id, next_counts in data[key].items()
+        for prev_id, next_counts in data[key].items()
     }
 
 
@@ -522,8 +525,8 @@ def token_transition_payload(
     transitions: defaultdict[int, Counter[int]] | dict[int, Counter[int]],
 ) -> dict[str, list[tuple[int, int]]]:
     return {
-        str(previous_id): sorted(next_counts.items())
-        for previous_id, next_counts in sorted(transitions.items())
+        str(prev_id): sorted(next_counts.items())
+        for prev_id, next_counts in sorted(transitions.items())
     }
 
 

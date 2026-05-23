@@ -46,7 +46,7 @@ class NgramCorpusCounts(ngram.FrozenNgramModel):
 
 
 def collect_ngram_counts(
-    token_seqs: Iterable[Sequence[int]],
+    tok_seqs: Iterable[Sequence[int]],
     *,
     orders: Iterable[int],
     prediction_order: int,
@@ -59,35 +59,35 @@ def collect_ngram_counts(
     warm-up events.
     """
 
-    normalized_orders = normalize_orders(orders, prediction_order=prediction_order)
+    norm_orders = normalize_orders(orders, prediction_order=prediction_order)
     rows_by_order: dict[int, defaultdict[Context, Counter[int]]] = {
         order: defaultdict(Counter)
-        for order in normalized_orders
+        for order in norm_orders
     }
-    event_counts = {order: 0 for order in normalized_orders}
-    sequence_count = 0
-    token_count = 0
+    event_counts = {order: 0 for order in norm_orders}
+    seq_count = 0  # seq = input token sequence.
+    tok_count = 0  # tok = token.
 
-    for token_ids in token_seqs:
-        sequence_count += 1
-        token_count += len(token_ids)
-        for next_idx in prediction_indices(token_ids, order=prediction_order):
-            next_id = token_ids[next_idx]  # w, the predicted token.
-            for order in normalized_orders:
-                context = context_at(token_ids, next_idx, order=order)
+    for tok_ids in tok_seqs:
+        seq_count += 1
+        tok_count += len(tok_ids)
+        for next_idx in prediction_indices(tok_ids, order=prediction_order):
+            next_id = tok_ids[next_idx]  # w, the predicted token.
+            for order in norm_orders:
+                context = context_at(tok_ids, next_idx, order=order)
                 rows_by_order[order][context][next_id] += 1
                 event_counts[order] += 1
 
     return NgramCorpusCounts(
-        sequence_count=sequence_count,
-        token_count=token_count,
+        sequence_count=seq_count,
+        token_count=tok_count,
         orders={
             order: NgramOrderCounts(
                 order=order,
                 rows=dict(rows_by_order[order]),
                 event_count=event_counts[order],
             )
-            for order in normalized_orders
+            for order in norm_orders
         },
     )
 
@@ -96,13 +96,13 @@ def normalize_orders(orders: Iterable[int], *, prediction_order: int) -> tuple[i
     if prediction_order < 1:
         raise ValueError("prediction_order must be positive")
 
-    normalized_orders = tuple(sorted(set(orders)))
-    if not normalized_orders:
+    norm_orders = tuple(sorted(set(orders)))
+    if not norm_orders:
         raise ValueError("At least one n-gram order must be requested")
 
     bad_orders = [
         order
-        for order in normalized_orders
+        for order in norm_orders
         if order < 1 or order > prediction_order
     ]
     if bad_orders:
@@ -110,57 +110,57 @@ def normalize_orders(orders: Iterable[int], *, prediction_order: int) -> tuple[i
         raise ValueError(
             f"N-gram orders must be in [1, {prediction_order}]: {order_list}"
         )
-    return normalized_orders
+    return norm_orders
 
 
 def iter_prediction_events(
-    token_ids: Sequence[int],
+    tok_ids: Sequence[int],
     *,
     order: int,
 ) -> Iterator[tuple[Context, int]]:
-    for next_idx in prediction_indices(token_ids, order=order):
-        yield context_at(token_ids, next_idx, order=order), token_ids[next_idx]
+    for next_idx in prediction_indices(tok_ids, order=order):
+        yield context_at(tok_ids, next_idx, order=order), tok_ids[next_idx]
 
 
-def prediction_indices(token_ids: Sequence[int], *, order: int) -> range:
+def prediction_indices(tok_ids: Sequence[int], *, order: int) -> range:
     if order < 1:
         raise ValueError("order must be positive")
-    return range(order - 1, len(token_ids))
+    return range(order - 1, len(tok_ids))
 
 
-def context_at(token_ids: Sequence[int], next_idx: int, *, order: int) -> Context:
+def context_at(tok_ids: Sequence[int], next_idx: int, *, order: int) -> Context:
     if order < 1:
         raise ValueError("order must be positive")
 
-    context_start = next_idx - order + 1
-    if context_start < 0:
+    ctx_start = next_idx - order + 1  # ctx = n-gram history context.
+    if ctx_start < 0:
         raise ValueError("Not enough previous tokens for requested n-gram order")
-    return tuple(token_ids[context_start:next_idx])
+    return tuple(tok_ids[ctx_start:next_idx])
 
 
 def observe_sequence(
     summary: ngram.NgramEvaluationSummary,
-    token_ids: Sequence[int],
+    tok_ids: Sequence[int],
 ) -> None:
     summary.sequence_count += 1
-    summary.token_count += len(token_ids)
+    summary.token_count += len(tok_ids)
 
 
 def score_evaluation_event(
     summary: ngram.NgramEvaluationSummary,
     *,
-    actual_token_id: int,
-    greedy_token_id: int,
-    top_k_token_ids: frozenset[int],
-    probability: float,
+    actual_id: int,
+    greedy_id: int,
+    top_k_ids: frozenset[int],
+    prob: float,
 ) -> None:
     summary.transition_count += 1
     ngram.score_evaluation_transition(
         summary,
-        actual_token_id=actual_token_id,
-        greedy_token_id=greedy_token_id,
-        top_k_token_ids=top_k_token_ids,
-        probability=probability,
+        actual_id=actual_id,
+        greedy_id=greedy_id,
+        top_k_ids=top_k_ids,
+        prob=prob,
     )
 
 

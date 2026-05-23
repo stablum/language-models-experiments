@@ -20,10 +20,10 @@ from src.models.core import trigram_interpolation as interp
 from src.tokenizers import core as tok_core
 
 
-LoadedModel = TypeVar("LoadedModel")
-QueryResult = TypeVar("QueryResult")
-EvaluationSummary = TypeVar("EvaluationSummary")
-TrainingSummaryT = TypeVar("TrainingSummaryT", bound=ngram.NgramTrainingSummary)
+LoadedT = TypeVar("LoadedT")
+QueryT = TypeVar("QueryT")
+EvalT = TypeVar("EvalT")
+TrainSummaryT = TypeVar("TrainSummaryT", bound=ngram.NgramTrainingSummary)
 
 REGISTRY_FLAG = "REGISTER_MODEL"
 
@@ -50,7 +50,7 @@ def registry_enabled(module_path: Path, *, module_name: str) -> bool:
 
 def registry_enabled_from_source(source: str, *, module_name: str) -> bool:
     depth = 0
-    statement: list[tokenize.TokenInfo] = []
+    stmt: list[tokenize.TokenInfo] = []
     stream = tokenize.generate_tokens(io.StringIO(source).readline)
 
     try:
@@ -64,13 +64,13 @@ def registry_enabled_from_source(source: str, *, module_name: str) -> bool:
             if depth != 0 or item.type in (tokenize.COMMENT, tokenize.NL):
                 continue
             if item.type in (tokenize.NEWLINE, tokenize.ENDMARKER):
-                enabled = registry_flag_value(statement, module_name=module_name)
+                enabled = registry_flag_value(stmt, module_name=module_name)
                 if enabled is not None:
                     return enabled
-                statement.clear()
+                stmt.clear()
                 continue
 
-            statement.append(item)
+            stmt.append(item)
     except tokenize.TokenError:
         # Let importlib surface syntax errors unless the opt-out flag was already seen.
         return True
@@ -79,35 +79,35 @@ def registry_enabled_from_source(source: str, *, module_name: str) -> bool:
 
 
 def registry_flag_value(
-    statement: Sequence[tokenize.TokenInfo],
+    stmt: Sequence[tokenize.TokenInfo],
     *,
     module_name: str,
 ) -> bool | None:
     if (
-        not statement
-        or statement[0].type != tokenize.NAME
-        or statement[0].string != REGISTRY_FLAG
+        not stmt
+        or stmt[0].type != tokenize.NAME
+        or stmt[0].string != REGISTRY_FLAG
     ):
         return None
 
-    equals_idx = next(
+    eq_idx = next(
         (
             idx
-            for idx, item in enumerate(statement[1:], start=1)
+            for idx, item in enumerate(stmt[1:], start=1)
             if item.exact_type == token.EQUAL
         ),
         None,
     )
-    if equals_idx is None:
+    if eq_idx is None:
         return None
 
-    value_tokens = statement[equals_idx + 1 :]
+    value_toks = stmt[eq_idx + 1 :]
     if (
-        len(value_tokens) == 1
-        and value_tokens[0].type == tokenize.NAME
-        and value_tokens[0].string in ("False", "True")
+        len(value_toks) == 1
+        and value_toks[0].type == tokenize.NAME
+        and value_toks[0].string in ("False", "True")
     ):
-        return value_tokens[0].string == "True"
+        return value_toks[0].string == "True"
 
     raise TypeError(
         f"{module_name}.{REGISTRY_FLAG} must be assigned a literal bool."
@@ -121,8 +121,8 @@ def model_definition_from_module(module: ModuleType) -> model_def.ModelDefinitio
     if train_model is None or load_model is None or summary_items is None:
         return None
 
-    training_option_names = infer_training_option_names(train_model)
-    validate_training_options = get_module_callable(
+    train_opt_names = infer_training_option_names(train_model)
+    validate_train_opts = get_module_callable(
         module,
         "validate_training_options",
     )
@@ -132,12 +132,12 @@ def model_definition_from_module(module: ModuleType) -> model_def.ModelDefinitio
         train_model=train_model,
         load_model=load_model,
         summary_items=summary_items,
-        training_option_names=training_option_names,
+        training_option_names=train_opt_names,
         query_lines=get_module_callable(module, "format_query"),
         evaluation_items=get_module_callable(module, "format_evaluation"),
         validate_training_options=(
-            validate_training_options
-            or inferred_training_options_validator(training_option_names)
+            validate_train_opts
+            or inferred_training_options_validator(train_opt_names)
         ),
     )
 
@@ -150,19 +150,19 @@ def get_module_callable(module: ModuleType, name: str) -> Callable[..., Any] | N
 
 
 def infer_training_option_names(train_model: Callable[..., Any]) -> tuple[str, ...]:
-    signature = inspect.signature(train_model)
+    sig = inspect.signature(train_model)
     return tuple(
         name
-        for name, param in signature.parameters.items()
+        for name, param in sig.parameters.items()
         if param.kind is inspect.Parameter.KEYWORD_ONLY
         and name not in _TRAINING_INFRA_OPTION_NAMES
     )
 
 
 def inferred_training_options_validator(
-    option_names: Sequence[str],
+    opt_names: Sequence[str],
 ) -> model_def.ModelOptionValidator | None:
-    if _INTERPOLATION_OPTION_NAMES <= set(option_names):
+    if _INTERPOLATION_OPTION_NAMES <= set(opt_names):
         return interp.validate_options
     return None
 
@@ -171,7 +171,7 @@ def model_definition(
     *,
     module_name: str,
     train_model: Callable[..., ngram.TrainingResult[Any]],
-    load_model: Callable[[Path], LoadedModel],
+    load_model: Callable[[Path], LoadedT],
     summary_items: model_def.SummaryFormatter,
     training_option_names: Sequence[str] = (),
     query_lines: model_def.QueryFormatter | None = None,
@@ -183,62 +183,62 @@ def model_definition(
 
     def train(
         texts: Iterable[str],
-        options: model_def.ModelOptions,
+        opts: model_def.ModelOptions,
     ) -> ngram.NgramTrainingSummary:
-        stored_tokenizer_model = options.get("stored_tokenizer_model")
-        tokenizer_model = resolve_tokenizer_model(options)
-        output_path = resolve_output(options, model_suffix=name)
-        tokenizer = tok_core.load_tokenizer(tokenizer_model)
-        training_options = {
-            option_name: options[option_name]
-            for option_name in training_option_names
-            if option_name in options
+        stored_tok_model = opts.get("stored_tokenizer_model")
+        tok_model = resolve_tokenizer_model(opts)
+        out_path = resolve_output(opts, model_suffix=name)
+        tokenizer = tok_core.load_tokenizer(tok_model)
+        train_opts = {
+            opt_name: opts[opt_name]
+            for opt_name in training_option_names
+            if opt_name in opts
         }
         result = train_model(
             texts,
             tokenizer=tokenizer,
-            text_normalization=options["text_normalization"],
-            **training_options,
+            text_normalization=opts["text_normalization"],
+            **train_opts,
         )
         return save_training_result(
             result,
             module_name=module_name,
-            output_path=output_path,
-            tokenizer_model=tokenizer_model,
+            output_path=out_path,
+            tokenizer_model=tok_model,
             stored_tokenizer_model=(
-                Path(stored_tokenizer_model) if stored_tokenizer_model else None
+                Path(stored_tok_model) if stored_tok_model else None
             ),
             tokenizer=tokenizer,
-            text_normalization=options["text_normalization"],
+            text_normalization=opts["text_normalization"],
         )
 
-    def validate_options(options: model_def.ModelOptions) -> None:
-        validate_tokenizer_model(options)
+    def validate_options(opts: model_def.ModelOptions) -> None:
+        validate_tokenizer_model(opts)
         if validate_training_options is not None:
-            validate_training_options(options)
+            validate_training_options(opts)
 
-    def validate_query_options(options: model_def.ModelOptions) -> None:
-        validate_model_path(options, model_suffix=name, label=model_label)
+    def validate_query_options(opts: model_def.ModelOptions) -> None:
+        validate_model_path(opts, model_suffix=name, label=model_label)
 
-    def query(options: model_def.ModelOptions) -> QueryResult:
-        model = load_model(resolve_model(options, model_suffix=name))
+    def query(opts: model_def.ModelOptions) -> QueryT:
+        model = load_model(resolve_model(opts, model_suffix=name))
         return model.query(
             ngram.NgramQueryCfg(
-                prompt=options["prompt"],
-                max_tokens=options["max_tokens"],
-                top_k=options["top_k"],
-                decoding=options["decoding"],
-                temperature=options["temperature"],
-                seed=options["seed"],
+                prompt=opts["prompt"],
+                max_tokens=opts["max_tokens"],
+                top_k=opts["top_k"],
+                decoding=opts["decoding"],
+                temperature=opts["temperature"],
+                seed=opts["seed"],
             ),
         )
 
     def evaluate(
         texts: Iterable[str],
-        options: model_def.ModelOptions,
-    ) -> EvaluationSummary:
-        model = load_model(resolve_model(options, model_suffix=name))
-        return model.evaluate(texts, top_k=options["top_k"])
+        opts: model_def.ModelOptions,
+    ) -> EvalT:
+        model = load_model(resolve_model(opts, model_suffix=name))
+        return model.evaluate(texts, top_k=opts["top_k"])
 
     return model_def.ModelDefinition(
         name=name,
@@ -263,7 +263,7 @@ def model_label_from_name(name: str) -> str:
 
 
 def save_training_result(
-    result: ngram.TrainingResult[TrainingSummaryT],
+    result: ngram.TrainingResult[TrainSummaryT],
     *,
     module_name: str,
     output_path: Path,
@@ -271,23 +271,23 @@ def save_training_result(
     stored_tokenizer_model: Path | None,
     tokenizer: tok_core.TokenizerCodec,
     text_normalization: normalization.TextNormalization,
-) -> TrainingSummaryT:
+) -> TrainSummaryT:
     schema_payload = ngram.model_schema_payload(module_name)
-    tokenizer_payload = ngram.tokenizer_model_payload(
+    tok_payload = ngram.tokenizer_model_payload(
         tokenizer,
         tokenizer_model=tokenizer_model,
         stored_tokenizer_model=stored_tokenizer_model,
         text_normalization=text_normalization,
     )
-    adapter_owned_fields = frozenset((*schema_payload, *tokenizer_payload))
-    overlapping_fields = adapter_owned_fields & result.payload.keys()
-    if overlapping_fields:
-        field_list = ", ".join(sorted(overlapping_fields))
-        raise ValueError(f"Model payload defines adapter-owned fields: {field_list}")
+    owned_fields = frozenset((*schema_payload, *tok_payload))
+    overlap_fields = owned_fields & result.payload.keys()
+    if overlap_fields:
+        fields = ", ".join(sorted(overlap_fields))
+        raise ValueError(f"Model payload defines adapter-owned fields: {fields}")
 
     payload = {
         **schema_payload,
-        **tokenizer_payload,
+        **tok_payload,
         **result.payload,
     }
     ngram.write_json_model_payload(output_path, payload)
@@ -313,59 +313,59 @@ def default_ngram_output(
     model_suffix: str,
     tokenizer_model: object = None,
 ) -> Path:
-    tokenizer_stem = (
+    tok_stem = (
         Path(tokenizer_model).stem
         if tokenizer_model
         else f"{corpus}-{tok_core.SENTENCEPIECE_ALGO}-1000"
     )
-    return Path("artifacts", "models", f"{tokenizer_stem}-{model_suffix}.json")
+    return Path("artifacts", "models", f"{tok_stem}-{model_suffix}.json")
 
 
-def resolve_tokenizer_model(options: model_def.ModelOptions) -> Path:
-    tokenizer_model = options.get("tokenizer_model")
-    if tokenizer_model:
-        return Path(tokenizer_model)
-    return default_tokenizer_model(str(options["corpus"]))
+def resolve_tokenizer_model(opts: model_def.ModelOptions) -> Path:
+    tok_model = opts.get("tokenizer_model")
+    if tok_model:
+        return Path(tok_model)
+    return default_tokenizer_model(str(opts["corpus"]))
 
 
-def resolve_output(options: model_def.ModelOptions, *, model_suffix: str) -> Path:
-    output = options.get("output")
-    if output:
-        return Path(output)
+def resolve_output(opts: model_def.ModelOptions, *, model_suffix: str) -> Path:
+    out = opts.get("output")
+    if out:
+        return Path(out)
     return default_ngram_output(
-        str(options["corpus"]),
+        str(opts["corpus"]),
         model_suffix,
-        tokenizer_model=options.get("tokenizer_model"),
+        tokenizer_model=opts.get("tokenizer_model"),
     )
 
 
-def resolve_model(options: model_def.ModelOptions, *, model_suffix: str) -> Path:
-    model_path = options.get("model_path")
+def resolve_model(opts: model_def.ModelOptions, *, model_suffix: str) -> Path:
+    model_path = opts.get("model_path")
     if model_path:
         return Path(model_path)
     return default_ngram_output(
-        str(options["corpus"]),
+        str(opts["corpus"]),
         model_suffix,
-        tokenizer_model=options.get("tokenizer_model"),
+        tokenizer_model=opts.get("tokenizer_model"),
     )
 
 
-def validate_tokenizer_model(options: model_def.ModelOptions) -> None:
-    tokenizer_model = resolve_tokenizer_model(options)
-    if not tokenizer_model.exists():
+def validate_tokenizer_model(opts: model_def.ModelOptions) -> None:
+    tok_model = resolve_tokenizer_model(opts)
+    if not tok_model.exists():
         raise model_def.ModelOptionError(
-            f"Tokenizer model not found: {tokenizer_model}. "
+            f"Tokenizer model not found: {tok_model}. "
             "Train it first with src.cli.tokenizer_training."
         )
 
 
 def validate_model_path(
-    options: model_def.ModelOptions,
+    opts: model_def.ModelOptions,
     *,
     model_suffix: str,
     label: str,
 ) -> None:
-    model_path = resolve_model(options, model_suffix=model_suffix)
+    model_path = resolve_model(opts, model_suffix=model_suffix)
     if not model_path.exists():
         raise model_def.ModelOptionError(
             f"{label} model not found: {model_path}. "

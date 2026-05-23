@@ -57,14 +57,14 @@ def load_interpolated_trigram_model(
         model_path,
         module_name=module_name,
     )
-    resolved_extra_fields = dict(extra_fields(data)) if extra_fields else {}
+    extra = dict(extra_fields(data)) if extra_fields else {}
 
     return model_cls(
         **model_fields,
         **parse_fields(data),
-        **resolved_extra_fields,
+        **extra,
         unigram_counts=trigrams.parse_unigram_counts(data),
-        unigram_total=int(data["unigram_count"]),
+        unigram_tot=int(data["unigram_count"]),
         bigram_transitions=trigrams.parse_bigram_transitions(data),
         trigram_transitions=trigrams.parse_trigram_transitions(data),
     )
@@ -76,11 +76,11 @@ def normalize_weights(
     bigram_weight: float,
     trigram_weight: float,
 ) -> tuple[float, float, float]:
-    total = unigram_weight + bigram_weight + trigram_weight  # sum_i lambda_i.
-    if total <= 0:
+    tot = unigram_weight + bigram_weight + trigram_weight  # tot = sum_i lambda_i.
+    if tot <= 0:
         raise ValueError("At least one interpolation weight must be positive.")
     # Return normalized lambda_1, lambda_2, lambda_3.
-    return unigram_weight / total, bigram_weight / total, trigram_weight / total
+    return unigram_weight / tot, bigram_weight / tot, trigram_weight / tot
 
 
 def weights_from_betas(
@@ -101,9 +101,9 @@ def betas_from_weights(
     bigram_weight: float,
     trigram_weight: float,
 ) -> tuple[float, float]:
-    lower_weight = unigram_weight + bigram_weight  # lambda_1 + lambda_2.
+    lower_w = unigram_weight + bigram_weight  # w = lambda_1 + lambda_2.
     # If lambda_3 is 1, the lower-order branch is unused; beta_2 is arbitrary.
-    beta_2 = bigram_weight / lower_weight if lower_weight > 0 else 0.0
+    beta_2 = bigram_weight / lower_w if lower_w > 0 else 0.0
     return beta_2, trigram_weight
 
 
@@ -124,31 +124,31 @@ def resolve_params(
         raise ValueError("Set both beta_2 and beta_3, or neither.")
 
     if beta_2 is not None and beta_3 is not None:
-        weights = weights_from_betas(beta_2=beta_2, beta_3=beta_3)
+        ws = weights_from_betas(beta_2=beta_2, beta_3=beta_3)  # w = lambda weights.
         return InterpolationParams(
-            unigram_weight=weights[0],
-            bigram_weight=weights[1],
-            trigram_weight=weights[2],
+            unigram_weight=ws[0],
+            bigram_weight=ws[1],
+            trigram_weight=ws[2],
             beta_2=beta_2,
             beta_3=beta_3,
         )
 
-    weights = normalize_weights(
+    ws = normalize_weights(
         unigram_weight=unigram_weight,
         bigram_weight=bigram_weight,
         trigram_weight=trigram_weight,
     )
-    betas = betas_from_weights(
-        unigram_weight=weights[0],
-        bigram_weight=weights[1],
-        trigram_weight=weights[2],
+    bs = betas_from_weights(
+        unigram_weight=ws[0],
+        bigram_weight=ws[1],
+        trigram_weight=ws[2],
     )
     return InterpolationParams(
-        unigram_weight=weights[0],
-        bigram_weight=weights[1],
-        trigram_weight=weights[2],
-        beta_2=betas[0],
-        beta_3=betas[1],
+        unigram_weight=ws[0],
+        bigram_weight=ws[1],
+        trigram_weight=ws[2],
+        beta_2=bs[0],
+        beta_3=bs[1],
     )
 
 
@@ -188,14 +188,14 @@ def train_interpolated_trigram_model(
     )
 
 
-def validate_options(options: model_def.ModelOptions) -> None:
+def validate_options(opts: model_def.ModelOptions) -> None:
     try:
         resolve_params(
-            unigram_weight=float(options.get("unigram_weight", DEFAULT_UNIGRAM_WEIGHT)),
-            bigram_weight=float(options.get("bigram_weight", DEFAULT_BIGRAM_WEIGHT)),
-            trigram_weight=float(options.get("trigram_weight", DEFAULT_TRIGRAM_WEIGHT)),
-            beta_2=optional_float(options.get("beta_2")),
-            beta_3=optional_float(options.get("beta_3")),
+            unigram_weight=float(opts.get("unigram_weight", DEFAULT_UNIGRAM_WEIGHT)),
+            bigram_weight=float(opts.get("bigram_weight", DEFAULT_BIGRAM_WEIGHT)),
+            trigram_weight=float(opts.get("trigram_weight", DEFAULT_TRIGRAM_WEIGHT)),
+            beta_2=optional_float(opts.get("beta_2")),
+            beta_3=optional_float(opts.get("beta_3")),
         )
     except ValueError as error:
         raise model_def.ModelOptionError(str(error)) from error
@@ -231,11 +231,11 @@ def betas(params: InterpolationParams | InterpolationSummary) -> tuple[float, fl
 
 
 def parse_fields(data: dict[str, object]) -> dict[str, object]:
-    weights = data["interpolation_weights"]
+    ws_data = data["interpolation_weights"]
     fields = {
-        "unigram_weight": float(weights["unigram"]),
-        "bigram_weight": float(weights["bigram"]),
-        "trigram_weight": float(weights["trigram"]),
+        "unigram_weight": float(ws_data["unigram"]),
+        "bigram_weight": float(ws_data["bigram"]),
+        "trigram_weight": float(ws_data["trigram"]),
     }
     beta_data = data.get("interpolation_betas")
     if isinstance(beta_data, Mapping):

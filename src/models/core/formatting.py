@@ -57,21 +57,21 @@ def format_ngram_query(result: Any) -> list[str]:
 
     lines.extend(["", "Top next tokens:"])
     lines.extend(
-        f"  {prediction.token_id:>4} {format_prediction_piece(prediction, result)} "
-        f"count={prediction.count:,} p={prediction.probability:.4%}"
-        for prediction in result.next_token_predictions
+        f"  {pred.token_id:>4} {format_prediction_piece(pred, result)} "
+        f"count={pred.count:,} p={pred.prob:.4%}"
+        for pred in result.next_token_predictions
     )
     return lines
 
 
 def format_prediction_piece(
-    prediction: Any,
+    pred: Any,
     result: Any,
 ) -> str:
-    special_label = special_token_label(prediction.token_id, result)
+    special_label = special_token_label(pred.token_id, result)
     if special_label is not None:
         return special_label
-    return ascii(prediction.piece.replace("\u2581", " "))
+    return ascii(pred.piece.replace("\u2581", " "))
 
 
 def artifact_filename(path: Path) -> str:
@@ -87,10 +87,10 @@ def special_token_label(token_id: int, result: Any) -> str | None:
     return special_tokens.get(token_id) if token_id >= 0 else None
 
 
-def format_rate(numerator: int, denominator: int) -> str:
-    if denominator == 0:
+def format_rate(numerator: int, denom: int) -> str:
+    if denom == 0:
         return "n/a"
-    return f"{numerator:,}/{denominator:,} ({numerator / denominator:.2%})"
+    return f"{numerator:,}/{denom:,} ({numerator / denom:.2%})"
 
 
 def format_metric(value: float | None, *, suffix: str = "") -> str:

@@ -18,32 +18,32 @@ from src.tokenizers import core as tok_core
 class Model(trigrams.InterpolatedTrigramModel):
     smoothing: float  # k, the additive smoothing pseudo-count.
     unigram_counts: dict[int, int]  # c(w), unigram counts.
-    unigram_total: int  # N = sum_w c(w), the unigram normalizer.
+    unigram_tot: int  # tot = N = sum_w c(w), the unigram normalizer.
 
-    def unigram_probability(self, token_id: int) -> float:
+    def unigram_prob(self, token_id: int) -> float:
         # token_id is w. Return P_k(w) with the empty history h.
-        return ngram.additive_smoothed_probability(
+        return ngram.add_k_prob(
             token_id,
             counts=self.unigram_counts,
-            total=self.unigram_total,
+            tot=self.unigram_tot,
             smoothing=self.smoothing,
-            candidate_count=self.candidate_count,
+            cand_count=self.cand_count,
         )
 
-    def conditional_probability(
+    def conditional_prob(
         self,
         token_id: int,
         *,
         counts: Mapping[int, int],
-        total: int,
+        tot: int,
     ) -> float:
         # For h = v or h = (u, v), counts[token_id] is c(h, w).
-        return ngram.additive_smoothed_probability(
+        return ngram.add_k_prob(
             token_id,
             counts=counts,
-            total=total,
+            tot=tot,
             smoothing=self.smoothing,
-            candidate_count=self.candidate_count,
+            cand_count=self.cand_count,
         )
 
 
@@ -69,7 +69,7 @@ def train(
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> ngram.TrainingResult[trigrams.InterpolatedTrigramTrainingSummary]:
     # lambda_i are stored as weights; beta_i are an equivalent recursive form.
-    interpolation = interp.resolve_params(
+    interp_params = interp.resolve_params(
         unigram_weight=unigram_weight,
         bigram_weight=bigram_weight,
         trigram_weight=trigram_weight,
@@ -80,7 +80,7 @@ def train(
         texts,
         tokenizer,
         text_normalization=text_normalization,
-        params=interpolation,
+        params=interp_params,
         extra_model_payload={"smoothing": smoothing},
     )
 
