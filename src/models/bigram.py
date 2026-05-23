@@ -57,35 +57,36 @@ class Model(ngram.BaseNgramModel):
         top_k: int,
     ) -> list[ngram.NgramPrediction]:
         """Return top next-token prediction records for one bigram history h."""
-        # prev_id is h. obs[token_id] is c(h, w) for w = token_id.
-        obs = dict(self.transitions.get(prev_id, ()))
-        obs_tot = sum(
-            obs.get(token_id, 0)
-            for token_id in self.cand_ids
-        )
-        cand_count = self.cand_count  # cand = |V|, excluding BOS.
-        denom = obs_tot + self.smoothing * cand_count  # c(h) + k |V|.
+        counts = self.transition_counts(prev_id)
+        tot = sum(counts.values())  # c(h), candidate-filtered row total.
+        ranked_ids = self.ranked_ids(counts=counts)
+        if top_k > 0:
+            ranked_ids = ranked_ids[:top_k]
 
-        if denom <= 0:
-            return []
-
-        predictions = (
+        cand_count = self.cand_count  # |V|, excluding BOS.
+        return [
             ngram.NgramPrediction(
                 token_id=token_id,
                 piece=self.pieces[token_id],
-                count=obs.get(token_id, 0),
+                count=counts.get(token_id, 0),
                 prob=ngram.add_k_prob(
                     token_id,
-                    counts=obs,
-                    tot=obs_tot,
+                    counts=counts,
+                    tot=tot,
                     smoothing=self.smoothing,
                     cand_count=cand_count,
                 ),
             )
-            for token_id in self.cand_ids
-            if obs.get(token_id, 0) > 0 or self.smoothing > 0
-        )
-        return ngram.sorted_predictions(predictions, top_k=top_k)
+            for token_id in ranked_ids
+        ]
+
+    def transition_counts(self, prev_id: int) -> dict[int, int]:
+        """Return candidate counts c(h, w) for one previous-token history h."""
+        return {
+            token_id: count
+            for token_id, count in self.transitions.get(prev_id, ())
+            if token_id in self.cand_id_set
+        }
 
     def evaluate(
         self,
@@ -141,13 +142,8 @@ class Model(ngram.BaseNgramModel):
         top_k: int,
     ) -> EvaluationRow:
         """Precompute one history row for repeated evaluation events."""
-        # Keep only candidate next-token types w in this history row h.
-        counts = {
-            token_id: count
-            for token_id, count in self.transitions.get(prev_id, ())
-            if token_id in self.cand_id_set
-        }
-        denom = sum(counts.values()) + self.smoothing * len(self.cand_ids)
+        counts = self.transition_counts(prev_id)
+        denom = sum(counts.values()) + self.smoothing * self.cand_count
         ranked_ids = self.ranked_ids(
             counts=counts,
         )
@@ -168,7 +164,10 @@ class Model(ngram.BaseNgramModel):
             # Ranking by c(h, w) + k is equivalent to ranking by P(w | h).
             return sorted(
                 self.cand_ids,
-                key=lambda token_id: (-(counts.get(token_id, 0) + self.smoothing), token_id),
+                key=lambda token_id: (
+                    -(counts.get(token_id, 0) + self.smoothing),
+                    token_id,
+                ),
             )
         return sorted(counts, key=lambda token_id: (-counts[token_id], token_id))
 
