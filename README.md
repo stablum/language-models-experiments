@@ -33,6 +33,7 @@ src/
   models/       Small language model training utilities
   pipelines/    Pipeline DAG, task, and stage definitions
   tokenizers/   Tokenizer training utilities
+docs/           Extended project documentation
 .clearml/       Local ClearML Server state, ignored by git
 config.toml     Repo-local CLI defaults
 ```
@@ -229,7 +230,7 @@ ClearML artifact: data-split-plan-json
 
 Tokenizer training uses `--text-normalization lossy-ascii` by default. This keeps the learned vocabulary English-focused and ASCII-only apart from tokenizer-internal markers. Pass `--text-normalization none` when you intentionally want the tokenizer to learn from the original Unicode text.
 
-See [ADDING_TOKENIZERS.md](ADDING_TOKENIZERS.md) for the full tokenizer integration checklist.
+See [ADDING_TOKENIZERS.md](docs/ADDING_TOKENIZERS.md) for the full tokenizer integration checklist.
 
 ## N-Gram Models
 
@@ -382,15 +383,15 @@ so the project creates reusable `train` and `validation` partitions from that so
 split. Pass `--text-column translation.fr` to train on the French side of the default
 pair.
 
-See [ADDING_CORPORA.md](ADDING_CORPORA.md) for the full corpus integration checklist.
+See [ADDING_CORPORA.md](docs/ADDING_CORPORA.md) for the full corpus integration checklist.
 
 ## Models
 
 The model training, query, and evaluation CLIs are model-generic. `bigram`, `trigram-add-k`, `trigram-jelinek-mercer`, `trigram-absolute-discount`, `trigram-good-turing`, and `trigram-kneser-ney` are currently registered.
 
-See [MODELS.md](MODELS.md) for the probability formulas and brief model descriptions.
+See [MODELS.md](docs/MODELS.md) for the probability formulas and brief model descriptions.
 
-See [ADDING_MODELS.md](ADDING_MODELS.md) for the full model integration checklist.
+See [ADDING_MODELS.md](docs/ADDING_MODELS.md) for the full model integration checklist.
 
 ## ClearML
 
