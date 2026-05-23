@@ -56,7 +56,7 @@ class Model(ngram.BaseNgramModel):
         *,
         top_k: int,
     ) -> list[ngram.NgramPrediction]:
-        """Return the top next-token probabilities for one bigram history h."""
+        """Return top next-token prediction records for one bigram history h."""
         # prev_id is h. obs[token_id] is c(h, w) for w = token_id.
         obs = dict(self.transitions.get(prev_id, ()))
         obs_tot = sum(
@@ -69,25 +69,23 @@ class Model(ngram.BaseNgramModel):
         if denom <= 0:
             return []
 
-        return ngram.sorted_predictions(
-            (
-                ngram.NgramPrediction(
-                    token_id=token_id,
-                    piece=self.pieces[token_id],
-                    count=obs.get(token_id, 0),
-                    prob=ngram.add_k_prob(
-                        token_id,
-                        counts=obs,
-                        tot=obs_tot,
-                        smoothing=self.smoothing,
-                        cand_count=cand_count,
-                    ),
-                )
-                for token_id in self.cand_ids
-                if obs.get(token_id, 0) > 0 or self.smoothing > 0
-            ),
-            top_k=top_k,
+        predictions = (
+            ngram.NgramPrediction(
+                token_id=token_id,
+                piece=self.pieces[token_id],
+                count=obs.get(token_id, 0),
+                prob=ngram.add_k_prob(
+                    token_id,
+                    counts=obs,
+                    tot=obs_tot,
+                    smoothing=self.smoothing,
+                    cand_count=cand_count,
+                ),
+            )
+            for token_id in self.cand_ids
+            if obs.get(token_id, 0) > 0 or self.smoothing > 0
         )
+        return ngram.sorted_predictions(predictions, top_k=top_k)
 
     def evaluate(
         self,
