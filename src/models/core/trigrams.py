@@ -106,22 +106,20 @@ class BaseTrigramModel(ngram.BaseNgramModel):
         top_k: int,
     ) -> list[ngram.NgramPrediction]:
         counts = self.context_counts(context)
-        return ngram.sorted_predictions(
-            (
-                ngram.NgramPrediction(
-                    token_id=token_id,
-                    piece=self.pieces[token_id],
-                    count=counts.trigram_counts.get(token_id, 0),
-                    prob=self.transition_prob(
-                        token_id,
-                        context,
-                        counts=counts,
-                    ),
-                )
-                for token_id in self.cand_ids
-            ),
-            top_k=top_k,
+        predictions = (
+            ngram.NgramPrediction(
+                token_id=token_id,
+                piece=self.pieces[token_id],
+                count=counts.trigram_counts.get(token_id, 0),
+                prob=self.transition_prob(
+                    token_id,
+                    context,
+                    counts=counts,
+                ),
+            )
+            for token_id in self.cand_ids
         )
+        return ngram.sorted_predictions(predictions, top_k=top_k)
 
     def evaluate(
         self,
@@ -212,8 +210,17 @@ class BaseTrigramModel(ngram.BaseNgramModel):
         context: Context,
     ) -> ResolvedTrigramContextCounts:
         prev_id = context[1]
-        bigram_counts = dict(self.bigram_transitions.get(prev_id, ()))
-        trigram_counts = dict(self.trigram_transitions.get(context, ()))
+        cand_ids = self.cand_id_set
+        bigram_counts = {
+            token_id: count
+            for token_id, count in self.bigram_transitions.get(prev_id, ())
+            if token_id in cand_ids
+        }
+        trigram_counts = {
+            token_id: count
+            for token_id, count in self.trigram_transitions.get(context, ())
+            if token_id in cand_ids
+        }
 
         return ResolvedTrigramContextCounts(
             prev_id=prev_id,
