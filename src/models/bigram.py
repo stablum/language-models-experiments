@@ -82,11 +82,8 @@ class Model(ngram.BaseNgramModel):
 
     def transition_counts(self, prev_id: int) -> dict[int, int]:
         """Return candidate counts c(h, w) for one previous-token history h."""
-        return {
-            token_id: count
-            for token_id, count in self.transitions.get(prev_id, ())
-            if token_id in self.cand_id_set
-        }
+        row = self.transitions.get(prev_id, ())
+        return self.candidate_counts(row)
 
     def evaluate(
         self,
@@ -110,7 +107,7 @@ class Model(ngram.BaseNgramModel):
             self.tokenizer,
             text_normalization=text_norm,
         ):
-            counting.observe_sequence(summary, tok_ids)
+            summary.observe_sequence(tok_ids)
 
             for context, next_id in counting.iter_prediction_events(tok_ids, order=2):
                 prev_id = counting.single_token_context_id(context)
@@ -122,8 +119,7 @@ class Model(ngram.BaseNgramModel):
                     )
                     row_cache[prev_id] = row
 
-                counting.score_evaluation_event(
-                    summary,
+                summary.score_next_token(
                     actual_id=next_id,
                     greedy_id=row.greedy_id,
                     top_k_ids=row.top_k_ids,

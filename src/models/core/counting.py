@@ -147,34 +147,6 @@ def context_at(tok_ids: Sequence[int], next_idx: int, *, order: int) -> Context:
     return tuple(tok_ids[ctx_start:next_idx])
 
 
-def observe_sequence(
-    summary: ngram.NgramEvaluationSummary,
-    tok_ids: Sequence[int],
-) -> None:
-    """Update evaluation sequence and token totals for one tokenized text."""
-    summary.sequence_count += 1
-    summary.token_count += len(tok_ids)
-
-
-def score_evaluation_event(
-    summary: ngram.NgramEvaluationSummary,
-    *,
-    actual_id: int,
-    greedy_id: int,
-    top_k_ids: frozenset[int],
-    prob: float,
-) -> None:
-    """Update evaluation metrics for one observed next-token event."""
-    summary.transition_count += 1
-    ngram.score_evaluation_transition(
-        summary,
-        actual_id=actual_id,
-        greedy_id=greedy_id,
-        top_k_ids=top_k_ids,
-        prob=prob,
-    )
-
-
 def single_token_context_rows(
     rows: Mapping[Context, Counter[int]],
 ) -> dict[int, Counter[int]]:

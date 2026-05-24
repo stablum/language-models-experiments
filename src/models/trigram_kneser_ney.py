@@ -99,7 +99,8 @@ class Model(trigrams.DiscountedTrigramModel):
         tot: int | None = None,
     ) -> float:
         if counts is None:
-            counts = dict(self.bigram_transitions.get(prev_id, ()))
+            row = self.bigram_transitions.get(prev_id, ())
+            counts = self.candidate_counts(row)
         if tot is None:
             tot = sum(counts.values())
 

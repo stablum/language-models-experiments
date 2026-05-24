@@ -87,19 +87,37 @@ class TrainingResult(NgramPydanticModel, Generic[TrainSummaryT]):
     payload: dict[str, object]
 
 
-class NgramEvaluationSummary(NgramPydanticModel):
-    model_path: Path
-    tokenizer_model: Path
-    top_k: int
-    sequence_count: int = 0
-    token_count: int = 0
-    transition_count: int = 0
-    correct_next_token_count: int = 0
-    top_k_correct_next_token_count: int = 0
-    negative_log_likelihood: float = 0.0
-    zero_probability_count: int = 0
-    text_normalization: str = "none"
+class SequenceObservationMixin:
+    def observe_sequence(self, tok_ids: Sequence[int]) -> None:
+        """Update evaluation sequence and token totals for one tokenized text."""
+        self.sequence_count += 1
+        self.token_count += len(tok_ids)
 
+
+class NextTokenScoringMixin:
+    def score_next_token(
+        self,
+        *,
+        actual_id: int,
+        greedy_id: int,
+        top_k_ids: frozenset[int],
+        prob: float,
+    ) -> None:
+        """Accumulate accuracy and log-loss metrics for one prediction event."""
+        # actual_id is the observed next token w; prob is P(w | h).
+        self.transition_count += 1
+        if actual_id == greedy_id:
+            self.correct_next_token_count += 1
+        if actual_id in top_k_ids:
+            self.top_k_correct_next_token_count += 1
+
+        if prob <= 0:
+            self.zero_probability_count += 1
+        else:
+            self.negative_log_likelihood -= math.log(prob)
+
+
+class EvaluationMetricsMixin:
     @property
     def next_token_accuracy(self) -> float | None:
         """Return the greedy next-token accuracy over evaluated events."""
@@ -136,6 +154,25 @@ class NgramEvaluationSummary(NgramPydanticModel):
         if math.isinf(average_nll):
             return math.inf
         return math.exp(average_nll)
+
+
+class NgramEvaluationSummary(
+    SequenceObservationMixin,
+    NextTokenScoringMixin,
+    EvaluationMetricsMixin,
+    NgramPydanticModel,
+):
+    model_path: Path
+    tokenizer_model: Path
+    top_k: int
+    sequence_count: int = 0
+    token_count: int = 0
+    transition_count: int = 0
+    correct_next_token_count: int = 0
+    top_k_correct_next_token_count: int = 0
+    negative_log_likelihood: float = 0.0
+    zero_probability_count: int = 0
+    text_normalization: str = "none"
 
 
 class BaseNgramModel(NgramPydanticModel):
@@ -176,6 +213,19 @@ class BaseNgramModel(NgramPydanticModel):
         """Return the number of candidate next-token IDs."""
         # cand = candidate vocabulary size |V|.
         return len(self.cand_ids)
+
+    def candidate_counts(
+        self,
+        row: Mapping[int, int] | Iterable[tuple[int, int]],
+    ) -> dict[int, int]:
+        """Return positive c(h, w) counts restricted to candidate next tokens."""
+        items = row.items() if isinstance(row, Mapping) else row
+        cand_ids = self.cand_id_set
+        return {
+            token_id: count
+            for token_id, count in items
+            if token_id in cand_ids and count > 0
+        }
 
     def encode_prompt(self, prompt: str) -> list[int]:
         """Normalize and tokenize a query prompt with the model tokenizer."""
@@ -443,26 +493,6 @@ def load_tokenizer_model_fields(
         "pieces": pieces,
         "text_normalization": str(data.get("text_normalization", "none")),
     }
-
-
-def score_evaluation_transition(
-    summary: NgramEvaluationSummary,
-    *,
-    actual_id: int,
-    greedy_id: int,
-    top_k_ids: frozenset[int],
-    prob: float,
-) -> None:
-    """Accumulate accuracy and log-loss metrics for one prediction event."""
-    if actual_id == greedy_id:
-        summary.correct_next_token_count += 1
-    if actual_id in top_k_ids:
-        summary.top_k_correct_next_token_count += 1
-
-    if prob <= 0:
-        summary.zero_probability_count += 1
-    else:
-        summary.negative_log_likelihood -= math.log(prob)
 
 
 def add_k_prob(

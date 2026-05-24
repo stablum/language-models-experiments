@@ -189,13 +189,19 @@ def train_interpolated_trigram_model(
 
 
 def validate_options(opts: model_def.ModelOptions) -> None:
+    unigram_weight = float(opts.get("unigram_weight", DEFAULT_UNIGRAM_WEIGHT))
+    bigram_weight = float(opts.get("bigram_weight", DEFAULT_BIGRAM_WEIGHT))
+    trigram_weight = float(opts.get("trigram_weight", DEFAULT_TRIGRAM_WEIGHT))
+    beta_2 = optional_float(opts.get("beta_2"))
+    beta_3 = optional_float(opts.get("beta_3"))
+
     try:
         resolve_params(
-            unigram_weight=float(opts.get("unigram_weight", DEFAULT_UNIGRAM_WEIGHT)),
-            bigram_weight=float(opts.get("bigram_weight", DEFAULT_BIGRAM_WEIGHT)),
-            trigram_weight=float(opts.get("trigram_weight", DEFAULT_TRIGRAM_WEIGHT)),
-            beta_2=optional_float(opts.get("beta_2")),
-            beta_3=optional_float(opts.get("beta_3")),
+            unigram_weight=unigram_weight,
+            bigram_weight=bigram_weight,
+            trigram_weight=trigram_weight,
+            beta_2=beta_2,
+            beta_3=beta_3,
         )
     except ValueError as error:
         raise model_def.ModelOptionError(str(error)) from error

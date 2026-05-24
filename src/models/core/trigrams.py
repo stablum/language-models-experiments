@@ -140,7 +140,7 @@ class BaseTrigramModel(ngram.BaseNgramModel):
             self.tokenizer,
             text_normalization=text_norm,
         ):
-            counting.observe_sequence(summary, tok_ids)
+            summary.observe_sequence(tok_ids)
 
             for raw_context, next_id in counting.iter_prediction_events(
                 tok_ids,
@@ -153,8 +153,7 @@ class BaseTrigramModel(ngram.BaseNgramModel):
                     row = self.evaluation_row(context, top_k=top_k)
                     row_cache[context] = row
 
-                counting.score_evaluation_event(
-                    summary,
+                summary.score_next_token(
                     actual_id=next_id,
                     greedy_id=row.greedy_id,
                     top_k_ids=row.top_k_ids,
@@ -210,17 +209,10 @@ class BaseTrigramModel(ngram.BaseNgramModel):
         context: Context,
     ) -> ResolvedTrigramContextCounts:
         prev_id = context[1]
-        cand_ids = self.cand_id_set
-        bigram_counts = {
-            token_id: count
-            for token_id, count in self.bigram_transitions.get(prev_id, ())
-            if token_id in cand_ids
-        }
-        trigram_counts = {
-            token_id: count
-            for token_id, count in self.trigram_transitions.get(context, ())
-            if token_id in cand_ids
-        }
+        bigram_row = self.bigram_transitions.get(prev_id, ())
+        trigram_row = self.trigram_transitions.get(context, ())
+        bigram_counts = self.candidate_counts(bigram_row)
+        trigram_counts = self.candidate_counts(trigram_row)
 
         return ResolvedTrigramContextCounts(
             prev_id=prev_id,

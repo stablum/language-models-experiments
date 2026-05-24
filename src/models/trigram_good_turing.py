@@ -50,12 +50,12 @@ class Model(trigrams.BaseTrigramModel):
         top_k: int,
     ) -> list[ngram.NgramPrediction]:
         # context is h = (u, v). trigram_counts[token_id] is c(h, w).
-        trigram_counts = dict(self.trigram_transitions.get(context, ()))
+        counts = self.context_counts(context)
         return [
             ngram.NgramPrediction(
                 token_id=token_id,
                 piece=self.pieces[token_id],
-                count=trigram_counts.get(token_id, 0),
+                count=counts.trigram_counts.get(token_id, 0),
                 prob=self.trigram_prob(token_id, context),
             )
             for token_id in self.top_ids(context, top_k=top_k)
@@ -167,10 +167,9 @@ class Model(trigrams.BaseTrigramModel):
                     prev_id=prev_id,
                 )
 
-            distribution = self.good_turing_dist(
-                dict(self.trigram_transitions.get(context, ())),
-                lower_prob=lower_prob,
-            )
+            trigram_row = self.trigram_transitions.get(context, ())
+            trigram_counts = self.candidate_counts(trigram_row)
+            distribution = self.good_turing_dist(trigram_counts, lower_prob=lower_prob)
             self._trigram_distributions[context] = distribution
         return distribution
 
@@ -202,10 +201,9 @@ class Model(trigrams.BaseTrigramModel):
     def bigram_distribution(self, prev_id: int) -> good_turing.GoodTuringDistribution:
         distribution = self._bigram_distributions.get(prev_id)
         if distribution is None:
-            distribution = self.good_turing_dist(
-                dict(self.bigram_transitions.get(prev_id, ())),
-                lower_prob=self.unigram_prob,
-            )
+            bigram_row = self.bigram_transitions.get(prev_id, ())
+            bigram_counts = self.candidate_counts(bigram_row)
+            distribution = self.good_turing_dist(bigram_counts, lower_prob=self.unigram_prob)
             self._bigram_distributions[prev_id] = distribution
         return distribution
 
