@@ -87,14 +87,14 @@ class TrainingResult(NgramPydanticModel, Generic[TrainSummaryT]):
     payload: dict[str, object]
 
 
-class SequenceObservationMixin:
+class EvaluationAccumulatorMixin:
+    """Mutate an evaluation summary as token sequences and events are scored."""
+
     def observe_sequence(self, tok_ids: Sequence[int]) -> None:
-        """Update evaluation sequence and token totals for one tokenized text."""
+        """Record one evaluated token sequence before scoring its events."""
         self.sequence_count += 1
         self.token_count += len(tok_ids)
 
-
-class NextTokenScoringMixin:
     def score_next_token(
         self,
         *,
@@ -118,6 +118,8 @@ class NextTokenScoringMixin:
 
 
 class EvaluationMetricsMixin:
+    """Expose derived metrics computed from accumulated evaluation counts."""
+
     @property
     def next_token_accuracy(self) -> float | None:
         """Return the greedy next-token accuracy over evaluated events."""
@@ -157,11 +159,12 @@ class EvaluationMetricsMixin:
 
 
 class NgramEvaluationSummary(
-    SequenceObservationMixin,
-    NextTokenScoringMixin,
+    EvaluationAccumulatorMixin,
     EvaluationMetricsMixin,
     NgramPydanticModel,
 ):
+    """Store raw and derived statistics for an n-gram evaluation run."""
+
     model_path: Path
     tokenizer_model: Path
     top_k: int
