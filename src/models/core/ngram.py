@@ -123,12 +123,12 @@ class EvaluationMetricsMixin:
     @property
     def next_token_accuracy(self) -> float | None:
         """Return the greedy next-token accuracy over evaluated events."""
-        return divide_or_none(self.correct_next_token_count, self.transition_count)
+        return self._event_rate(self.correct_next_token_count)
 
     @property
     def top_k_accuracy(self) -> float | None:
         """Return the top-k next-token accuracy over evaluated events."""
-        return divide_or_none(self.top_k_correct_next_token_count, self.transition_count)
+        return self._event_rate(self.top_k_correct_next_token_count)
 
     @property
     def average_negative_log_likelihood(self) -> float | None:
@@ -156,6 +156,12 @@ class EvaluationMetricsMixin:
         if math.isinf(average_nll):
             return math.inf
         return math.exp(average_nll)
+
+    def _event_rate(self, numerator: int) -> float | None:
+        """Compute rates over scored events so metric denominators stay local."""
+        if self.transition_count == 0:
+            return None
+        return numerator / self.transition_count
 
 
 class NgramEvaluationSummary(
@@ -313,13 +319,6 @@ class BaseNgramModel(NgramPydanticModel):
             next_token_predictions=next_preds,
             text_normalization=self.text_normalization,
         )
-
-
-def divide_or_none(numerator: int, denom: int) -> float | None:
-    """Divide counts while representing empty denominators as None."""
-    if denom == 0:
-        return None
-    return numerator / denom
 
 
 def select_next_token(
