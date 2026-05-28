@@ -18,11 +18,13 @@ from src.models.core import naming
 from src.tokenizers import core as tok_core
 
 
-DecodingMode = Literal["sample", "most-probable"]
-MODEL_SCHEMA_VERSION = 1
+DecodingMode = Literal["sample", "most-probable"]  # Restrict configs to supported decoders.
+MODEL_SCHEMA_VERSION = 1  # Pin artifact envelopes so incompatible JSON fails fast.
 
 
 class NgramPydanticModel(pydantic.BaseModel):
+    """Centralize Pydantic defaults so model records validate consistently."""
+
     model_config = pydantic.ConfigDict(
         arbitrary_types_allowed=True,
         validate_assignment=True,
@@ -30,6 +32,8 @@ class NgramPydanticModel(pydantic.BaseModel):
 
 
 class NgramQueryCfg(NgramPydanticModel):
+    """Validate user-facing generation controls before querying a model."""
+
     prompt: str = ""
     max_tokens: int = pydantic.Field(default=80, ge=0)
     top_k: int = pydantic.Field(default=10, ge=1)
@@ -39,6 +43,8 @@ class NgramQueryCfg(NgramPydanticModel):
 
 
 class FrozenNgramModel(NgramPydanticModel):
+    """Freeze reusable count/probability records to protect cached rows."""
+
     model_config = pydantic.ConfigDict(
         arbitrary_types_allowed=True,
         frozen=True,
@@ -47,6 +53,8 @@ class FrozenNgramModel(NgramPydanticModel):
 
 
 class NgramPrediction(NgramPydanticModel):
+    """Describe one next-token candidate with its evidence and probability."""
+
     token_id: int
     piece: str
     count: int
@@ -54,6 +62,8 @@ class NgramPrediction(NgramPydanticModel):
 
 
 class NgramQueryResult(NgramPydanticModel):
+    """Bundle generated text with prompt metadata and the initial prediction row."""
+
     model_path: Path
     tokenizer_model: Path
     decoding: DecodingMode
@@ -71,6 +81,8 @@ class NgramQueryResult(NgramPydanticModel):
 
 
 class NgramTrainingSummary(NgramPydanticModel):
+    """Carry common training metadata shared by all n-gram model families."""
+
     output_path: Path | None = None
     tokenizer_model: Path | None = None
     vocab_size: int = 0
@@ -79,10 +91,15 @@ class NgramTrainingSummary(NgramPydanticModel):
     text_normalization: str = "none"
 
 
-TrainSummaryT = TypeVar("TrainSummaryT", bound=NgramTrainingSummary)
+TrainSummaryT = TypeVar(
+    "TrainSummaryT",
+    bound=NgramTrainingSummary,
+)  # Preserve each model family's concrete summary type.
 
 
 class TrainingResult(NgramPydanticModel, Generic[TrainSummaryT]):
+    """Pair a typed training summary with its JSON-ready model payload."""
+
     summary: TrainSummaryT
     payload: dict[str, object]
 
