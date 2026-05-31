@@ -26,14 +26,16 @@ EvalT = TypeVar("EvalT")
 TrainSummaryT = TypeVar("TrainSummaryT", bound=ngram.NgramTrainingSummary)
 
 REGISTRY_FLAG = "REGISTER_MODEL"
+FIT_FN_NAME = "fit"
 
-_TRAINING_INFRA_OPTION_NAMES = frozenset(
+_FIT_INFRA_OPTION_NAMES = frozenset(
     (
         "tokenizer",
         "tokenizer_model",
         "output_path",
         "stored_tokenizer_model",
         "text_normalization",
+        "validation_texts",
     )
 )
 _INTERPOLATION_OPTION_NAMES = frozenset(
@@ -115,29 +117,27 @@ def registry_flag_value(
 
 
 def model_definition_from_module(module: ModuleType) -> model_def.ModelDefinition | None:
-    train_model = get_module_callable(module, "train")
+    fit_model = get_module_callable(module, FIT_FN_NAME)
     load_model = get_module_callable(module, "load")
     summary_items = get_module_callable(module, "format_summary")
-    if train_model is None or load_model is None or summary_items is None:
+    if fit_model is None or load_model is None or summary_items is None:
         return None
 
-    train_opt_names = infer_training_option_names(train_model)
-    validate_train_opts = get_module_callable(
-        module,
-        "validate_training_options",
-    )
+    fit_opt_names = infer_fit_option_names(fit_model)
+    validate_fit_opts = get_module_callable(module, "validate_fit_options")
 
     return model_definition(
         module_name=module.__name__,
-        train_model=train_model,
+        fit_model=fit_model,
         load_model=load_model,
         summary_items=summary_items,
-        training_option_names=train_opt_names,
+        fit_option_names=fit_opt_names,
+        uses_validation_data=accepts_keyword(fit_model, "validation_texts"),
         query_lines=get_module_callable(module, "format_query"),
         evaluation_items=get_module_callable(module, "format_evaluation"),
-        validate_training_options=(
-            validate_train_opts
-            or inferred_training_options_validator(train_opt_names)
+        validate_fit_options=(
+            validate_fit_opts
+            or inferred_fit_options_validator(fit_opt_names)
         ),
     )
 
@@ -149,17 +149,28 @@ def get_module_callable(module: ModuleType, name: str) -> Callable[..., Any] | N
     return fn
 
 
-def infer_training_option_names(train_model: Callable[..., Any]) -> tuple[str, ...]:
-    sig = inspect.signature(train_model)
+def infer_fit_option_names(fit_model: Callable[..., Any]) -> tuple[str, ...]:
+    sig = inspect.signature(fit_model)
     return tuple(
         name
         for name, param in sig.parameters.items()
         if param.kind is inspect.Parameter.KEYWORD_ONLY
-        and name not in _TRAINING_INFRA_OPTION_NAMES
+        and name not in _FIT_INFRA_OPTION_NAMES
     )
 
 
-def inferred_training_options_validator(
+def accepts_keyword(fn: Callable[..., Any], name: str) -> bool:
+    """Return whether a callable can receive a named keyword argument."""
+    param = inspect.signature(fn).parameters.get(name)
+    if param is None:
+        return False
+    return param.kind in (
+        inspect.Parameter.KEYWORD_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    )
+
+
+def inferred_fit_options_validator(
     opt_names: Sequence[str],
 ) -> model_def.ModelOptionValidator | None:
     if _INTERPOLATION_OPTION_NAMES <= set(opt_names):
@@ -170,36 +181,41 @@ def inferred_training_options_validator(
 def model_definition(
     *,
     module_name: str,
-    train_model: Callable[..., ngram.TrainingResult[Any]],
+    fit_model: Callable[..., ngram.TrainingResult[Any]],
     load_model: Callable[[Path], LoadedT],
     summary_items: model_def.SummaryFormatter,
-    training_option_names: Sequence[str] = (),
+    fit_option_names: Sequence[str] = (),
+    uses_validation_data: bool = False,
     query_lines: model_def.QueryFormatter | None = None,
     evaluation_items: model_def.SummaryFormatter | None = None,
-    validate_training_options: model_def.ModelOptionValidator | None = None,
+    validate_fit_options: model_def.ModelOptionValidator | None = None,
 ) -> model_def.ModelDefinition:
     name = model_name_from_module(module_name)
     model_label = model_label_from_name(name)
 
-    def train(
-        texts: Iterable[str],
+    def fit(
+        data: model_def.ModelFitData,
         opts: model_def.ModelOptions,
     ) -> ngram.NgramTrainingSummary:
+        """Fit a concrete model and persist its learned artifact payload."""
         stored_tok_model = opts.get("stored_tokenizer_model")
         tok_model = resolve_tokenizer_model(opts)
         out_path = resolve_output(opts, model_suffix=name)
         tokenizer = tok_core.load_tokenizer(tok_model)
-        train_opts = {
+        fit_opts = {
             opt_name: opts[opt_name]
-            for opt_name in training_option_names
+            for opt_name in fit_option_names
             if opt_name in opts
         }
-        result = train_model(
-            texts,
-            tokenizer=tokenizer,
-            text_normalization=opts["text_normalization"],
-            **train_opts,
-        )
+        fit_kwargs: dict[str, object] = {
+            "tokenizer": tokenizer,
+            "text_normalization": opts["text_normalization"],
+            **fit_opts,
+        }
+        if uses_validation_data:
+            fit_kwargs["validation_texts"] = data.validation_items
+
+        result = fit_model(data.train_items, **fit_kwargs)
         return save_training_result(
             result,
             module_name=module_name,
@@ -214,8 +230,8 @@ def model_definition(
 
     def validate_options(opts: model_def.ModelOptions) -> None:
         validate_tokenizer_model(opts)
-        if validate_training_options is not None:
-            validate_training_options(opts)
+        if validate_fit_options is not None:
+            validate_fit_options(opts)
 
     def validate_query_options(opts: model_def.ModelOptions) -> None:
         validate_model_path(opts, model_suffix=name, label=model_label)
@@ -242,7 +258,8 @@ def model_definition(
 
     return model_def.ModelDefinition(
         name=name,
-        train=train,
+        fit=fit,
+        uses_validation_data=uses_validation_data,
         validate_options=validate_options,
         summary_items=summary_items,
         query=query,

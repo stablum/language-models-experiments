@@ -143,7 +143,7 @@ def train_model_pipeline_step(
             }
         )
 
-        texts = corpus_splits.load_partition_texts(
+        train_texts = corpus_splits.load_partition_texts(
             corpus_definition,
             dataset_id=dataset_id,
             plan=split_plan,
@@ -152,7 +152,22 @@ def train_model_pipeline_step(
             text_column=text_column,
             limit=limit,
         )
-        summary = model_definition.train(texts, model_options)
+        validation_texts = None
+        if model_definition.uses_validation_data:
+            validation_texts = corpus_splits.load_partition_texts(
+                corpus_definition,
+                dataset_id=dataset_id,
+                plan=split_plan,
+                partition=data_splits.VALIDATION_PARTITION,
+                streaming=streaming,
+                text_column=text_column,
+                limit=limit,
+            )
+        fit_data = model_def.ModelFitData(
+            train_items=train_texts,
+            validation_items=validation_texts,
+        )
+        summary = model_definition.fit(fit_data, model_options)
         data_splits.attach_split_plan_to_json_model(summary.output_path, split_plan)
 
         clearml_run.log_metrics(

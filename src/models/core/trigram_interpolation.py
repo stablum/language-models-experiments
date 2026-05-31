@@ -152,7 +152,7 @@ def resolve_params(
     )
 
 
-def train_interpolated_trigram_model(
+def fit_interpolated_trigram_model(
     texts: Iterable[str],
     tokenizer: tok_core.TokenizerCodec,
     *,
@@ -160,6 +160,7 @@ def train_interpolated_trigram_model(
     text_normalization: normalization.TextNormalization,
     extra_model_payload: Mapping[str, object] | None = None,
 ) -> ngram.TrainingResult[trigrams.InterpolatedTrigramTrainingSummary]:
+    """Fit shared count state for interpolated trigram models."""
     counts = trigrams.collect_trigram_counts(
         texts,
         tokenizer=tokenizer,

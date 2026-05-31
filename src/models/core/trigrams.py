@@ -375,7 +375,7 @@ def collect_trigram_counts(
     )
 
 
-def train_counted_trigram_model(
+def fit_counted_trigram_model(
     texts: Iterable[str],
     tokenizer: tok_core.TokenizerCodec,
     *,
@@ -386,6 +386,7 @@ def train_counted_trigram_model(
         Callable[[TrigramCounts, SummaryT], Mapping[str, object]] | None
     ) = None,
 ) -> ngram.TrainingResult[SummaryT]:
+    """Fit shared trigram count state for counted trigram models."""
     counts = collect_trigram_counts(
         texts,
         tokenizer=tokenizer,

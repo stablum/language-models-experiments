@@ -176,13 +176,14 @@ def load(model_path: Path) -> Model:
     )
 
 
-def train(
+def fit(
     texts: Iterable[str],
     *,
     tokenizer: tok_core.TokenizerCodec,
     discount: float = 0.75,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> ngram.TrainingResult[TrainingSummary]:
+    """Fit raw trigram counts plus Kneser-Ney continuation tables."""
     def payload(
         counts: trigrams.TrigramCounts,
         summary: TrainingSummary,
@@ -205,7 +206,7 @@ def train(
             ),
         }
 
-    return trigrams.train_counted_trigram_model(
+    return trigrams.fit_counted_trigram_model(
         texts,
         tokenizer,
         text_normalization=text_normalization,

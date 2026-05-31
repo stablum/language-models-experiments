@@ -50,7 +50,7 @@ def load(model_path: Path) -> Model:
     )
 
 
-def train(
+def fit(
     texts: Iterable[str],
     *,
     tokenizer: tok_core.TokenizerCodec,
@@ -61,6 +61,7 @@ def train(
     beta_3: float | None = None,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> ngram.TrainingResult[trigrams.InterpolatedTrigramTrainingSummary]:
+    """Fit Jelinek-Mercer trigram counts and interpolation weights."""
     # lambda_i are stored as weights; beta_i are an equivalent recursive form.
     interp_params = interp.resolve_params(
         unigram_weight=unigram_weight,
@@ -69,7 +70,7 @@ def train(
         beta_2=beta_2,
         beta_3=beta_3,
     )
-    return interp.train_interpolated_trigram_model(
+    return interp.fit_interpolated_trigram_model(
         texts,
         tokenizer,
         text_normalization=text_normalization,

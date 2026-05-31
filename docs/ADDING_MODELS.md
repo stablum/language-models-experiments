@@ -21,7 +21,7 @@ math, serialization, formatting, or count-collection code in `src/models/core`.
 whose filename does not start with `_`. A module is registered when it exposes
 the conventional model functions:
 
-- `train(...)`
+- `fit(...)`
 - `load(model_path)`
 - `format_summary(summary)`
 
@@ -44,6 +44,31 @@ registered.
 Because the registry imports model modules during CLI startup, keep module
 top-level code side-effect free. Do not train, read large artifacts, or call
 external services at import time.
+
+## Training Vocabulary
+
+Concrete model modules expose `fit(...)`, not `train(...)`. In this project,
+`fit` means "estimate learned state from data and return the artifact payload."
+For n-grams that learned state is usually sufficient statistics such as
+`c(h,w)` count rows. For gradient-based models, `fit(...)` may instantiate a
+live `Model`, pass it to a trainer, update its weights batch by batch, run
+epoch validation, and then return a checkpoint/artifact summary.
+
+`src.ml_core.models.definition.ModelDefinition.fit` is the registry-level
+adapter entrypoint used by the pipelines. It receives a `ModelFitData` object
+with `train_items` and optional `validation_items`, plus model options. The
+adapter unwraps that object, loads infrastructure such as the tokenizer, calls
+the concrete module's `fit(...)`, and saves the resulting artifact.
+
+Do not add a custom `Model.train(...)` method for fitting. In PyTorch,
+`model.train()` is already a mode switch for layers such as dropout and batch
+normalization; the optimization loop belongs in a trainer or module-level
+`fit(...)`. Keep the split clear:
+
+- `Model`: parameters plus forward/scoring/query/evaluation behavior
+- `fit(...)` or `Trainer.fit(...)`: epochs, optimizer, loss, checkpointing,
+  and optional epoch validation
+- `load(...)`: hydrate a saved artifact into a queryable model object
 
 ## Usual Module Structure
 
@@ -74,7 +99,7 @@ def load(model_path: Path) -> Model:
     ...
 
 
-def train(
+def fit(
     texts: Iterable[str],
     *,
     tokenizer: tok_core.TokenizerCodec,
@@ -91,7 +116,7 @@ def format_summary(summary: TrainingSummary) -> list[tuple[str, str]]:
 ```
 
 Omit the module-local `TrainingSummary` when a shared summary type already has
-all the fields the module needs. In that case, annotate `train(...)` and
+all the fields the module needs. In that case, annotate `fit(...)` and
 `format_summary(...)` with the shared type directly.
 
 ## Required Pieces
@@ -141,7 +166,7 @@ artifact `model_type` from the module leaf, so `src.models.my_model` expects
 `model_type: "my_model"`. Do not add a second hand-written schema name unless
 you first introduce a new adapter convention that truly needs one.
 
-`train(...)`
+`fit(...)`
 
 This is the function called by the model-module adapter. Its required keyword
 parameters are:
@@ -149,7 +174,7 @@ parameters are:
 - `tokenizer: tok_core.TokenizerCodec`
 - `text_normalization: normalization.TextNormalization`
 
-It should train from `texts` and return `ngram.TrainingResult[SummaryType]`,
+It should fit from `texts` and return `ngram.TrainingResult[SummaryType]`,
 which contains the training summary and the module-owned JSON payload. Simple
 n-gram payloads normally include:
 
@@ -161,10 +186,22 @@ JSON artifact to its chosen `output_path`, and records the final artifact paths
 on the returned summary. Model modules should not know about staging paths,
 portable tokenizer references, or ClearML upload details.
 
-The standard trigram training helpers build the common trigram count payload
+If a future model needs validation data inside fitting, add this keyword-only
+parameter:
+
+```python
+validation_texts: Iterable[str] | None = None
+```
+
+The adapter detects that parameter and supplies the validation partition through
+`ModelFitData.validation_items`. Use this for epoch metrics, early stopping, or
+checkpoint selection. Keep final benchmark evaluation in the evaluation stage
+unless the model genuinely needs validation feedback while fitting.
+
+The standard trigram fitting helpers build the common trigram count payload
 for you. Add only the extra payload fields your model needs.
 
-Model hyperparameters should be keyword-only parameters on `train(...)`. The
+Model hyperparameters should be keyword-only parameters on `fit(...)`. The
 adapter infers their option names by excluding the infrastructure parameters
 listed above.
 
@@ -178,7 +215,7 @@ Optional module functions:
 
 - `format_query(result)` if the standard n-gram query display is not enough
 - `format_evaluation(summary)` if the standard evaluation display is not enough
-- `validate_training_options(options)` for coupled or non-trivial option checks
+- `validate_fit_options(options)` for coupled or non-trivial option checks
 
 The full model-training pipeline requires both query and evaluation support.
 The adapter supplies query support through the loaded model's `query`
@@ -188,7 +225,7 @@ method and evaluation support through the loaded model's `evaluate` method.
 
 If a new model uses only existing hyperparameters such as `smoothing`,
 `discount`, `unigram_weight`, `bigram_weight`, `trigram_weight`, `beta_2`, or
-`beta_3`, add them as keyword-only parameters on `train(...)`. The adapter will
+`beta_3`, add them as keyword-only parameters on `fit(...)`. The adapter will
 pass through any matching CLI/pipeline option.
 
 If the model needs a brand-new hyperparameter, add it consistently in:
@@ -201,7 +238,7 @@ If the model needs a brand-new hyperparameter, add it consistently in:
 - `src/pipelines/language_model/artifacts.py` when it should be logged
 - `src/pipelines/language_model/optuna.py` when it should be searchable
 
-Then add the new keyword-only parameter to the model module's `train(...)`
+Then add the new keyword-only parameter to the model module's `fit(...)`
 signature.
 
 ## N-Gram Starting Points
@@ -232,7 +269,7 @@ If you add a new registry convention, adapt it into `ModelDefinition`
 callables with these signatures. These are adapter-level callables, not extra
 functions required on ordinary concrete model modules:
 
-- `train(texts, options) -> summary`
+- `fit(data, options) -> summary`
 - `validate_options(options) -> None`
 - `summary_items(summary) -> list[tuple[str, str]]`
 - `query(options) -> result`

@@ -210,14 +210,14 @@ def iter_token_sequences(
     )
 
 
-def train(
+def fit(
     texts: Iterable[str],
     *,
     tokenizer: tok_core.TokenizerCodec,
     smoothing: float = 0.1,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> ngram.TrainingResult[TrainingSummary]:
-    """Collect bigram counts and return the JSON-ready training payload."""
+    """Fit bigram counts and return the JSON-ready training payload."""
     counts = collect_bigram_counts(
         texts,
         tokenizer=tokenizer,

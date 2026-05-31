@@ -96,7 +96,7 @@ def load(model_path: Path) -> Model:
     )
 
 
-def train(
+def fit(
     texts: Iterable[str],
     *,
     tokenizer: tok_core.TokenizerCodec,
@@ -104,6 +104,7 @@ def train(
     discount: float = 0.75,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> ngram.TrainingResult[TrainingSummary]:
+    """Fit absolute-discount trigram counts and discount metadata."""
     def payload(
         _counts: trigrams.TrigramCounts,
         summary: TrainingSummary,
@@ -111,7 +112,7 @@ def train(
         # Training stores raw counts; smoothing/discounting are applied lazily.
         return {"smoothing": smoothing, "discount": summary.discount}
 
-    return trigrams.train_counted_trigram_model(
+    return trigrams.fit_counted_trigram_model(
         texts,
         tokenizer,
         text_normalization=text_normalization,

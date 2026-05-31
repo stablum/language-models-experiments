@@ -14,6 +14,20 @@ P(w_{1:T}) = \prod_{i=1}^{T} P(w_i \mid h_i),
 
 where h_i is the available history. The bigram history is the previous token, and the trigram history is the previous two tokens. In training and evaluation, explicit BOS context tokens and an EOS target token are included when the tokenizer provides them.
 
+## Implementation Boundary
+
+Registered model modules follow a fit/load/query split. The concrete module
+function `fit(...)` estimates learned state from data and returns a
+JSON-ready training artifact payload. The `load(model_path)` function hydrates
+that artifact into the live `Model` object used for query and evaluation.
+
+For the n-gram models below, fitting computes sufficient statistics such as
+`c(v,w)` and `c(u,v,w)` rather than updating a live neural parameter tensor.
+The same registry contract also leaves room for gradient-based models: their
+`fit(...)` can instantiate a model, pass it to a trainer, update weights
+through the forward/loss/backward/optimizer loop, and consume optional
+validation data for epoch metrics or checkpoint selection.
+
 ## Notation
 
 Counts are written as

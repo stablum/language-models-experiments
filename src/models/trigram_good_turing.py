@@ -291,13 +291,14 @@ def load(model_path: Path) -> Model:
     )
 
 
-def train(
+def fit(
     texts: Iterable[str],
     *,
     tokenizer: tok_core.TokenizerCodec,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> ngram.TrainingResult[trigrams.TrigramTrainingSummary]:
-    return trigrams.train_counted_trigram_model(
+    """Fit trigram counts used by Good-Turing probability rows."""
+    return trigrams.fit_counted_trigram_model(
         texts,
         tokenizer,
         text_normalization=text_normalization,
