@@ -33,7 +33,7 @@ class ModelOptionError(ValueError):
 
 
 class ModelDefinition(core_cfg.BaseCfg):
-    """Adapt one concrete model implementation to the shared pipeline contract."""
+    """Expose one imported model module through the shared pipeline contract."""
 
     name: str
     fit: ModelFitter
