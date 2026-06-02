@@ -71,7 +71,6 @@ def dataset_id_option(command: Command) -> Command:
 def source_split_option(command: Command) -> Command:
     return click.option(
         "--source-split",
-        "--split",
         "source_split",
         default=None,
         help=(
@@ -143,7 +142,6 @@ def limit_option(help_text: str) -> CommandDecorator:
 def evaluation_partition_option(command: Command) -> Command:
     return click.option(
         "--evaluation-partition",
-        "--evaluation-split",
         type=click.Choice(data_splits.PROJECT_PARTITIONS),
         default=data_splits.VALIDATION_PARTITION,
         show_default=True,
@@ -314,7 +312,7 @@ def optuna_options(command: Command) -> Command:
                 "Hyperparameter search spec. Repeatable. Examples: "
                 "smoothing=float:1e-4:1.0:log, discount=float:0.1:0.95, "
                 "beta_2=float:0:1.0, top_k=int:1:10, "
-                "model=categorical:bigram,trigram-add-k."
+                "model_name=categorical:bigram,trigram-add-k."
             ),
         ),
         click.option(

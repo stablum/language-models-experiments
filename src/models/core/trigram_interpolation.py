@@ -29,8 +29,8 @@ class InterpolationSummary(Protocol):
     unigram_weight: float  # lambda_1.
     bigram_weight: float  # lambda_2.
     trigram_weight: float  # lambda_3.
-    beta_2: float | None  # beta_2, lower-order bigram share.
-    beta_3: float | None  # beta_3, trigram share.
+    beta_2: float  # beta_2, lower-order bigram share.
+    beta_3: float  # beta_3, trigram share.
 
 
 class InterpolationParams(ngram.FrozenNgramPydanticBase):
@@ -39,8 +39,8 @@ class InterpolationParams(ngram.FrozenNgramPydanticBase):
     unigram_weight: float  # lambda_1.
     bigram_weight: float  # lambda_2.
     trigram_weight: float  # lambda_3.
-    beta_2: float | None = None  # beta_2, lower-order bigram share.
-    beta_3: float | None = None  # beta_3, trigram share.
+    beta_2: float  # beta_2, lower-order bigram share.
+    beta_3: float  # beta_3, trigram share.
 
 
 InterpolatedModelT = TypeVar(
@@ -241,36 +241,23 @@ def payload(params: InterpolationParams | InterpolationSummary) -> dict[str, obj
 
 
 def betas(params: InterpolationParams | InterpolationSummary) -> tuple[float, float]:
-    """Return stored beta params, deriving them from lambdas when absent."""
-    if params.beta_2 is not None and params.beta_3 is not None:
-        return params.beta_2, params.beta_3
-    return betas_from_weights(
-        unigram_weight=params.unigram_weight,
-        bigram_weight=params.bigram_weight,
-        trigram_weight=params.trigram_weight,
-    )
+    """Return persisted recursive beta params from the current schema."""
+    return params.beta_2, params.beta_3
 
 
 def parse_fields(data: dict[str, object]) -> dict[str, object]:
-    """Parse interpolation fields from persisted JSON-compatible model data."""
+    """Parse required interpolation fields from current model artifact data."""
     ws_data = data["interpolation_weights"]
     fields = {
         "unigram_weight": float(ws_data["unigram"]),
         "bigram_weight": float(ws_data["bigram"]),
         "trigram_weight": float(ws_data["trigram"]),
     }
-    beta_data = data.get("interpolation_betas")
-    if isinstance(beta_data, Mapping):
-        fields["beta_2"] = optional_float(beta_data.get("beta_2"))
-        fields["beta_3"] = optional_float(beta_data.get("beta_3"))
-    else:
-        beta_2, beta_3 = betas_from_weights(
-            unigram_weight=fields["unigram_weight"],
-            bigram_weight=fields["bigram_weight"],
-            trigram_weight=fields["trigram_weight"],
-        )
-        fields["beta_2"] = beta_2
-        fields["beta_3"] = beta_3
+    beta_data = data["interpolation_betas"]
+    if not isinstance(beta_data, Mapping):
+        raise ValueError("interpolation_betas must be a JSON object.")
+    fields["beta_2"] = float(beta_data["beta_2"])
+    fields["beta_3"] = float(beta_data["beta_3"])
     return fields
 
 

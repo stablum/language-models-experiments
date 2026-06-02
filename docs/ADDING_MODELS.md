@@ -151,8 +151,8 @@ machinery.
 
 `load(model_path)`
 
-Read the JSON artifact, validate `model_type`, load the tokenizer fields, and
-return the model object. Reuse helpers such as:
+Read the JSON artifact, validate the current schema version plus `model_type`,
+load the tokenizer fields, and return the model object. Reuse helpers such as:
 
 - `ngram.load_json_model_payload(...)`
 - `ngram.load_tokenizer_model_fields(...)`

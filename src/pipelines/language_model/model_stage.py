@@ -63,7 +63,6 @@ def train_model_pipeline_step(
         staged_tokenizer_model = lm_artifacts.stage_tokenizer_model(
             tokenizer_task_id=tokenizer_task_id,
             tokenizer_model_name=tokenizer_model_name,
-            tokenizer_model=None,
             staging_dir=staging_dir,
             clearml_run=clearml_run,
         )

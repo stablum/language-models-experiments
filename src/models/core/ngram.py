@@ -19,7 +19,7 @@ from src.tokenizers import core as tok_core
 
 
 DecodingMode = Literal["sample", "most-probable"]  # Restrict configs to supported decoders.
-MODEL_SCHEMA_VERSION = 1  # Pin artifact envelopes so incompatible JSON fails fast.
+MODEL_SCHEMA_VERSION = 2  # Pin artifact envelopes so incompatible JSON fails fast.
 
 
 class NgramPydanticBase(pydantic.BaseModel):
@@ -460,6 +460,11 @@ def load_json_model_payload(
     """Read and validate a JSON model artifact for one model module."""
     model_type = naming.model_type_from_module(module_name)
     data = json_io.read_mapping(model_path)
+    if data.get("schema_version") != MODEL_SCHEMA_VERSION:
+        raise ValueError(
+            f"Unsupported model schema version for {model_path}: "
+            f"{data.get('schema_version')!r}; expected {MODEL_SCHEMA_VERSION}."
+        )
     if data.get("model_type") != model_type:
         raise ValueError(f"Not {label or naming.schema_label(model_type)}: {model_path}")
     return data
@@ -494,15 +499,18 @@ def load_tokenizer_model_fields(
     tokenizer_model = resolve_stored_path(Path(data["tokenizer_model"]), model_path)
     tokenizer = tok_core.load_tokenizer(
         tokenizer_model,
-        tokenizer_algo=str(data["tokenizer_algo"]) if data.get("tokenizer_algo") else None,
+        tokenizer_algo=str(data["tokenizer_algo"]),
     )
-    vocab_size = int(data.get("vocab_size", tokenizer.vocab_size))
-    stored_pieces = data.get("pieces")
-    pieces = (
-        tuple(str(piece) for piece in stored_pieces)
-        if stored_pieces
-        else tuple(tokenizer.id_to_piece(idx) for idx in range(vocab_size))
-    )
+    vocab_size = int(data["vocab_size"])
+    stored_pieces = data["pieces"]
+    if isinstance(stored_pieces, str) or not isinstance(stored_pieces, Sequence):
+        raise ValueError(f"Model artifact pieces must be a sequence: {model_path}")
+    pieces = tuple(str(piece) for piece in stored_pieces)
+    if len(pieces) != vocab_size:
+        raise ValueError(
+            f"Model artifact piece count {len(pieces)} does not match "
+            f"vocab_size {vocab_size}: {model_path}"
+        )
     return {
         "model_path": model_path,
         "tokenizer_model": tokenizer_model,

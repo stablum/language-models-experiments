@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import codecs
 import os
 import sys
 import threading
@@ -26,83 +25,18 @@ ANSI_COLORS = {
 ANSI_DELTA = ANSI_COLORS["warning"]
 ERROR_MARKERS = ("error", "failed", "failure", "exception", "traceback")
 WARNING_MARKERS = ("warning", "warn:")
-NATIVE_OUTPUT_CAPTURE_ENVVAR = "LME_CAPTURE_NATIVE_OUTPUT"
 PROGRESS_BAR_WIDTH = 28
 
 T = TypeVar("T")
 
 
 class LineTimingState(core_cfg.BaseCfg):
+    """Track the previous CLI emission time for delta timestamps."""
+
     last_emission_monotonic: float | None = None
 
 
 _fallback_timing_state = LineTimingState()
-
-
-class FileDescriptorCapture:
-    """Forward low-level file-descriptor writes through a timestamped writer.
-
-    Native extensions can block forever when they write enough output while
-    holding the GIL, so this capture path is opt-in only.
-    """
-
-    def __init__(
-        self,
-        fd: int,
-        writer: TimestampedLineWriter,
-        *,
-        encoding: str,
-        errors: str,
-    ) -> None:
-        self._fd = fd
-        self._writer = writer
-        self._encoding = encoding
-        self._errors = errors
-        self._saved_fd: int | None = None
-        self._read_fd: int | None = None
-        self._thread: threading.Thread | None = None
-
-    def start(self) -> None:
-        self._saved_fd = os.dup(self._fd)
-        read_fd, write_fd = os.pipe()
-        self._read_fd = read_fd
-        os.dup2(write_fd, self._fd)
-        os.close(write_fd)
-        self._thread = threading.Thread(target=self._forward, daemon=True)
-        self._thread.start()
-
-    def stop(self) -> None:
-        if self._saved_fd is None:
-            return
-
-        os.dup2(self._saved_fd, self._fd)
-        os.close(self._saved_fd)
-        self._saved_fd = None
-        if self._thread is not None:
-            self._thread.join(timeout=1.0)
-        self._writer.flush()
-
-    def _forward(self) -> None:
-        read_fd = self._read_fd
-        if read_fd is None:
-            return
-
-        decoder = codecs.getincrementaldecoder(self._encoding)(errors=self._errors)
-        try:
-            while True:
-                chunk = os.read(read_fd, 4096)
-                if not chunk:
-                    break
-                text = decoder.decode(chunk)
-                if text:
-                    self._writer.write(text)
-
-            tail = decoder.decode(b"", final=True)
-            if tail:
-                self._writer.write(tail)
-        finally:
-            os.close(read_fd)
-            self._read_fd = None
 
 
 class TimestampedLineWriter:
@@ -211,17 +145,6 @@ def stream_supports_color(stream: TextIO) -> bool:
         return stream.isatty()
     except OSError:
         return False
-
-
-def native_output_capture_enabled() -> bool:
-    return os.environ.get(NATIVE_OUTPUT_CAPTURE_ENVVAR, "").lower() in {
-        "1",
-        "always",
-        "force",
-        "on",
-        "true",
-        "yes",
-    }
 
 
 def stage_title(index: int, total: int, title: str) -> str:
@@ -359,37 +282,14 @@ def timestamped_cli_output() -> Iterator[None]:
         default_level="error",
         timing_state=timing_state,
     )
-    stdout_capture: FileDescriptorCapture | None = None
-    stderr_capture: FileDescriptorCapture | None = None
-    if native_output_capture_enabled():
-        stdout_capture = FileDescriptorCapture(
-            original_stdout.fileno(),
-            stdout,
-            encoding=original_stdout.encoding or "utf-8",
-            errors=getattr(original_stdout, "errors", None) or "replace",
-        )
-        stderr_capture = FileDescriptorCapture(
-            original_stderr.fileno(),
-            stderr,
-            encoding=original_stderr.encoding or "utf-8",
-            errors=getattr(original_stderr, "errors", None) or "replace",
-        )
 
     try:
-        if stdout_capture is not None:
-            stdout_capture.start()
-        if stderr_capture is not None:
-            stderr_capture.start()
         sys.stdout = stdout  # type: ignore[assignment]
         sys.stderr = stderr  # type: ignore[assignment]
         yield
     finally:
         sys.stdout = original_stdout
         sys.stderr = original_stderr
-        if stdout_capture is not None:
-            stdout_capture.stop()
-        if stderr_capture is not None:
-            stderr_capture.stop()
         stdout.flush()
         stderr.flush()
         stdout_sink.close()

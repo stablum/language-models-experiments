@@ -16,10 +16,6 @@ from src.ml_core.cli import output as cli_output
 CONFIG_ENVVAR = "LME_CONFIG_FILE"
 DEFAULT_CONFIG_PATH = Path("config.toml")
 SHARED_SECTIONS = ("defaults", "clearml")
-KEY_ALIASES = {
-    "model": "model_name",
-    "tokenizer_model": "tokenizer_model_name",
-}
 
 
 class ConfigurableCommand(click.Command):
@@ -127,10 +123,11 @@ def load_config(config_path: Path) -> Mapping[str, Any]:
 
 
 def section_defaults(data: Mapping[str, Any], section: str) -> dict[str, Any]:
-    section_data = first_mapping(data, section, section.replace("_", "-"))
+    """Return strict defaults for one configured TOML section."""
+    section_data = first_mapping(data, section)
     if section_data is None:
         return {}
-    return normalize_keys(section_data)
+    return dict(section_data)
 
 
 def first_mapping(data: Mapping[str, Any], *section_names: str) -> Mapping[str, Any] | None:
@@ -142,15 +139,3 @@ def first_mapping(data: Mapping[str, Any], *section_names: str) -> Mapping[str, 
             raise click.ClickException(f"Config section [{section_name}] must be a TOML table.")
         return value
     return None
-
-
-def normalize_keys(values: Mapping[str, Any]) -> dict[str, Any]:
-    return {
-        normalize_key(key): value
-        for key, value in values.items()
-    }
-
-
-def normalize_key(key: str) -> str:
-    normalized = key.replace("-", "_")
-    return KEY_ALIASES.get(normalized, normalized)

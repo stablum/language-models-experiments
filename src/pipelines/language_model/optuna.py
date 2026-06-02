@@ -13,9 +13,8 @@ from src.ml_core import clearml_tasks
 from src.ml_core import cfg as core_cfg
 from src.ml_core import json_io
 from src.ml_core import pipeline_tasks
-from src.ml_core.cli import config as cli_config
-from src.pipelines.language_model import definition as lm_def
 from src.models.core import registry as model_registry
+from src.pipelines.language_model import definition as lm_def
 
 
 OPTUNA_EVALUATION_ARTIFACT = "evaluation-summary"
@@ -282,7 +281,7 @@ def _parse_search_spec(raw_value: str) -> SearchSpec:
             "or name=categorical:value1,value2."
         )
     raw_name, raw_expression = raw_value.split("=", maxsplit=1)
-    parameter_name = cli_config.normalize_key(raw_name.strip())
+    parameter_name = raw_name.strip()
     if parameter_name not in SEARCH_PARAMETERS:
         supported = ", ".join(sorted(SEARCH_PARAMETERS))
         raise click.ClickException(
@@ -294,7 +293,8 @@ def _parse_search_spec(raw_value: str) -> SearchSpec:
     if distribution in {"float", "logfloat", "log-float"}:
         return _parse_float_spec(parameter_name, parts, log_by_name=distribution != "float")
     if distribution in {"int", "integer", "logint", "log-int"}:
-        return _parse_int_spec(parameter_name, parts, log_by_name=distribution not in {"int", "integer"})
+        log_by_name = distribution not in {"int", "integer"}
+        return _parse_int_spec(parameter_name, parts, log_by_name=log_by_name)
     if distribution in {"categorical", "choice", "choices"}:
         return _parse_categorical_spec(parameter_name, raw_expression)
     raise click.ClickException(

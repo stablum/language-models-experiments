@@ -89,9 +89,9 @@ $env:LME_CONFIG_FILE = "config.smoke.toml"
 uv run python -m src.cli.model_training
 ```
 
-Use `model = "bigram"` in `[train]` to choose the trained model type; evaluation, query, and model training inherit that model by default. Use `tokenizer_algo` in `[tokenizer-training]` to choose the tokenizer implementation, and `tokenizer_model_name` in `[train]` to choose which reusable tokenizer model record model training consumes. Keys may be written as `snake_case` or `kebab-case`; `model` maps to the CLI `--model` option. Keep `[model-training]`, `[tokenizer-training]`, and `[query-pipeline]` for orchestration settings such as queues, run numbering, and pipeline names.
+Use `model_name = "bigram"` in `[train]` to choose the trained model type; evaluation, query, and model training inherit that model by default. Use `tokenizer_algo` in `[tokenizer-training]` to choose the tokenizer implementation, and `tokenizer_model_name` in `[train]` to choose which reusable tokenizer model record model training consumes. Config keys use the snake_case Python option names. Keep `[model-training]`, `[tokenizer-training]`, and `[query-pipeline]` for orchestration settings such as queues, run numbering, and pipeline names.
 
-Python CLI output lines are prepended with a local timestamp and per-line delta in `[YYYY-MM-DD HH:MM:SS] [+0.237s]` format. ClearML also captures Python stdout/stderr for each task. Long-running commands print numbered stage titles such as `Stage 1/3 - Model training:` and `Stage 1/1 - Tokenizer training:`. Stage titles are bold cyan, timestamps are gray, delta times are yellow, error lines are red, and warning lines are yellow. Set `NO_COLOR=1` or `LME_COLOR=never` to disable ANSI colors. Native library stdout/stderr writes bypass timestamping by default to avoid pipe deadlocks in C/C++ extensions such as SentencePiece; set `LME_CAPTURE_NATIVE_OUTPUT=1` only when you explicitly want the old fd-level capture behavior.
+Python CLI output lines are prepended with a local timestamp and per-line delta in `[YYYY-MM-DD HH:MM:SS] [+0.237s]` format. ClearML also captures Python stdout/stderr for each task. Long-running commands print numbered stage titles such as `Stage 1/3 - Model training:` and `Stage 1/1 - Tokenizer training:`. Stage titles are bold cyan, timestamps are gray, delta times are yellow, error lines are red, and warning lines are yellow. Set `NO_COLOR=1` or `LME_COLOR=never` to disable ANSI colors.
 
 ## Data Splits
 
@@ -180,7 +180,7 @@ Each pipeline identity is the ClearML project plus its `pipeline_name` plus `pip
 
 The checked-in config uses `[tokenizer-training]`, `[model-training]`, and `[query-pipeline]`; their default ClearML DAG names are `tokenizer-training`, `model-training`, and `query`.
 
-Pipeline stage parameters use the same config sections as their stage CLIs: shared data options such as `corpus` and split settings come from `[defaults]`; tokenizer options come from `[tokenizer-training]`; model-training options, the canonical `model`, and `tokenizer_model_name` come from `[train]`; evaluation options from `[evaluate]`; query options from `[query]`; and query orchestration options from `[query-pipeline]`. Pass a pipeline CLI option to override the config for one run, or set a key in an orchestration section only when you intentionally want a pipeline-specific override.
+Pipeline stage parameters use the same config sections as their stage CLIs: shared data options such as `corpus` and split settings come from `[defaults]`; tokenizer options come from `[tokenizer-training]`; model-training options, the canonical `model_name`, and `tokenizer_model_name` come from `[train]`; evaluation options from `[evaluate]`; query options from `[query]`; and query orchestration options from `[query-pipeline]`. Pass a pipeline CLI option to override the config for one run, or set a key in an orchestration section only when you intentionally want a pipeline-specific override.
 
 By default, the controller and step tasks execute locally through ClearML PipelineController. To enqueue the controller and step tasks on ClearML agents, pass queues explicitly:
 
@@ -345,7 +345,7 @@ name=int:low:high[:step][:log]
 name=categorical:value1,value2
 ```
 
-Supported names are `model`, `smoothing`, `discount`, `unigram_weight`, `bigram_weight`, `trigram_weight`, `beta_2`, `beta_3`, `top_k`, `query_max_tokens`, `query_top_k`, `query_decoding`, `query_temperature`, and `query_seed`. Use `--optuna-metric next_token_accuracy --optuna-direction maximize` to optimize an accuracy metric instead of perplexity. Persistent studies can be configured with `--optuna-study-name` and `--optuna-storage`, for example `sqlite:///artifacts/optuna.db`.
+Supported names are `model_name`, `smoothing`, `discount`, `unigram_weight`, `bigram_weight`, `trigram_weight`, `beta_2`, `beta_3`, `top_k`, `query_max_tokens`, `query_top_k`, `query_decoding`, `query_temperature`, and `query_seed`. Use `--optuna-metric next_token_accuracy --optuna-direction maximize` to optimize an accuracy metric instead of perplexity. Persistent studies can be configured with `--optuna-study-name` and `--optuna-storage`, for example `sqlite:///artifacts/optuna.db`.
 
 The same settings can live in `config.toml`, either in `[optuna]` or as command-specific keys in `[model-training]`:
 

@@ -60,19 +60,23 @@ class DiscountSummary(Protocol):
 
 
 class InterpolatedTrigramTrainingSummary(TrigramTrainingSummary):
+    """Store resolved interpolation params alongside trigram training counts."""
+
     unigram_weight: float = 0.0  # lambda_1.
     bigram_weight: float = 0.0  # lambda_2.
     trigram_weight: float = 0.0  # lambda_3.
-    beta_2: float | None = None  # beta_2, lower-order bigram share.
-    beta_3: float | None = None  # beta_3, trigram share.
+    beta_2: float = 0.0  # beta_2, lower-order bigram share.
+    beta_3: float = 0.0  # beta_3, trigram share.
 
 
 class InterpolatedTrigramEvaluationSummary(ngram.NgramEvaluationSummary):
+    """Carry interpolation params with the standard evaluation counters."""
+
     unigram_weight: float = 0.0  # lambda_1.
     bigram_weight: float = 0.0  # lambda_2.
     trigram_weight: float = 0.0  # lambda_3.
-    beta_2: float | None = None  # beta_2, lower-order bigram share.
-    beta_3: float | None = None  # beta_3, trigram share.
+    beta_2: float = 0.0  # beta_2, lower-order bigram share.
+    beta_3: float = 0.0  # beta_3, trigram share.
 
 
 class ResolvedTrigramContextCounts(ngram.FrozenNgramPydanticBase):
@@ -271,14 +275,16 @@ class BaseTrigramModel(ngram.BaseNgramModel):
 
 
 class InterpolatedTrigramModel(BaseTrigramModel):
+    """Share query/evaluation behavior for lambda-interpolated trigram models."""
+
     evaluation_summary_type: ClassVar[type[ngram.NgramEvaluationSummary]] = (
         InterpolatedTrigramEvaluationSummary
     )
     unigram_weight: float  # lambda_1.
     bigram_weight: float  # lambda_2.
     trigram_weight: float  # lambda_3.
-    beta_2: float | None = None  # beta_2, lower-order bigram share.
-    beta_3: float | None = None  # beta_3, trigram share.
+    beta_2: float = 0.0  # beta_2, lower-order bigram share.
+    beta_3: float = 0.0  # beta_3, trigram share.
 
     def evaluation_summary_fields(self) -> dict[str, object]:
         return {

@@ -18,11 +18,13 @@ TRAIN_PARTITION = "train"
 VALIDATION_PARTITION = "validation"
 PROJECT_PARTITIONS = (TRAIN_PARTITION, VALIDATION_PARTITION)
 SPLIT_METHOD = "deterministic_blake2b_source_split_row_index"
-SPLIT_PLAN_SCHEMA_VERSION = 2
+SPLIT_PLAN_SCHEMA_VERSION = 3
 SPLIT_PLAN_ARTIFACT = "data-split-plan-json"
 
 
 class DataSplitPlan(core_cfg.FrozenBaseCfg):
+    """Describe the current deterministic corpus partitioning recipe."""
+
     split_id: str
     dataset_name: str
     dataset_id: str
@@ -36,12 +38,12 @@ class DataSplitPlan(core_cfg.FrozenBaseCfg):
     schema_version: int = SPLIT_PLAN_SCHEMA_VERSION
 
     def to_payload(self) -> dict[str, object]:
+        """Serialize the current split-plan schema without alternate field names."""
         return {
             "schema_version": self.schema_version,
             "split_id": self.split_id,
             "split_method": self.split_method,
             "dataset_name": self.dataset_name,
-            "corpus": self.dataset_name,
             "dataset_id": self.dataset_id,
             "dataset_revision": self.dataset_revision,
             "source_split": self.source_split,
@@ -68,8 +70,7 @@ def build_data_split_plan(
     identity = {
         "schema_version": SPLIT_PLAN_SCHEMA_VERSION,
         "split_method": SPLIT_METHOD,
-        # This key is part of the historical split ID hash, so keep it stable.
-        "corpus": dataset_name,
+        "dataset_name": dataset_name,
         "dataset_id": dataset_id,
         "dataset_revision": dataset_revision,
         "source_split": source_split,
@@ -95,26 +96,30 @@ def build_data_split_plan(
 
 
 def data_split_plan_from_payload(payload: Mapping[str, Any]) -> DataSplitPlan | None:
-    if int(payload.get("schema_version", 0)) != SPLIT_PLAN_SCHEMA_VERSION:
+    """Parse only payloads that match the current split-plan schema."""
+    if payload.get("schema_version") != SPLIT_PLAN_SCHEMA_VERSION:
         return None
 
     try:
         split_id = str(payload["split_id"])
-        dataset_name = str(payload.get("dataset_name") or payload["corpus"])
+        dataset_name = str(payload["dataset_name"])
         dataset_id = str(payload["dataset_id"])
-        dataset_revision_value = payload.get("dataset_revision")
+        dataset_revision_value = payload["dataset_revision"]
         dataset_revision = (
             None
             if dataset_revision_value in (None, "")
             else str(dataset_revision_value)
         )
-        source_split_value = payload.get("source_split")
+        source_split_value = payload["source_split"]
         source_split = None if source_split_value is None else str(source_split_value)
-        source_splits = tuple(str(item) for item in payload.get("source_splits", ()))
+        raw_source_splits = payload["source_splits"]
+        if isinstance(raw_source_splits, str) or not isinstance(raw_source_splits, Iterable):
+            return None
+        source_splits = tuple(str(item) for item in raw_source_splits)
         train_ratio = float(payload["train_ratio"])
         validation_ratio = float(payload["validation_ratio"])
         split_seed = int(payload["split_seed"])
-        split_method = str(payload.get("split_method", SPLIT_METHOD))
+        split_method = str(payload["split_method"])
     except (KeyError, TypeError, ValueError):
         return None
 

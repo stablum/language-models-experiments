@@ -136,16 +136,6 @@ def clearml_task(task_id: str) -> Any:
     return Task.get_task(task_id=task_id)
 
 
-def clearml_task_parameter(task_id: str, parameter_name: str) -> str | None:
-    task = clearml_task(task_id)
-    get_parameters = getattr(task, "get_parameters", None)
-    if not callable(get_parameters):
-        return None
-    parameters = get_parameters(cast=False) or {}
-    value = parameters.get(parameter_name)
-    return str(value) if value not in (None, "") else None
-
-
 def task_model(
     *,
     task_id: str,

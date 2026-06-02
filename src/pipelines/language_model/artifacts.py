@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import click
@@ -55,53 +54,19 @@ EVALUATION_METRIC_ATTRS = (
 
 def stage_tokenizer_model(
     *,
-    tokenizer_task_id: str | None,
+    tokenizer_task_id: str,
     tokenizer_model_name: str | None = None,
-    tokenizer_model: Path | None = None,
     staging_dir: Path,
     clearml_run: object | None = None,
 ) -> Path:
-    validate_tokenizer_source(
-        tokenizer_task_id=tokenizer_task_id,
-        tokenizer_model=tokenizer_model,
+    """Stage the tokenizer model linked by the current tokenizer-training task."""
+    return clearml_tasks.download_task_output_model(
+        task_id=tokenizer_task_id,
+        destination_dir=staging_dir,
+        filename=STAGED_TOKENIZER_MODEL_NAME,
+        model_name=tokenizer_model_name,
+        connect_to_task=getattr(clearml_run, "task", None),
     )
-
-    if tokenizer_task_id is not None:
-        return clearml_tasks.download_task_output_model(
-            task_id=tokenizer_task_id,
-            destination_dir=staging_dir,
-            filename=STAGED_TOKENIZER_MODEL_NAME,
-            model_name=tokenizer_model_name,
-            connect_to_task=getattr(clearml_run, "task", None),
-        )
-
-    if tokenizer_model is None:
-        raise click.ClickException(
-            "Language model training requires a tokenizer model source."
-        )
-
-    staging_dir.mkdir(parents=True, exist_ok=True)
-    destination = staging_dir / STAGED_TOKENIZER_MODEL_NAME
-    if tokenizer_model.resolve() != destination.resolve():
-        shutil.copy2(tokenizer_model, destination)
-    return destination
-
-
-def validate_tokenizer_source(
-    *,
-    tokenizer_task_id: str | None,
-    tokenizer_model: Path | None,
-) -> None:
-    if tokenizer_task_id is not None and tokenizer_model is not None:
-        raise click.ClickException(
-            "Pass either --tokenizer-task-id or --tokenizer-model, not both."
-        )
-
-    if tokenizer_task_id is None and tokenizer_model is None:
-        raise click.ClickException(
-            "Language model training now resolves tokenizer models from tokenizer-training runs. "
-            "Set --tokenizer-model-name on model training."
-        )
 
 
 def stage_model_files(
@@ -112,6 +77,7 @@ def stage_model_files(
     clearml_run: object | None = None,
     output_model_name: str | None = None,
 ) -> Path:
+    """Stage the current model artifact and its linked tokenizer input model."""
     validate_model_source(model_task_id=model_task_id, model_path=model_path)
 
     if model_task_id is not None:
@@ -130,20 +96,8 @@ def stage_model_files(
             connect_to_task=getattr(clearml_run, "task", None),
         )
         if staged_tokenizer_path is None:
-            tokenizer_task_id = clearml_tasks.clearml_task_parameter(
-                model_task_id,
-                "Pipeline/tokenizer_task_id",
-            )
-            if tokenizer_task_id is None:
-                raise click.ClickException(
-                    f"ClearML model task {model_task_id} has no linked input tokenizer model "
-                    "and no Pipeline/tokenizer_task_id parameter."
-                )
-            clearml_tasks.download_task_output_model(
-                task_id=tokenizer_task_id,
-                destination_dir=staging_dir,
-                filename=tokenizer_filename,
-                connect_to_task=getattr(clearml_run, "task", None),
+            raise click.ClickException(
+                f"ClearML model task {model_task_id} has no linked input tokenizer model."
             )
         return staged_model_path
 
@@ -193,8 +147,9 @@ def evaluation_payload(summary: object) -> dict[str, object]:
 
 
 def query_metrics(result: object) -> dict[str, object]:
+    """Extract scalar query metrics from the standard n-gram query result."""
     next_predictions = getattr(result, "next_token_predictions", [])
-    top_probability = next_predictions[0].probability if next_predictions else None
+    top_probability = next_predictions[0].prob if next_predictions else None
     return {
         "prompt_token_count": len(getattr(result, "prompt_token_ids", [])),
         "generated_token_count": len(getattr(result, "generated_token_ids", [])),
@@ -205,6 +160,7 @@ def query_metrics(result: object) -> dict[str, object]:
 
 
 def query_payload(result: object) -> dict[str, object]:
+    """Serialize the standard query result artifact payload."""
     return {
         "model_file": artifact_file(getattr(result, "model_path", None)),
         "tokenizer_model_file": artifact_file(getattr(result, "tokenizer_model", None)),
@@ -221,7 +177,7 @@ def query_payload(result: object) -> dict[str, object]:
                 "token_id": prediction.token_id,
                 "piece": prediction.piece,
                 "count": prediction.count,
-                "probability": prediction.probability,
+                "probability": prediction.prob,
             }
             for prediction in getattr(result, "next_token_predictions", [])
         ],
@@ -248,15 +204,10 @@ def artifact_file(path: object) -> str | None:
     return Path(path).name
 
 
-def stored_tokenizer_filename(model_path: Path) -> str | None:
-    payload = json_io.maybe_read_mapping(model_path)
-    if payload is None:
-        return None
-
-    tokenizer_model = payload.get("tokenizer_model")
-    if tokenizer_model is None:
-        return None
-    return Path(str(tokenizer_model)).name
+def stored_tokenizer_filename(model_path: Path) -> str:
+    """Return the tokenizer filename recorded in the current model schema."""
+    payload = json_io.read_mapping(model_path)
+    return Path(str(payload["tokenizer_model"])).name
 
 
 def stored_model_filename(output_model_name: str | None) -> str | None:
