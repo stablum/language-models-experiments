@@ -226,7 +226,10 @@ def run_model_training_pipeline(
     extra_controller_parameters: Mapping[str, object] | None = None,
 ) -> str:
     model_definition = model_registry.get_model(run_spec.model.name)
-    if model_definition.evaluate is None or model_definition.evaluation_items is None:
+    if (
+        model_definition.evaluate is None
+        or model_definition.evaluation_items is None
+    ):
         raise click.ClickException(
             f"Model does not support evaluation yet: {run_spec.model.name}"
         )

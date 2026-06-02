@@ -31,7 +31,9 @@ class BigramCounts(counting.NgramCorpusCounts):
         return self.event_count(2)
 
 
-class EvaluationRow(ngram.FrozenNgramModel):
+class EvaluationRow(ngram.FrozenNgramSchema):
+    """Cache scoring data for repeated evaluation of one bigram history."""
+
     counts: dict[int, int]  # c(h, w), counts for one previous-token history h.
     denom: float  # denom = c(h) + k |V|, the add-k normalizer.
     greedy_id: int

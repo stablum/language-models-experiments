@@ -75,7 +75,9 @@ class InterpolatedTrigramEvaluationSummary(ngram.NgramEvaluationSummary):
     beta_3: float | None = None  # beta_3, trigram share.
 
 
-class ResolvedTrigramContextCounts(ngram.FrozenNgramModel):
+class ResolvedTrigramContextCounts(ngram.FrozenNgramSchema):
+    """Cache candidate-filtered lower and trigram rows for one context."""
+
     prev_id: int  # prev = v, the second token in h = (u, v).
     bigram_counts: dict[int, int]  # c(v, w), the lower-order row.
     trigram_counts: dict[int, int]  # c(u, v, w), the trigram row.
@@ -83,7 +85,9 @@ class ResolvedTrigramContextCounts(ngram.FrozenNgramModel):
     trigram_tot: int  # tot = c(u, v) = sum_w c(u, v, w).
 
 
-class TrigramEvaluationRow(ngram.FrozenNgramModel):
+class TrigramEvaluationRow(ngram.FrozenNgramSchema):
+    """Cache scoring data for repeated evaluation of one trigram context."""
+
     counts: ResolvedTrigramContextCounts
     greedy_id: int
     top_k_ids: frozenset[int]

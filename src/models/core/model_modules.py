@@ -116,7 +116,9 @@ def registry_flag_value(
     )
 
 
-def model_definition_from_module(module: ModuleType) -> model_def.ModelDefinition | None:
+def model_definition_from_module(
+    module: ModuleType,
+) -> model_def.ModelDefinition | None:
     fit_model = get_module_callable(module, FIT_FN_NAME)
     load_model = get_module_callable(module, "load")
     summary_items = get_module_callable(module, "format_summary")

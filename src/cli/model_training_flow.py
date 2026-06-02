@@ -371,7 +371,10 @@ def _require_model_pipeline_support(
     model_definition: object,
     model_name: str,
 ) -> None:
-    if model_definition.evaluate is None or model_definition.evaluation_items is None:
+    if (
+        model_definition.evaluate is None
+        or model_definition.evaluation_items is None
+    ):
         raise click.ClickException(f"Model does not support evaluation yet: {model_name}")
     if model_definition.query is None or model_definition.query_lines is None:
         raise click.ClickException(f"Model does not support querying yet: {model_name}")

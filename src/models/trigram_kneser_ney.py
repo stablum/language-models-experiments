@@ -31,7 +31,7 @@ class TrainingSummary(trigrams.TrigramTrainingSummary):
     discount: float = 0.0  # D, the absolute discount.
 
 
-class ContinuationCounts(ngram.FrozenNgramModel):
+class ContinuationCounts(ngram.FrozenNgramSchema):
     """Continuation-count tables used as Kneser-Ney lower-order evidence.
 
     In notation, ``bigram_transitions[v][w]`` stores

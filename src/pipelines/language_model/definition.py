@@ -52,12 +52,16 @@ stage_gate_callback = core_pipeline.make_stage_gate_callback(ALL_PIPELINE_STAGES
 
 
 class PipelineDefinition(core_cfg.BaseCfg):
+    """Describe pipeline stages and dependency edges for orchestration."""
+
     default_name: str
     stages: tuple[str, ...]
     stage_dependencies: Mapping[str, tuple[str, ...]]
 
 
 class TokenizerTrainingResolution(core_cfg.BaseCfg):
+    """Identify a completed tokenizer-training run and its produced artifact."""
+
     controller_id: str
     tokenizer_task_id: str
     tokenizer_model_name: str
@@ -65,6 +69,8 @@ class TokenizerTrainingResolution(core_cfg.BaseCfg):
 
 
 class ModelTrainingResolution(core_cfg.BaseCfg):
+    """Identify a completed model-training run and its produced artifact."""
+
     controller_id: str
     model_task_id: str
     model_name: str

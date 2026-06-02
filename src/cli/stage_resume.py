@@ -40,7 +40,7 @@ class ModelTrainingStageFilterCfg(core_cfg.FrozenBaseCfg):
 
 
 class StageFilterResolution(core_cfg.BaseCfg):
-    """Resolved model object and ClearML Experiment parameter filters."""
+    """Resolved model definition and ClearML Experiment parameter filters."""
 
     model: model_def.ModelDefinition
     filters: dict[str, object]

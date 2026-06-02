@@ -16,7 +16,7 @@ from src.models.core import ngram
 ProbFn = Callable[[int], float]
 
 
-class GoodTuringDistribution(ngram.FrozenNgramModel):
+class GoodTuringDistribution(ngram.FrozenNgramSchema):
     """One smoothed conditional row.
 
     ``obs_probs`` stores discounted probabilities for seen
