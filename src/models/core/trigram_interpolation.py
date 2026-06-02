@@ -33,7 +33,7 @@ class InterpolationSummary(Protocol):
     beta_3: float | None  # beta_3, trigram share.
 
 
-class InterpolationParams(ngram.FrozenNgramSchema):
+class InterpolationParams(ngram.FrozenNgramPydanticBase):
     """Freeze resolved interpolation hyperparams so training payloads stay coherent."""
 
     unigram_weight: float  # lambda_1.

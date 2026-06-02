@@ -12,7 +12,7 @@ type Context = tuple[int, ...]  # h, the n-gram history before predicted token w
 type TransitionRows = dict[Context, Counter[int]]
 
 
-class NgramOrderCounts(ngram.FrozenNgramSchema):
+class NgramOrderCounts(ngram.FrozenNgramPydanticBase):
     """Store transition rows and event totals for one n-gram order."""
 
     order: int  # n in c(h, w), with len(h) = n - 1.
@@ -27,7 +27,7 @@ class NgramOrderCounts(ngram.FrozenNgramSchema):
         return Counter(self.rows.get((), Counter()))
 
 
-class NgramCorpusCounts(ngram.FrozenNgramSchema):
+class NgramCorpusCounts(ngram.FrozenNgramPydanticBase):
     """Bundle aligned count tables across n-gram orders for one corpus."""
 
     sequence_count: int

@@ -31,7 +31,7 @@ class BigramCounts(counting.NgramCorpusCounts):
         return self.event_count(2)
 
 
-class EvaluationRow(ngram.FrozenNgramSchema):
+class EvaluationRow(ngram.FrozenNgramPydanticBase):
     """Cache scoring data for repeated evaluation of one bigram history."""
 
     counts: dict[int, int]  # c(h, w), counts for one previous-token history h.
