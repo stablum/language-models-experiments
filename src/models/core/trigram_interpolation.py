@@ -24,6 +24,8 @@ DEFAULT_TRIGRAM_WEIGHT = 0.6  # lambda_3.
 
 
 class InterpolationSummary(Protocol):
+    """Describe persisted interpolation weights and recursive beta params."""
+
     unigram_weight: float  # lambda_1.
     bigram_weight: float  # lambda_2.
     trigram_weight: float  # lambda_3.
@@ -32,6 +34,8 @@ class InterpolationSummary(Protocol):
 
 
 class InterpolationParams(ngram.FrozenNgramModel):
+    """Freeze resolved interpolation weights so training payloads stay coherent."""
+
     unigram_weight: float  # lambda_1.
     bigram_weight: float  # lambda_2.
     trigram_weight: float  # lambda_3.
@@ -53,6 +57,7 @@ def load_interpolated_trigram_model(
     module_name: str,
     extra_fields: ExtraFieldsFn | None = None,
 ) -> InterpolatedModelT:
+    """Load a persisted trigram model plus interpolation-specific fields."""
     data, model_fields = trigrams.load_standard_trigram_model_fields(
         model_path,
         module_name=module_name,
@@ -76,6 +81,7 @@ def normalize_weights(
     bigram_weight: float,
     trigram_weight: float,
 ) -> tuple[float, float, float]:
+    """Normalize raw lambda weights onto the probability simplex."""
     tot = unigram_weight + bigram_weight + trigram_weight  # tot = sum_i lambda_i.
     if tot <= 0:
         raise ValueError("At least one interpolation weight must be positive.")
@@ -88,6 +94,7 @@ def weights_from_betas(
     beta_2: float,
     beta_3: float,
 ) -> tuple[float, float, float]:
+    """Convert recursive beta params into flat lambda interpolation weights."""
     validate_beta("beta_2", beta_2)
     validate_beta("beta_3", beta_3)
     # Recursive interpolation:
@@ -101,6 +108,7 @@ def betas_from_weights(
     bigram_weight: float,
     trigram_weight: float,
 ) -> tuple[float, float]:
+    """Derive recursive beta params from normalized lambda weights."""
     lower_w = unigram_weight + bigram_weight  # w = lambda_1 + lambda_2.
     # If lambda_3 is 1, the lower-order branch is unused; beta_2 is arbitrary.
     beta_2 = bigram_weight / lower_w if lower_w > 0 else 0.0
@@ -108,6 +116,7 @@ def betas_from_weights(
 
 
 def validate_beta(name: str, value: float) -> None:
+    """Reject beta params outside the closed unit interval."""
     if value < 0 or value > 1:
         raise ValueError(f"{name} must be between 0 and 1.")
 
@@ -120,6 +129,7 @@ def resolve_params(
     beta_2: float | None = None,
     beta_3: float | None = None,
 ) -> InterpolationParams:
+    """Resolve either flat lambda weights or recursive betas into one config."""
     if (beta_2 is None) != (beta_3 is None):
         raise ValueError("Set both beta_2 and beta_3, or neither.")
 
@@ -190,6 +200,7 @@ def fit_interpolated_trigram_model(
 
 
 def validate_options(opts: model_def.ModelOptions) -> None:
+    """Validate CLI/model options by reusing interpolation param resolution."""
     unigram_weight = float(opts.get("unigram_weight", DEFAULT_UNIGRAM_WEIGHT))
     bigram_weight = float(opts.get("bigram_weight", DEFAULT_BIGRAM_WEIGHT))
     trigram_weight = float(opts.get("trigram_weight", DEFAULT_TRIGRAM_WEIGHT))
@@ -209,10 +220,12 @@ def validate_options(opts: model_def.ModelOptions) -> None:
 
 
 def optional_float(value: object) -> float | None:
+    """Coerce optional payload values to floats while preserving missing params."""
     return None if value is None else float(value)
 
 
 def payload(params: InterpolationParams | InterpolationSummary) -> dict[str, object]:
+    """Serialize interpolation params under stable model-artifact keys."""
     beta_2, beta_3 = betas(params)
     return {
         "interpolation_weights": {
@@ -228,6 +241,7 @@ def payload(params: InterpolationParams | InterpolationSummary) -> dict[str, obj
 
 
 def betas(params: InterpolationParams | InterpolationSummary) -> tuple[float, float]:
+    """Return stored beta params, deriving them from lambdas when absent."""
     if params.beta_2 is not None and params.beta_3 is not None:
         return params.beta_2, params.beta_3
     return betas_from_weights(
@@ -238,6 +252,7 @@ def betas(params: InterpolationParams | InterpolationSummary) -> tuple[float, fl
 
 
 def parse_fields(data: dict[str, object]) -> dict[str, object]:
+    """Parse interpolation fields from persisted JSON-compatible model data."""
     ws_data = data["interpolation_weights"]
     fields = {
         "unigram_weight": float(ws_data["unigram"]),
@@ -260,6 +275,7 @@ def parse_fields(data: dict[str, object]) -> dict[str, object]:
 
 
 def items(summary: InterpolationSummary) -> list[tuple[str, str]]:
+    """Format interpolation summary rows for model-report displays."""
     beta_2, beta_3 = betas(summary)
     return [
         (
