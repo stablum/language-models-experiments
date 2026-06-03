@@ -1,15 +1,14 @@
 # Adding A New Model
 
-This project discovers concrete language-model implementations from
-`src/models`. A new model normally starts as one new module:
+Add one concrete language-model module under `src/models`:
 
 ```text
 src/models/my_model.py
 ```
 
-`RegisteredModel` derives the registered model name from the module name by
-replacing underscores with hyphens. For example, `src/models/trigram_add_k.py`
-is registered as `trigram-add-k`.
+The registered CLI name is derived from the module filename by replacing
+underscores with hyphens. For example, `src/models/trigram_add_k.py` is
+registered as `trigram-add-k`.
 
 Shared helpers that are useful to more than one model belong under
 `src/models/core`. Keep concrete model modules in `src/models`; keep reusable
@@ -17,20 +16,12 @@ math, serialization, formatting, or count-collection code in `src/models/core`.
 
 ## Discovery Contract
 
-`src.models.core.registry` imports every non-package module in `src/models`
-whose filename does not start with `_`. A module is registered when it exposes
-the conventional model functions:
+The registry imports every non-package module in `src/models` whose filename
+does not start with `_`. A module is registered when it exposes:
 
 - `fit(...)`
 - `load(model_path)`
 - `format_summary(summary)`
-
-`src.models.core.model_modules.RegisteredModel` stores the imported module
-reference and derives registry metadata such as `name`, `label`,
-`fit_option_names`, `uses_validation_data`, `supports_query`, and
-`supports_evaluation`. Shared runtime orchestration lives in
-`src.models.core.model_runtime`, which adapts pipeline options into concrete
-module calls.
 
 To keep a work-in-progress module in `src/models` without registering or
 importing it, add this top-level source flag:
@@ -39,39 +30,10 @@ importing it, add this top-level source flag:
 REGISTER_MODEL = False
 ```
 
-The registry reads this as a discovery-time opt-out before importing the
-module. Leave the flag absent or set it to `True` when the model should be
-registered.
-
-Because the registry imports model modules during CLI startup, keep module
-top-level code side-effect free. Do not train, read large artifacts, or call
-external services at import time.
-
-## Training Vocabulary
-
-Concrete model modules expose `fit(...)`, not `train(...)`. In this project,
-`fit` means "estimate learned state from data and return the artifact payload."
-For n-grams that learned state is usually sufficient statistics such as
-`c(h,w)` count rows. For gradient-based models, `fit(...)` may instantiate a
-live `Model`, pass it to a trainer, update its weights batch by batch, run
-epoch validation, and then return a checkpoint/artifact summary.
-
-`src.models.core.model_runtime.fit(...)` is the registry-level runtime
-entrypoint used by the pipelines. It receives a `RegisteredModel`, a
-`ModelFitData` object with `train_items` and optional `validation_items`, plus
-model options. The runtime unwraps those values, loads infrastructure such as
-the tokenizer, calls the concrete module's `fit(...)`, and saves the resulting
-artifact.
-
-Do not add a custom `Model.train(...)` method for fitting. In PyTorch,
-`model.train()` is already a mode switch for layers such as dropout and batch
-normalization; the optimization loop belongs in a trainer or module-level
-`fit(...)`. Keep the split clear:
-
-- `Model`: parameters plus forward/scoring/query/evaluation behavior
-- `fit(...)` or `Trainer.fit(...)`: epochs, optimizer, loss, checkpointing,
-  and optional epoch validation
-- `load(...)`: hydrate a saved artifact into a queryable model object
+Leave the flag absent or set it to `True` when the model should be registered.
+Because model modules are imported during CLI startup, keep module top-level
+code side-effect free. Do not train, read large artifacts, or call external
+services at import time.
 
 ## Usual Module Structure
 
@@ -91,14 +53,15 @@ from src.tokenizers import core as tok_core
 
 
 class TrainingSummary(ngram.NgramTrainingSummary):
-    ...
+    """Store model-specific training metrics."""
 
 
 class Model(ngram.BaseNgramModel):
-    ...
+    """Store learned state and expose query/evaluation behavior."""
 
 
 def load(model_path: Path) -> Model:
+    """Load a persisted model artifact into a queryable model."""
     ...
 
 
@@ -111,10 +74,12 @@ def fit(
     ),
     # model hyperparameters go here
 ) -> ngram.TrainingResult[TrainingSummary]:
+    """Fit learned state from texts and return a JSON-ready payload."""
     ...
 
 
 def format_summary(summary: TrainingSummary) -> list[tuple[str, str]]:
+    """Format training metrics for CLI and tracker display."""
     ...
 ```
 
@@ -130,8 +95,8 @@ Use the nearest shared pydantic summary type, normally
 `ngram.NgramTrainingSummary`, `trigrams.TrigramTrainingSummary`, or
 `trigrams.InterpolatedTrigramTrainingSummary`. Define a module-local
 `TrainingSummary` only when the module needs additional fields beyond that
-base. Add only those additional summary values, such as a new training count,
-model-family diagnostic, or resolved hyperparameter.
+base, such as a new training count, model-family diagnostic, or resolved
+hyperparameter.
 
 When a module-local summary class is needed, use a module-local name such as
 `TrainingSummary`; the module namespace already carries the model identity.
@@ -152,10 +117,16 @@ from `trigrams.BaseTrigramModel`, `trigrams.InterpolatedTrigramModel`, or
 `trigrams.DiscountedTrigramModel`, which provide most of the query/evaluation
 machinery.
 
+For non-n-gram models, keep the same module-level `fit`, `load`, and
+`format_summary` contract. The loaded `Model` object should still expose
+`query(...)` and `evaluate(...)` when the full pipeline should support those
+stages.
+
 `load(model_path)`
 
-Read the JSON artifact, validate the current schema version plus `model_type`,
-load the tokenizer fields, and return the model object. Reuse helpers such as:
+Read the persisted artifact, validate the current schema version plus
+`model_type`, load any tokenizer/model fields, and return the model object.
+Reuse helpers such as:
 
 - `ngram.load_json_model_payload(...)`
 - `ngram.load_tokenizer_model_fields(...)`
@@ -167,47 +138,44 @@ load the tokenizer fields, and return the model object. Reuse helpers such as:
 Pass `module_name=__name__` to the standard load helpers. They derive the
 artifact `model_type` from the module leaf, so `src.models.my_model` expects
 `model_type: "my_model"`. Do not add a second hand-written schema name unless
-you first introduce a new runtime convention that truly needs one.
+the model really needs a separate artifact family.
 
 `fit(...)`
 
-This is the function called by the model runtime. Its required keyword
-parameters are:
+Expose `fit(...)`, not `train(...)`. In this project, `fit` means "estimate
+learned state from data and return the artifact payload." For n-grams that
+learned state is usually sufficient statistics such as `c(h,w)` count rows.
+For gradient-based models, `fit(...)` may instantiate a live `Model`, pass it
+to a trainer, update its weights batch by batch, run epoch validation, and then
+return a checkpoint/artifact summary.
+
+Required keyword parameters:
 
 - `tokenizer: tok_core.TokenizerCodec`
 - `text_normalization: normalization.TextNormalization`
 
-It should fit from `texts` and return `ngram.TrainingResult[SummaryType]`,
-which contains the training summary and the module-owned JSON payload. Simple
-n-gram payloads normally include:
+`fit(...)` should return `ngram.TrainingResult[SummaryType]`, which contains:
 
-- count tables or learned weights needed by the loader
-- model hyperparameters needed at query/evaluation time
+- `summary`: the training summary object
+- `payload`: only the model-owned JSON payload fields
 
-The runtime loads the tokenizer, adds schema and tokenizer fields, writes the
-JSON artifact to its chosen `output_path`, and records the final artifact paths
-on the returned summary. Model modules should not know about staging paths,
-portable tokenizer references, or ClearML upload details.
+The pipeline owns artifact paths, tokenizer metadata, schema envelope fields,
+and portable tokenizer references. Do not write the final JSON model artifact
+inside the model module's `fit(...)`.
 
-If a future model needs validation data inside fitting, add this keyword-only
+If a model needs validation data during fitting, add this keyword-only
 parameter:
 
 ```python
 validation_texts: Iterable[str] | None = None
 ```
 
-`RegisteredModel.uses_validation_data` detects that parameter and the runtime
-supplies the validation partition through `ModelFitData.validation_items`. Use
-this for epoch metrics, early stopping, or checkpoint selection. Keep final
-benchmark evaluation in the evaluation stage unless the model genuinely needs
-validation feedback while fitting.
+Use validation data for epoch metrics, early stopping, or checkpoint selection.
+Keep final benchmark evaluation in the evaluation stage unless the model
+genuinely needs validation feedback while fitting.
 
-The standard trigram fitting helpers build the common trigram count payload
-for you. Add only the extra payload fields your model needs.
-
-Model hyperparameters should be keyword-only parameters on `fit(...)`.
-`RegisteredModel.fit_option_names` infers them by excluding the infrastructure
-parameters listed above.
+Model hyperparameters should be keyword-only parameters on `fit(...)`. The
+pipeline passes matching CLI/pipeline options through to the model module.
 
 `format_summary(summary)`
 
@@ -215,23 +183,23 @@ Return a `list[tuple[str, str]]` for CLI/ClearML display. Reuse
 `ngram.base_training_summary_items(...)` or
 `trigrams.base_training_summary_items(...)` when possible.
 
-Optional module functions:
+## Optional Hooks
+
+Add these functions only when the model needs them:
 
 - `format_query(result)` if the standard n-gram query display is not enough
 - `format_evaluation(summary)` if the standard evaluation display is not enough
 - `validate_fit_options(options)` for coupled or non-trivial option checks
 
-The full model-training pipeline requires both query and evaluation support.
-`RegisteredModel` detects those capabilities on the module's `Model` class.
-The runtime supplies query/evaluation by loading the model artifact and calling
-the loaded model object's `query(...)` or `evaluate(...)` method.
+If you add `validate_fit_options`, import
+`from src.ml_core.models import definition as model_def` and raise
+`model_def.ModelOptionError` when user-supplied options are invalid.
 
 ## Hyperparameters
 
-If a new model uses only existing hyperparameters such as `smoothing`,
-`discount`, `unigram_weight`, `bigram_weight`, `trigram_weight`, `beta_2`, or
-`beta_3`, add them as keyword-only parameters on `fit(...)`. The runtime will
-pass through any matching CLI/pipeline option.
+If a new model uses existing hyperparameters such as `smoothing`, `discount`,
+`unigram_weight`, `bigram_weight`, `trigram_weight`, `beta_2`, or `beta_3`,
+add them as keyword-only parameters on `fit(...)`.
 
 If the model needs a brand-new hyperparameter, add it consistently in:
 
@@ -261,26 +229,6 @@ Use the existing modules as templates:
 
 Prefer pulling shared count collection, probability formulas, payload parsing,
 or formatting into `src/models/core` once a second model needs the same logic.
-
-## Custom Non-N-Gram Models
-
-For a model that does not fit the current module convention, extend
-`src.models.core.model_modules.RegisteredModel` and
-`src.models.core.model_runtime` with a new convention or strategy. Keep the
-concrete model module as the source of truth; `RegisteredModel` should carry
-dynamic metadata derived from that module instead of copying a second identity
-or requiring one-off registration objects in concrete modules.
-
-If you add a new registry convention, keep the responsibilities split:
-
-- `RegisteredModel` owns module-derived metadata and capability checks.
-- `model_runtime.fit(...)` owns pipeline-to-module fitting orchestration.
-- `model_runtime.query(...)` owns artifact loading plus query invocation.
-- `model_runtime.evaluate(...)` owns artifact loading plus evaluation invocation.
-- module-local `format_*` functions own model-specific display rows.
-
-Raise `model_def.ModelOptionError` from validators when user-supplied options
-are invalid.
 
 ## Documentation Checklist
 
