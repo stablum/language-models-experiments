@@ -125,8 +125,8 @@ def main(**kwargs: object) -> None:
             "Use --model-task-id for queued query pipelines."
         )
 
-    model_definition = model_registry.get_model(args.model_name)
-    if model_definition.query is None:
+    model = model_registry.get_model(args.model_name)
+    if not model.supports_query:
         raise click.ClickException(
             f"Model does not support querying yet: {args.model_name}"
         )
@@ -159,7 +159,7 @@ def main(**kwargs: object) -> None:
         model_training_name=args.model_training_name,
         model_training_version=args.model_training_version,
         clearml_project=settings.project_name,
-        model_name=model_definition.name,
+        model_name=model.name,
         tokenizer_model_name=args.tokenizer_model_name,
         corpus=args.corpus,
     )
@@ -181,7 +181,7 @@ def main(**kwargs: object) -> None:
     core_pipeline.connect_controller_experiment_parameters(
         pipeline.task,
         {
-            "model": model_definition.name,
+            "model": model.name,
             "corpus": args.corpus,
             "tokenizer_model_name": resolved_tokenizer_model_name or "",
             "model_training_name": args.model_training_name,
@@ -210,7 +210,7 @@ def main(**kwargs: object) -> None:
             source_pipeline_controller_id=source_controller_id,
             model_task_id=resolved_model_task_id,
             model_path=resolved_model_path,
-            model_name=model_definition.name,
+            model_name=model.name,
             tokenizer_model_name=resolved_tokenizer_model_name,
             corpus=args.corpus,
         ),

@@ -9,6 +9,7 @@ import click
 from src.ml_core import tracking
 from src.ml_core.cli import staging
 from src.ml_core.models import definition as model_def
+from src.models.core import model_runtime
 from src.models.core import registry as model_registry
 from src.pipelines.language_model import artifacts as lm_artifacts
 from src.pipelines.language_model import definition as lm_def
@@ -67,8 +68,8 @@ def query_pipeline_step(
         command=command,
         stage=stage,
     )
-    model_definition = model_registry.get_model(model_name)
-    for line in _query_lines(model_definition, result):
+    model = model_registry.get_model(model_name)
+    for line in model_runtime.query_lines(model, result):
         click.echo(line)
     return stage_runtime.require_task_id(clearml_run)
 
@@ -92,8 +93,8 @@ def query_model_run(
     stage: str = lm_def.QUERY_STAGE,
 ) -> object:
     """Query a trained model and store the standard query artifacts."""
-    model_definition = model_registry.get_model(model_name)
-    if model_definition.query is None:
+    model = model_registry.get_model(model_name)
+    if not model.supports_query:
         raise click.ClickException(f"Model does not support querying yet: {model_name}")
 
     with staging.temporary_staging_directory(prefix="lme-query-") as staging_dir:
@@ -104,7 +105,7 @@ def query_model_run(
             clearml_run=clearml_run,
             output_model_name=lm_def.model_output_name(
                 tokenizer_model_name=tokenizer_model_name,
-                model_name=model_definition.name,
+                model_name=model.name,
             ),
         )
         query_options = {
@@ -117,11 +118,10 @@ def query_model_run(
             "temperature": temperature,
             "seed": seed,
         }
-        if model_definition.validate_query_options is not None:
-            try:
-                model_definition.validate_query_options(query_options)
-            except model_def.ModelOptionError as error:
-                raise click.ClickException(str(error)) from error
+        try:
+            model_runtime.validate_query_options(model, query_options)
+        except model_def.ModelOptionError as error:
+            raise click.ClickException(str(error)) from error
 
         clearml_run.connect_parameter_sections(
             {
@@ -138,7 +138,7 @@ def query_model_run(
                     "corpus": corpus,
                 },
                 "Model": {
-                    "model": model_definition.name,
+                    "model": model.name,
                     "tokenizer_model_name": tokenizer_model_name,
                     "model_task_id": model_task_id,
                     "model_path": model_path,
@@ -155,7 +155,7 @@ def query_model_run(
             }
         )
 
-        result = model_definition.query(query_options)
+        result = model_runtime.query(model, query_options)
         clearml_run.log_metrics("Query", lm_artifacts.query_metrics(result))
         clearml_run.report_debug_sample(
             title="Query",
@@ -166,11 +166,6 @@ def query_model_run(
         clearml_run.upload_artifact(
             "query-result",
             lm_artifacts.query_payload(result),
-            metadata={"model": model_definition.name, "corpus": corpus},
+            metadata={"model": model.name, "corpus": corpus},
         )
         return result
-
-
-def _query_lines(model_definition: object, result: object) -> tuple[str, ...]:
-    query_lines = getattr(model_definition, "query_lines", None)
-    return tuple(query_lines(result)) if query_lines is not None else ()

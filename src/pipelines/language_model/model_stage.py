@@ -14,6 +14,7 @@ from src.ml_core.data import split_artifacts
 from src.ml_core.data import splits as data_splits
 from src.ml_core.models import definition as model_def
 from src.models.core import registry as model_registry
+from src.models.core import model_runtime
 from src.pipelines.language_model import artifacts as lm_artifacts
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import model_options as lm_model_options
@@ -46,7 +47,7 @@ def train_model_pipeline_step(
 
     stage = lm_def.MODEL_STAGE
     corpus_definition = corpora_registry.get_corpus(corpus)
-    model_definition = model_registry.get_model(model_name)
+    model = model_registry.get_model(model_name)
 
     with staging.temporary_staging_directory(prefix="lme-pipeline-model-") as staging_dir:
         clearml_run = stage_runtime.start_step(
@@ -86,8 +87,8 @@ def train_model_pipeline_step(
         )
         output_model_name = lm_def.model_output_name(
             tokenizer_model_name=tokenizer_model_name,
-            model_name=model_definition.name,
-        ) or f"{corpus}-{model_definition.name}"
+            model_name=model.name,
+        ) or f"{corpus}-{model.name}"
         output_path = staging_dir / f"{output_model_name}.json"
         resolved_model_hyperparameters = lm_model_options.model_hyperparameters_from(
             model_hyperparameters
@@ -101,7 +102,7 @@ def train_model_pipeline_step(
             "text_normalization": text_normalization,
         }
         try:
-            model_definition.validate_options(model_options)
+            model_runtime.validate_fit_options(model, model_options)
         except model_def.ModelOptionError as error:
             raise click.ClickException(str(error)) from error
 
@@ -127,7 +128,7 @@ def train_model_pipeline_step(
                     "text_normalization": text_normalization,
                 },
                 "Model": {
-                    "model": model_definition.name,
+                    "model": model.name,
                     **resolved_model_hyperparameters,
                 },
                 "Tokenizer": {
@@ -152,7 +153,7 @@ def train_model_pipeline_step(
             limit=limit,
         )
         validation_texts = None
-        if model_definition.uses_validation_data:
+        if model.uses_validation_data:
             validation_texts = corpus_splits.load_partition_texts(
                 corpus_definition,
                 dataset_id=dataset_id,
@@ -166,7 +167,7 @@ def train_model_pipeline_step(
             train_items=train_texts,
             validation_items=validation_texts,
         )
-        summary = model_definition.fit(fit_data, model_options)
+        summary = model_runtime.fit(model, fit_data, model_options)
         data_splits.attach_split_plan_to_json_model(summary.output_path, split_plan)
 
         clearml_run.log_metrics(
@@ -177,13 +178,13 @@ def train_model_pipeline_step(
             clearml_run,
             staging_dir=staging_dir,
             plan=split_plan,
-            metadata={"model": model_definition.name, "corpus": corpus, "stage": stage},
+            metadata={"model": model.name, "corpus": corpus, "stage": stage},
         )
         clearml_run.register_model(
             name=output_model_name,
             model_path=summary.output_path,
             framework="custom",
-            tags=("language-model", model_definition.name, corpus),
+            tags=("language-model", model.name, corpus),
             comment="Token n-gram language model JSON.",
         )
         return stage_runtime.require_task_id(clearml_run)

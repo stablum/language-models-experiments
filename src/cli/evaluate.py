@@ -95,10 +95,7 @@ def main(**kwargs: object) -> None:
             "top_k": args.top_k,
         },
     )
-    if (
-        filter_resolution.model.evaluate is None
-        or filter_resolution.model.evaluation_items is None
-    ):
+    if not filter_resolution.model.supports_evaluation:
         raise click.ClickException(
             f"Model does not support evaluation yet: {args.model_name}"
         )

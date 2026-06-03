@@ -11,7 +11,7 @@ from src.cli import corpus_source
 from src.ml_core import cfg as core_cfg
 from src.ml_core import pipeline as core_pipeline
 from src.ml_core.cli import config as cli_config
-from src.ml_core.models import definition as model_def
+from src.models.core import model_modules
 from src.models.core import registry as model_registry
 from src.pipelines.language_model import model_training as model_pipeline
 
@@ -40,9 +40,9 @@ class ModelTrainingStageFilterCfg(core_cfg.FrozenBaseCfg):
 
 
 class StageFilterResolution(core_cfg.BaseCfg):
-    """Resolved model definition and ClearML Experiment parameter filters."""
+    """Resolved registered model and ClearML Experiment parameter filters."""
 
-    model: model_def.ModelDefinition
+    model: model_modules.RegisteredModel
     filters: dict[str, object]
 
 

@@ -7,7 +7,7 @@ This project discovers concrete language-model implementations from
 src/models/my_model.py
 ```
 
-The module adapter derives the registered model name from the module name by
+`RegisteredModel` derives the registered model name from the module name by
 replacing underscores with hyphens. For example, `src/models/trigram_add_k.py`
 is registered as `trigram-add-k`.
 
@@ -25,10 +25,12 @@ the conventional model functions:
 - `load(model_path)`
 - `format_summary(summary)`
 
-`src.models.core.model_modules` adapts those functions into the shared
-`src.ml_core.models.definition.ModelDefinition` contract used by the CLIs and
-pipelines. The registered model name is derived from the module name by
-replacing underscores with hyphens.
+`src.models.core.model_modules.RegisteredModel` stores the imported module
+reference and derives registry metadata such as `name`, `label`,
+`fit_option_names`, `uses_validation_data`, `supports_query`, and
+`supports_evaluation`. Shared runtime orchestration lives in
+`src.models.core.model_runtime`, which adapts pipeline options into concrete
+module calls.
 
 To keep a work-in-progress module in `src/models` without registering or
 importing it, add this top-level source flag:
@@ -54,11 +56,12 @@ For n-grams that learned state is usually sufficient statistics such as
 live `Model`, pass it to a trainer, update its weights batch by batch, run
 epoch validation, and then return a checkpoint/artifact summary.
 
-`src.ml_core.models.definition.ModelDefinition.fit` is the registry-level
-adapter entrypoint used by the pipelines. It receives a `ModelFitData` object
-with `train_items` and optional `validation_items`, plus model options. The
-adapter unwraps that object, loads infrastructure such as the tokenizer, calls
-the concrete module's `fit(...)`, and saves the resulting artifact.
+`src.models.core.model_runtime.fit(...)` is the registry-level runtime
+entrypoint used by the pipelines. It receives a `RegisteredModel`, a
+`ModelFitData` object with `train_items` and optional `validation_items`, plus
+model options. The runtime unwraps those values, loads infrastructure such as
+the tokenizer, calls the concrete module's `fit(...)`, and saves the resulting
+artifact.
 
 Do not add a custom `Model.train(...)` method for fitting. In PyTorch,
 `model.train()` is already a mode switch for layers such as dropout and batch
@@ -164,11 +167,11 @@ load the tokenizer fields, and return the model object. Reuse helpers such as:
 Pass `module_name=__name__` to the standard load helpers. They derive the
 artifact `model_type` from the module leaf, so `src.models.my_model` expects
 `model_type: "my_model"`. Do not add a second hand-written schema name unless
-you first introduce a new adapter convention that truly needs one.
+you first introduce a new runtime convention that truly needs one.
 
 `fit(...)`
 
-This is the function called by the model-module adapter. Its required keyword
+This is the function called by the model runtime. Its required keyword
 parameters are:
 
 - `tokenizer: tok_core.TokenizerCodec`
@@ -181,7 +184,7 @@ n-gram payloads normally include:
 - count tables or learned weights needed by the loader
 - model hyperparameters needed at query/evaluation time
 
-The adapter loads the tokenizer, adds schema and tokenizer fields, writes the
+The runtime loads the tokenizer, adds schema and tokenizer fields, writes the
 JSON artifact to its chosen `output_path`, and records the final artifact paths
 on the returned summary. Model modules should not know about staging paths,
 portable tokenizer references, or ClearML upload details.
@@ -193,17 +196,18 @@ parameter:
 validation_texts: Iterable[str] | None = None
 ```
 
-The adapter detects that parameter and supplies the validation partition through
-`ModelFitData.validation_items`. Use this for epoch metrics, early stopping, or
-checkpoint selection. Keep final benchmark evaluation in the evaluation stage
-unless the model genuinely needs validation feedback while fitting.
+`RegisteredModel.uses_validation_data` detects that parameter and the runtime
+supplies the validation partition through `ModelFitData.validation_items`. Use
+this for epoch metrics, early stopping, or checkpoint selection. Keep final
+benchmark evaluation in the evaluation stage unless the model genuinely needs
+validation feedback while fitting.
 
 The standard trigram fitting helpers build the common trigram count payload
 for you. Add only the extra payload fields your model needs.
 
-Model hyperparameters should be keyword-only parameters on `fit(...)`. The
-adapter infers their option names by excluding the infrastructure parameters
-listed above.
+Model hyperparameters should be keyword-only parameters on `fit(...)`.
+`RegisteredModel.fit_option_names` infers them by excluding the infrastructure
+parameters listed above.
 
 `format_summary(summary)`
 
@@ -218,14 +222,15 @@ Optional module functions:
 - `validate_fit_options(options)` for coupled or non-trivial option checks
 
 The full model-training pipeline requires both query and evaluation support.
-The adapter supplies query support through the loaded model's `query`
-method and evaluation support through the loaded model's `evaluate` method.
+`RegisteredModel` detects those capabilities on the module's `Model` class.
+The runtime supplies query/evaluation by loading the model artifact and calling
+the loaded model object's `query(...)` or `evaluate(...)` method.
 
 ## Hyperparameters
 
 If a new model uses only existing hyperparameters such as `smoothing`,
 `discount`, `unigram_weight`, `bigram_weight`, `trigram_weight`, `beta_2`, or
-`beta_3`, add them as keyword-only parameters on `fit(...)`. The adapter will
+`beta_3`, add them as keyword-only parameters on `fit(...)`. The runtime will
 pass through any matching CLI/pipeline option.
 
 If the model needs a brand-new hyperparameter, add it consistently in:
@@ -259,23 +264,20 @@ or formatting into `src/models/core` once a second model needs the same logic.
 
 ## Custom Non-N-Gram Models
 
-For a model that does not fit the current adapter, extend
-`src.models.core.model_modules` with a new convention or strategy. Keep the
-concrete model module as the source of truth, and adapt it into
-`src.ml_core.models.definition.ModelDefinition` in the shared registry layer
-rather than adding one-off registration objects to concrete modules.
+For a model that does not fit the current module convention, extend
+`src.models.core.model_modules.RegisteredModel` and
+`src.models.core.model_runtime` with a new convention or strategy. Keep the
+concrete model module as the source of truth; `RegisteredModel` should carry
+dynamic metadata derived from that module instead of copying a second identity
+or requiring one-off registration objects in concrete modules.
 
-If you add a new registry convention, adapt it into `ModelDefinition`
-callables with these signatures. These are adapter-level callables, not extra
-functions required on ordinary concrete model modules:
+If you add a new registry convention, keep the responsibilities split:
 
-- `fit(data, options) -> summary`
-- `validate_options(options) -> None`
-- `summary_items(summary) -> list[tuple[str, str]]`
-- `query(options) -> result`
-- `query_lines(result) -> list[str]`
-- `evaluate(texts, options) -> summary`
-- `evaluation_items(summary) -> list[tuple[str, str]]`
+- `RegisteredModel` owns module-derived metadata and capability checks.
+- `model_runtime.fit(...)` owns pipeline-to-module fitting orchestration.
+- `model_runtime.query(...)` owns artifact loading plus query invocation.
+- `model_runtime.evaluate(...)` owns artifact loading plus evaluation invocation.
+- module-local `format_*` functions own model-specific display rows.
 
 Raise `model_def.ModelOptionError` from validators when user-supplied options
 are invalid.

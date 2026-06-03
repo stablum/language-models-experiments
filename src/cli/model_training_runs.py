@@ -225,15 +225,12 @@ def run_model_training_pipeline(
     *,
     extra_controller_parameters: Mapping[str, object] | None = None,
 ) -> str:
-    model_definition = model_registry.get_model(run_spec.model.name)
-    if (
-        model_definition.evaluate is None
-        or model_definition.evaluation_items is None
-    ):
+    model = model_registry.get_model(run_spec.model.name)
+    if not model.supports_evaluation:
         raise click.ClickException(
             f"Model does not support evaluation yet: {run_spec.model.name}"
         )
-    if model_definition.query is None or model_definition.query_lines is None:
+    if not model.supports_query:
         raise click.ClickException(
             f"Model does not support querying yet: {run_spec.model.name}"
         )
@@ -276,7 +273,7 @@ def run_model_training_pipeline(
     )
     controller_params: dict[str, object] = {
         **run_spec.match_params,
-        "model": model_definition.name,
+        "model": model.name,
         "tokenizer_training_name": run_spec.tokenizer_training_name,
         "tokenizer_training_controller_id": tokenizer_resolution.controller_id,
         "tokenizer_task_id": tokenizer_resolution.tokenizer_task_id,
@@ -300,7 +297,7 @@ def run_model_training_pipeline(
             task_id=tokenizer_resolution.tokenizer_task_id,
             model_name=run_spec.tokenizer_model_name,
         ),
-        model=run_spec.model.model_copy(update={"name": model_definition.name}),
+        model=run_spec.model.model_copy(update={"name": model.name}),
         data=run_spec.data,
         evaluation=run_spec.evaluation,
         query=run_spec.query,

@@ -11,6 +11,7 @@ from src.ml_core.cli import staging
 from src.ml_core.data import split_artifacts
 from src.ml_core.data import splits as data_splits
 from src.ml_core.models import definition as model_def
+from src.models.core import model_runtime
 from src.models.core import registry as model_registry
 from src.pipelines.language_model import artifacts as lm_artifacts
 from src.pipelines.language_model import definition as lm_def
@@ -43,13 +44,13 @@ def evaluate_pipeline_step(
 
     stage = lm_def.EVALUATION_STAGE
     corpus_definition = corpora_registry.get_corpus(corpus)
-    model_definition = model_registry.get_model(model_name)
-    if model_definition.evaluate is None:
+    model = model_registry.get_model(model_name)
+    if not model.supports_evaluation:
         raise click.ClickException(f"Model does not support evaluation yet: {model_name}")
 
     evaluation_partitions = tuple(data_splits.PROJECT_PARTITIONS)
     click.echo(
-        f"Evaluation stage started: model={model_definition.name}, corpus={corpus}, "
+        f"Evaluation stage started: model={model.name}, corpus={corpus}, "
         f"partitions={', '.join(evaluation_partitions)}, "
         f"primary_partition={evaluation_partition}, top_k={top_k}"
     )
@@ -78,7 +79,7 @@ def evaluate_pipeline_step(
             clearml_run=clearml_run,
             output_model_name=lm_def.model_output_name(
                 tokenizer_model_name=tokenizer_model_name,
-                model_name=model_definition.name,
+                model_name=model.name,
             ),
         )
         click.echo(f"Staged model file: {staged_model_path.name}")
@@ -103,11 +104,10 @@ def evaluate_pipeline_step(
             "model_path": staged_model_path,
             "top_k": top_k,
         }
-        if model_definition.validate_evaluation_options is not None:
-            try:
-                model_definition.validate_evaluation_options(evaluation_options)
-            except model_def.ModelOptionError as error:
-                raise click.ClickException(str(error)) from error
+        try:
+            model_runtime.validate_evaluation_options(model, evaluation_options)
+        except model_def.ModelOptionError as error:
+            raise click.ClickException(str(error)) from error
         click.echo(
             f"Evaluation data: dataset={dataset_id}, "
             f"source_split={data_splits.source_split_label(source_split)}, "
@@ -136,7 +136,7 @@ def evaluate_pipeline_step(
                     "limit": limit,
                 },
                 "Model": {
-                    "model": model_definition.name,
+                    "model": model.name,
                     "model_task_id": model_task_id,
                     "model_file": staged_model_path.name,
                 },
@@ -181,7 +181,8 @@ def evaluate_pipeline_step(
             )
 
             click.echo(f"Running {partition} model evaluation...")
-            summary = model_definition.evaluate(
+            summary = model_runtime.evaluate(
+                model,
                 cli_out.iter_with_progress(
                     texts,
                     label=f"Evaluating {partition} rows",
@@ -216,7 +217,7 @@ def evaluate_pipeline_step(
             clearml_run,
             staging_dir=staging_dir,
             plan=split_plan,
-            metadata={"model": model_definition.name, "corpus": corpus, "stage": stage},
+            metadata={"model": model.name, "corpus": corpus, "stage": stage},
         )
         clearml_run.upload_artifact(
             "evaluation-summary",
@@ -240,7 +241,7 @@ def evaluate_pipeline_step(
                 },
             },
             metadata={
-                "model": model_definition.name,
+                "model": model.name,
                 "corpus": corpus,
                 "evaluation_partition": primary_partition,
                 "evaluation_partitions": ",".join(evaluation_partitions),

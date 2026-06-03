@@ -1,29 +1,23 @@
-"""Adapters from concrete model modules to the shared registry contract."""
+"""Discovery-time model-module conformity and registered-model metadata."""
 
 from __future__ import annotations
 
-import io
 import inspect
+import io
 import token
 import tokenize
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Callable, TypeGuard, TypeVar
+from typing import Any, TypeGuard
 
-from src.corpora import normalization
+from src.ml_core import cfg as core_cfg
 from src.ml_core.models import definition as model_def
 from src.models.core import formatting
 from src.models.core import naming
 from src.models.core import ngram
 from src.models.core import trigram_interpolation as interp
-from src.tokenizers import core as tok_core
 
-
-LoadedT = TypeVar("LoadedT")
-QueryT = TypeVar("QueryT")
-EvalT = TypeVar("EvalT")
-TrainSummaryT = TypeVar("TrainSummaryT", bound=ngram.NgramTrainingSummary)
 
 REGISTRY_FLAG = "REGISTER_MODEL"
 FIT_FN_NAME = "fit"
@@ -43,7 +37,94 @@ _INTERPOLATION_OPTION_NAMES = frozenset(
 )
 
 
+class RegisteredModel(core_cfg.BaseCfg):
+    """Represent one discovered model module through dynamic registry metadata."""
+
+    module: ModuleType
+
+    @property
+    def name(self) -> str:
+        """Return the CLI registry name derived from the module path."""
+        return naming.registered_name_from_module(self.module.__name__)
+
+    @property
+    def label(self) -> str:
+        """Return a human label derived from the registered model name."""
+        return naming.label_from_registered_name(self.name)
+
+    @property
+    def fit_fn(self) -> Callable[..., Any]:
+        """Return the concrete module fitting strategy."""
+        return required_module_callable(self.module, FIT_FN_NAME)
+
+    @property
+    def load_fn(self) -> Callable[[Path], Any]:
+        """Return the concrete module artifact loader."""
+        return required_module_callable(self.module, "load")
+
+    @property
+    def summary_formatter(self) -> model_def.SummaryFormatter:
+        """Return the concrete module training-summary formatter."""
+        return required_module_callable(self.module, "format_summary")
+
+    @property
+    def query_formatter(self) -> model_def.QueryFormatter:
+        """Return the module query formatter, falling back to n-gram output."""
+        return get_module_callable(
+            self.module,
+            "format_query",
+        ) or formatting.format_ngram_query
+
+    @property
+    def evaluation_formatter(self) -> model_def.SummaryFormatter:
+        """Return the module evaluation formatter, falling back to n-gram metrics."""
+        return get_module_callable(
+            self.module,
+            "format_evaluation",
+        ) or standard_evaluation_items
+
+    @property
+    def fit_option_names(self) -> tuple[str, ...]:
+        """Infer model hyperparameter names from the module fit signature."""
+        return infer_fit_option_names(self.fit_fn)
+
+    @property
+    def fit_options_validator(self) -> model_def.ModelOptionValidator | None:
+        """Return the module or inferred validator for model hyperparameters."""
+        module_validator = get_module_callable(self.module, "validate_fit_options")
+        return module_validator or inferred_fit_options_validator(
+            self.fit_option_names,
+        )
+
+    @property
+    def uses_validation_data(self) -> bool:
+        """Return whether fit accepts the validation-text partition."""
+        return accepts_keyword(self.fit_fn, "validation_texts")
+
+    @property
+    def supports_query(self) -> bool:
+        """Return whether the module model class exposes query behavior."""
+        return self.model_has_method("query")
+
+    @property
+    def supports_evaluation(self) -> bool:
+        """Return whether the module model class exposes evaluation behavior."""
+        return self.model_has_method("evaluate")
+
+    def model_has_method(self, method_name: str) -> bool:
+        """Check a method on the declared module Model class."""
+        model_cls = getattr(self.module, "Model", None)
+        return isinstance(model_cls, type) and callable(
+            getattr(model_cls, method_name, None)
+        )
+
+    def load(self, model_path: Path) -> Any:
+        """Hydrate a persisted model artifact through the module loader."""
+        return self.load_fn(model_path)
+
+
 def registry_enabled(module_path: Path, *, module_name: str) -> bool:
+    """Return whether a model module source file opts into discovery."""
     return registry_enabled_from_source(
         module_path.read_text(encoding="utf-8"),
         module_name=module_name,
@@ -51,6 +132,7 @@ def registry_enabled(module_path: Path, *, module_name: str) -> bool:
 
 
 def registry_enabled_from_source(source: str, *, module_name: str) -> bool:
+    """Read a top-level REGISTER_MODEL bool without importing the module."""
     depth = 0
     stmt: list[tokenize.TokenInfo] = []
     stream = tokenize.generate_tokens(io.StringIO(source).readline)
@@ -85,6 +167,7 @@ def registry_flag_value(
     *,
     module_name: str,
 ) -> bool | None:
+    """Parse one top-level statement as a REGISTER_MODEL bool assignment."""
     if (
         not stmt
         or stmt[0].type != tokenize.NAME
@@ -116,43 +199,37 @@ def registry_flag_value(
     )
 
 
-def model_definition_from_module(
-    module: ModuleType,
-) -> model_def.ModelDefinition | None:
-    fit_model = get_module_callable(module, FIT_FN_NAME)
-    load_model = get_module_callable(module, "load")
-    summary_items = get_module_callable(module, "format_summary")
-    if fit_model is None or load_model is None or summary_items is None:
+def registered_model_from_module(module: ModuleType) -> RegisteredModel | None:
+    """Adapt a conforming concrete model module into a registered model."""
+    if (
+        get_module_callable(module, FIT_FN_NAME) is None
+        or get_module_callable(module, "load") is None
+        or get_module_callable(module, "format_summary") is None
+    ):
         return None
 
-    fit_opt_names = infer_fit_option_names(fit_model)
-    validate_fit_opts = get_module_callable(module, "validate_fit_options")
-
-    return model_definition(
-        module_name=module.__name__,
-        fit_model=fit_model,
-        load_model=load_model,
-        summary_items=summary_items,
-        fit_option_names=fit_opt_names,
-        uses_validation_data=accepts_keyword(fit_model, "validation_texts"),
-        query_lines=get_module_callable(module, "format_query"),
-        evaluation_items=get_module_callable(module, "format_evaluation"),
-        validate_fit_options=(
-            validate_fit_opts
-            or inferred_fit_options_validator(fit_opt_names)
-        ),
-    )
+    return RegisteredModel(module=module)
 
 
 def get_module_callable(module: ModuleType, name: str) -> Callable[..., Any] | None:
+    """Return an optional callable exported by a model module."""
     fn = getattr(module, name, None)
     if fn is not None and not callable(fn):
         raise TypeError(f"{module.__name__}.{name} must be callable")
     return fn
 
 
-def infer_fit_option_names(fit_model: Callable[..., Any]) -> tuple[str, ...]:
-    sig = inspect.signature(fit_model)
+def required_module_callable(module: ModuleType, name: str) -> Callable[..., Any]:
+    """Return a required callable exported by a conforming model module."""
+    fn = get_module_callable(module, name)
+    if fn is None:
+        raise TypeError(f"{module.__name__}.{name} is required for registration")
+    return fn
+
+
+def infer_fit_option_names(fit_fn: Callable[..., Any]) -> tuple[str, ...]:
+    """Infer model-owned keyword-only hyperparameter names from fit(...)."""
+    sig = inspect.signature(fit_fn)
     return tuple(
         name
         for name, param in sig.parameters.items()
@@ -175,226 +252,16 @@ def accepts_keyword(fn: Callable[..., Any], name: str) -> bool:
 def inferred_fit_options_validator(
     opt_names: Sequence[str],
 ) -> model_def.ModelOptionValidator | None:
+    """Infer a validator from known coupled hyperparameter sets."""
     if _INTERPOLATION_OPTION_NAMES <= set(opt_names):
         return interp.validate_options
     return None
 
 
-def model_definition(
-    *,
-    module_name: str,
-    fit_model: Callable[..., ngram.TrainingResult[Any]],
-    load_model: Callable[[Path], LoadedT],
-    summary_items: model_def.SummaryFormatter,
-    fit_option_names: Sequence[str] = (),
-    uses_validation_data: bool = False,
-    query_lines: model_def.QueryFormatter | None = None,
-    evaluation_items: model_def.SummaryFormatter | None = None,
-    validate_fit_options: model_def.ModelOptionValidator | None = None,
-) -> model_def.ModelDefinition:
-    name = model_name_from_module(module_name)
-    model_label = model_label_from_name(name)
-
-    def fit(
-        data: model_def.ModelFitData,
-        opts: model_def.ModelOptions,
-    ) -> ngram.NgramTrainingSummary:
-        """Fit a concrete model and persist its learned artifact payload."""
-        stored_tok_model = opts.get("stored_tokenizer_model")
-        tok_model = resolve_tokenizer_model(opts)
-        out_path = resolve_output(opts, model_suffix=name)
-        tokenizer = tok_core.load_tokenizer(tok_model)
-        fit_opts = {
-            opt_name: opts[opt_name]
-            for opt_name in fit_option_names
-            if opt_name in opts
-        }
-        fit_kwargs: dict[str, object] = {
-            "tokenizer": tokenizer,
-            "text_normalization": opts["text_normalization"],
-            **fit_opts,
-        }
-        if uses_validation_data:
-            fit_kwargs["validation_texts"] = data.validation_items
-
-        result = fit_model(data.train_items, **fit_kwargs)
-        return save_training_result(
-            result,
-            module_name=module_name,
-            output_path=out_path,
-            tokenizer_model=tok_model,
-            stored_tokenizer_model=(
-                Path(stored_tok_model) if stored_tok_model else None
-            ),
-            tokenizer=tokenizer,
-            text_normalization=opts["text_normalization"],
-        )
-
-    def validate_options(opts: model_def.ModelOptions) -> None:
-        validate_tokenizer_model(opts)
-        if validate_fit_options is not None:
-            validate_fit_options(opts)
-
-    def validate_query_options(opts: model_def.ModelOptions) -> None:
-        validate_model_path(opts, model_suffix=name, label=model_label)
-
-    def query(opts: model_def.ModelOptions) -> QueryT:
-        model = load_model(resolve_model(opts, model_suffix=name))
-        return model.query(
-            ngram.NgramQueryCfg(
-                prompt=opts["prompt"],
-                max_tokens=opts["max_tokens"],
-                top_k=opts["top_k"],
-                decoding=opts["decoding"],
-                temperature=opts["temperature"],
-                seed=opts["seed"],
-            ),
-        )
-
-    def evaluate(
-        texts: Iterable[str],
-        opts: model_def.ModelOptions,
-    ) -> EvalT:
-        model = load_model(resolve_model(opts, model_suffix=name))
-        return model.evaluate(texts, top_k=opts["top_k"])
-
-    return model_def.ModelDefinition(
-        name=name,
-        fit=fit,
-        uses_validation_data=uses_validation_data,
-        validate_options=validate_options,
-        summary_items=summary_items,
-        query=query,
-        validate_query_options=validate_query_options,
-        query_lines=query_lines or formatting.format_ngram_query,
-        evaluate=evaluate,
-        validate_evaluation_options=validate_query_options,
-        evaluation_items=evaluation_items or standard_evaluation_items,
-    )
-
-
-def model_name_from_module(module_name: str) -> str:
-    return naming.registered_name_from_module(module_name)
-
-
-def model_label_from_name(name: str) -> str:
-    return naming.label_from_registered_name(name)
-
-
-def save_training_result(
-    result: ngram.TrainingResult[TrainSummaryT],
-    *,
-    module_name: str,
-    output_path: Path,
-    tokenizer_model: Path,
-    stored_tokenizer_model: Path | None,
-    tokenizer: tok_core.TokenizerCodec,
-    text_normalization: normalization.TextNormalization,
-) -> TrainSummaryT:
-    schema_payload = ngram.model_schema_payload(module_name)
-    tok_payload = ngram.tokenizer_model_payload(
-        tokenizer,
-        tokenizer_model=tokenizer_model,
-        stored_tokenizer_model=stored_tokenizer_model,
-        text_normalization=text_normalization,
-    )
-    owned_fields = frozenset((*schema_payload, *tok_payload))
-    overlap_fields = owned_fields & result.payload.keys()
-    if overlap_fields:
-        fields = ", ".join(sorted(overlap_fields))
-        raise ValueError(f"Model payload defines adapter-owned fields: {fields}")
-
-    payload = {
-        **schema_payload,
-        **tok_payload,
-        **result.payload,
-    }
-    ngram.write_json_model_payload(output_path, payload)
-
-    summary = result.summary
-    summary.output_path = output_path
-    summary.tokenizer_model = tokenizer_model
-    summary.vocab_size = tokenizer.vocab_size
-    summary.text_normalization = text_normalization
-    return summary
-
-
-def default_tokenizer_model(corpus: str) -> Path:
-    return Path(
-        "artifacts",
-        "tokenizers",
-        f"{corpus}-{tok_core.SENTENCEPIECE_ALGO}-1000.model",
-    )
-
-
-def default_ngram_output(
-    corpus: str,
-    model_suffix: str,
-    tokenizer_model: object = None,
-) -> Path:
-    tok_stem = (
-        Path(tokenizer_model).stem
-        if tokenizer_model
-        else f"{corpus}-{tok_core.SENTENCEPIECE_ALGO}-1000"
-    )
-    return Path("artifacts", "models", f"{tok_stem}-{model_suffix}.json")
-
-
-def resolve_tokenizer_model(opts: model_def.ModelOptions) -> Path:
-    tok_model = opts.get("tokenizer_model")
-    if tok_model:
-        return Path(tok_model)
-    return default_tokenizer_model(str(opts["corpus"]))
-
-
-def resolve_output(opts: model_def.ModelOptions, *, model_suffix: str) -> Path:
-    out = opts.get("output")
-    if out:
-        return Path(out)
-    return default_ngram_output(
-        str(opts["corpus"]),
-        model_suffix,
-        tokenizer_model=opts.get("tokenizer_model"),
-    )
-
-
-def resolve_model(opts: model_def.ModelOptions, *, model_suffix: str) -> Path:
-    model_path = opts.get("model_path")
-    if model_path:
-        return Path(model_path)
-    return default_ngram_output(
-        str(opts["corpus"]),
-        model_suffix,
-        tokenizer_model=opts.get("tokenizer_model"),
-    )
-
-
-def validate_tokenizer_model(opts: model_def.ModelOptions) -> None:
-    tok_model = resolve_tokenizer_model(opts)
-    if not tok_model.exists():
-        raise model_def.ModelOptionError(
-            f"Tokenizer model not found: {tok_model}. "
-            "Train it first with src.cli.tokenizer_training."
-        )
-
-
-def validate_model_path(
-    opts: model_def.ModelOptions,
-    *,
-    model_suffix: str,
-    label: str,
-) -> None:
-    model_path = resolve_model(opts, model_suffix=model_suffix)
-    if not model_path.exists():
-        raise model_def.ModelOptionError(
-            f"{label} model not found: {model_path}. "
-            "Train it first with src.cli.train."
-        )
-
-
 def standard_evaluation_items(
     summary: ngram.NgramEvaluationSummary,
 ) -> list[tuple[str, str]]:
+    """Format standard n-gram evaluation artifact and metric rows."""
     return [
         *ngram.base_evaluation_items(summary),
         *evaluation_param_items(summary),
@@ -405,6 +272,7 @@ def standard_evaluation_items(
 def evaluation_param_items(
     summary: ngram.NgramEvaluationSummary,
 ) -> list[tuple[str, str]]:
+    """Format model-family hyperparameters stored on evaluation summaries."""
     if has_interpolation_params(summary):
         return interp.items(summary)
     if hasattr(summary, "discount"):
@@ -415,6 +283,7 @@ def evaluation_param_items(
 def has_interpolation_params(
     summary: ngram.NgramEvaluationSummary,
 ) -> TypeGuard[interp.InterpolationSummary]:
+    """Return whether a summary carries lambda/beta interpolation fields."""
     return all(
         hasattr(summary, name)
         for name in ("unigram_weight", "bigram_weight", "trigram_weight")

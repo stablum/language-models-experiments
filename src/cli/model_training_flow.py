@@ -10,6 +10,7 @@ from src.cli import corpus_source
 from src.cli import model_training_defaults as mt_defaults
 from src.cli import model_training_runs
 from src.ml_core import cfg as core_cfg
+from src.models.core import model_modules
 from src.models.core import registry as model_registry
 from src.pipelines.language_model import definition as lm_def
 from src.pipelines.language_model import model_options as lm_model_options
@@ -178,14 +179,14 @@ def run(args: CliArgs) -> None:
 def _resolve_run_cfg(resolver: DefaultResolver) -> ResolvedRunCfg:
     data_cfg = _resolve_data_cfg(resolver)
     model_name = str(resolver.shared("model_name", stages=ALL_STAGES))
-    model_definition = model_registry.get_model(model_name)
-    _require_model_pipeline_support(model_definition, model_name)
+    model = model_registry.get_model(model_name)
+    _require_model_pipeline_support(model, model_name)
 
     return ResolvedRunCfg(
         tokenizer_model_name=_resolve_tokenizer_model_name(resolver),
         model=_resolve_model_cfg(
             resolver,
-            model_name=model_definition.name,
+            model_name=model.name,
         ),
         data=data_cfg,
         evaluation=_resolve_evaluation_cfg(resolver),
@@ -368,15 +369,13 @@ def _build_run_spec(
 
 
 def _require_model_pipeline_support(
-    model_definition: object,
+    model: model_modules.RegisteredModel,
     model_name: str,
 ) -> None:
-    if (
-        model_definition.evaluate is None
-        or model_definition.evaluation_items is None
-    ):
+    """Reject full pipeline runs for models missing required later stages."""
+    if not model.supports_evaluation:
         raise click.ClickException(f"Model does not support evaluation yet: {model_name}")
-    if model_definition.query is None or model_definition.query_lines is None:
+    if not model.supports_query:
         raise click.ClickException(f"Model does not support querying yet: {model_name}")
 
 
