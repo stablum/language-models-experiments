@@ -62,7 +62,10 @@ class NgramPrediction(NgramPydanticBase):
 
 
 class NgramQueryResult(NgramPydanticBase):
-    """Bundle generated text with prompt metadata and the initial prediction row."""
+    """Bundle query outputs and prompt metadata, not learned model contents.
+
+    Example: returned after querying a loaded model for one prompt.
+    """
 
     model_path: Path
     tokenizer_model: Path
@@ -81,7 +84,10 @@ class NgramQueryResult(NgramPydanticBase):
 
 
 class NgramTrainingSummary(NgramPydanticBase):
-    """Carry common training metadata shared by all n-gram model families."""
+    """Carry training/report metadata, not the serialized model parameters.
+
+    Example: displayed after fitting a bigram model on a corpus split.
+    """
 
     output_path: Path | None = None
     tokenizer_model: Path | None = None
@@ -98,7 +104,10 @@ TrainSummaryT = TypeVar(
 
 
 class TrainingResult(NgramPydanticBase, Generic[TrainSummaryT]):
-    """Pair a typed training summary with its JSON-ready model payload."""
+    """Pair a summary with custom JSON-ready model-owned artifact fields.
+
+    Example: ``fit(...)`` returns this, not a live ``Model`` object dump.
+    """
 
     summary: TrainSummaryT
     payload: dict[str, object]
@@ -186,7 +195,10 @@ class NgramEvaluationSummary(
     EvaluationMetricsMixin,
     NgramPydanticBase,
 ):
-    """Store raw and derived statistics for an n-gram evaluation run."""
+    """Store evaluation metrics for one run, not learned model parameters.
+
+    Example: produced when scoring validation text with a loaded model.
+    """
 
     model_path: Path
     tokenizer_model: Path
@@ -202,7 +214,10 @@ class NgramEvaluationSummary(
 
 
 class BaseNgramModel(NgramPydanticBase):
-    """Provide shared query/generation behavior for concrete n-gram ML models."""
+    """Runtime representation of a loaded fitted n-gram model.
+
+    Example: owns query/evaluate behavior; not the training-time artifact schema.
+    """
 
     model_path: Path
     tokenizer_model: Path

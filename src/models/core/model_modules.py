@@ -38,7 +38,10 @@ _INTERPOLATION_OPTION_NAMES = frozenset(
 
 
 class RegisteredModel(core_cfg.BaseCfg):
-    """Represent one discovered model module through dynamic registry metadata."""
+    """Represent a model module contract, not a fitted runtime ``Model``.
+
+    Example: exposes module-level ``fit``/``load``/format hooks for the CLI.
+    """
 
     module: ModuleType
 
@@ -54,12 +57,12 @@ class RegisteredModel(core_cfg.BaseCfg):
 
     @property
     def fit_fn(self) -> Callable[..., Any]:
-        """Return the concrete module fitting strategy."""
+        """Return the module-level fitting strategy, not ``Model.fit``."""
         return required_module_callable(self.module, FIT_FN_NAME)
 
     @property
     def load_fn(self) -> Callable[[Path], Any]:
-        """Return the concrete module artifact loader."""
+        """Return the artifact loader that hydrates the runtime ``Model``."""
         return required_module_callable(self.module, "load")
 
     @property

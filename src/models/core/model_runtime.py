@@ -24,7 +24,10 @@ def fit(
     data: model_def.ModelFitData,
     opts: model_def.ModelOptions,
 ) -> ngram.NgramTrainingSummary:
-    """Fit a registered model module and persist its learned artifact payload."""
+    """Call module-level ``fit`` and persist its payload, not a ``Model`` dump.
+
+    Example: training writes JSON first; later ``load`` hydrates a runtime model.
+    """
     stored_tok_model = opts.get("stored_tokenizer_model")
     tok_model = resolve_tokenizer_model(opts)
     out_path = resolve_output(opts, model_suffix=model.name)
@@ -128,7 +131,10 @@ def save_training_result(
     tokenizer: tok_core.TokenizerCodec,
     text_normalization: normalization.TextNormalization,
 ) -> TrainSummaryT:
-    """Persist a module-owned payload inside the standard model envelope."""
+    """Wrap model-owned fields in the standard artifact envelope.
+
+    Example: merges schema/tokenizer metadata; not faithful object serialization.
+    """
     schema_payload = ngram.model_schema_payload(module_name)
     tok_payload = ngram.tokenizer_model_payload(
         tokenizer,
