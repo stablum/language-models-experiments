@@ -1,5 +1,4 @@
 .env
-AGENTS.md
 clearml.conf
 .venv/
 artifacts/
@@ -9,3 +8,7 @@ __pycache__/
 *.py[cod]
 *.bck
 *.old
+
+# git --git-dir=.git-agents --work-tree=. log
+AGENTS.md
+.git-agents
