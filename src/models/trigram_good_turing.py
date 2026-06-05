@@ -56,9 +56,9 @@ class Model(trigrams.BaseTrigramModel):
                 token_id=token_id,
                 piece=self.pieces[token_id],
                 count=counts.trigram_counts.get(token_id, 0),
-                prob=self.trigram_prob(token_id, context),
+                prob=self._trigram_prob(token_id, context),
             )
-            for token_id in self.top_ids(context, top_k=top_k)
+            for token_id in self._top_ids(context, top_k=top_k)
         ]
 
     def transition_prob(
@@ -70,7 +70,7 @@ class Model(trigrams.BaseTrigramModel):
     ) -> float:
         if next_id not in self.cand_id_set:
             return 0.0
-        return self.trigram_prob(next_id, context)
+        return self._trigram_prob(next_id, context)
 
     def context_prob(
         self,
@@ -82,14 +82,14 @@ class Model(trigrams.BaseTrigramModel):
         # reserved for unseen trigram continuations backs off to the bigram row.
         def lower_prob(token_id: int) -> float:
             # P_lower(w) is the Good-Turing-smoothed bigram row P(w | v).
-            return self.bigram_prob(
+            return self._bigram_prob(
                 token_id,
                 prev_id=counts.prev_id,
                 counts=counts.bigram_counts,
                 tot=counts.bigram_tot,
             )
 
-        distribution = self.good_turing_dist(
+        distribution = self._good_turing_dist(
             counts.trigram_counts,
             tot=counts.trigram_tot,
             lower_prob=lower_prob,
@@ -102,7 +102,7 @@ class Model(trigrams.BaseTrigramModel):
         *,
         counts: trigrams.ResolvedTrigramContextCounts,
     ) -> list[int]:
-        return self.top_ids(context, top_k=0)
+        return self._top_ids(context, top_k=0)
 
     def evaluation_row(
         self,
@@ -111,49 +111,49 @@ class Model(trigrams.BaseTrigramModel):
         top_k: int,
     ) -> trigrams.TrigramEvaluationRow:
         counts = self.context_counts(context)
-        ranked_ids = self.top_ids(context, top_k=top_k)
+        ranked_ids = self._top_ids(context, top_k=top_k)
         return trigrams.TrigramEvaluationRow(
             counts=counts,
             greedy_id=ngram.greedy_id(ranked_ids, eos_id=self.eos_id),
             top_k_ids=ngram.top_k_id_set(ranked_ids, top_k=top_k),
         )
 
-    def top_ids(self, context: trigrams.Context, *, top_k: int) -> list[int]:
-        distribution = self.trigram_distribution(context)
+    def _top_ids(self, context: trigrams.Context, *, top_k: int) -> list[int]:
+        distribution = self._trigram_dist(context)
         prev_id = context[1]  # prev = v, the lower-order bigram history.
         # Ranking unseen trigram continuations follows the same lower-order
         # backoff distribution used when assigning their reserved probability.
         def lower_prob(token_id: int) -> float:
-            return self.bigram_prob(
+            return self._bigram_prob(
                 token_id,
                 prev_id=prev_id,
             )
 
         return good_turing.ranked_ids(
             distribution,
-            lower_ranked_ids=self.bigram_ranked_ids(prev_id),
+            lower_ranked_ids=self._ranked_bigram_ids(prev_id),
             lower_prob=lower_prob,
             top_k=top_k,
         )
 
-    def trigram_prob(self, token_id: int, context: trigrams.Context) -> float:
+    def _trigram_prob(self, token_id: int, context: trigrams.Context) -> float:
         if token_id not in self.cand_id_set:
             return 0.0
         prev_id = context[1]  # prev = v in h = (u, v); token_id is w.
         # Textbook backoff chain for unseen events:
         # trigram row -> bigram row for the same previous token.
         def lower_prob(token_id: int) -> float:
-            return self.bigram_prob(
+            return self._bigram_prob(
                 token_id,
                 prev_id=prev_id,
             )
 
-        return self.trigram_distribution(context).prob(
+        return self._trigram_dist(context).prob(
             token_id,
             lower_prob=lower_prob,
         )
 
-    def trigram_distribution(
+    def _trigram_dist(
         self,
         context: trigrams.Context,
     ) -> good_turing.GoodTuringDistribution:
@@ -162,18 +162,18 @@ class Model(trigrams.BaseTrigramModel):
             prev_id = context[1]  # prev = v, the lower-order history in P(w | v).
 
             def lower_prob(token_id: int) -> float:
-                return self.bigram_prob(
+                return self._bigram_prob(
                     token_id,
                     prev_id=prev_id,
                 )
 
             trigram_row = self.trigram_transitions.get(context, ())
             trigram_counts = self.candidate_counts(trigram_row)
-            distribution = self.good_turing_dist(trigram_counts, lower_prob=lower_prob)
+            distribution = self._good_turing_dist(trigram_counts, lower_prob=lower_prob)
             self._trigram_distributions[context] = distribution
         return distribution
 
-    def bigram_prob(
+    def _bigram_prob(
         self,
         token_id: int,
         *,
@@ -185,82 +185,85 @@ class Model(trigrams.BaseTrigramModel):
             return 0.0
         if counts is not None:
             # counts[token_id] is c(v, w), with tot = c(v).
-            distribution = self.good_turing_dist(
+            distribution = self._good_turing_dist(
                 counts,
                 tot=tot,
-                lower_prob=self.unigram_prob,
+                lower_prob=self._unigram_prob,
             )
         else:
-            distribution = self.bigram_distribution(prev_id)
+            distribution = self._bigram_dist(prev_id)
 
         return distribution.prob(
             token_id,
-            lower_prob=self.unigram_prob,
+            lower_prob=self._unigram_prob,
         )
 
-    def bigram_distribution(self, prev_id: int) -> good_turing.GoodTuringDistribution:
+    def _bigram_dist(self, prev_id: int) -> good_turing.GoodTuringDistribution:
         distribution = self._bigram_distributions.get(prev_id)
         if distribution is None:
             bigram_row = self.bigram_transitions.get(prev_id, ())
             bigram_counts = self.candidate_counts(bigram_row)
-            distribution = self.good_turing_dist(bigram_counts, lower_prob=self.unigram_prob)
+            distribution = self._good_turing_dist(
+                bigram_counts,
+                lower_prob=self._unigram_prob,
+            )
             self._bigram_distributions[prev_id] = distribution
         return distribution
 
-    def bigram_ranked_ids(self, prev_id: int) -> tuple[int, ...]:
+    def _ranked_bigram_ids(self, prev_id: int) -> tuple[int, ...]:
         ranked = self._bigram_ranked_ids.get(prev_id)
         if ranked is None:
-            distribution = self.bigram_distribution(prev_id)
+            distribution = self._bigram_dist(prev_id)
             ranked = tuple(
                 good_turing.ranked_ids(
                     distribution,
-                    lower_ranked_ids=self.unigram_ranked_ids(),
-                    lower_prob=self.unigram_prob,
+                    lower_ranked_ids=self._ranked_unigram_ids(),
+                    lower_prob=self._unigram_prob,
                     top_k=0,
                 )
             )
             self._bigram_ranked_ids[prev_id] = ranked
         return ranked
 
-    def unigram_prob(self, token_id: int) -> float:
+    def _unigram_prob(self, token_id: int) -> float:
         if token_id not in self.cand_id_set:
             return 0.0
         # token_id is w. Good-Turing smooths the unigram row c(w).
-        return self.unigram_distribution().prob(
+        return self._unigram_dist().prob(
             token_id,
-            lower_prob=self.uniform_prob,
+            lower_prob=self._uniform_prob,
         )
 
-    def unigram_ranked_ids(self) -> tuple[int, ...]:
+    def _ranked_unigram_ids(self) -> tuple[int, ...]:
         if not self._unigram_ranked_ids:
             self._unigram_ranked_ids = tuple(
                 good_turing.ranked_ids(
-                    self.unigram_distribution(),
+                    self._unigram_dist(),
                     lower_ranked_ids=self.cand_ids,
-                    lower_prob=self.uniform_prob,
+                    lower_prob=self._uniform_prob,
                     top_k=0,
                 )
             )
         return self._unigram_ranked_ids
 
-    def unigram_distribution(self) -> good_turing.GoodTuringDistribution:
+    def _unigram_dist(self) -> good_turing.GoodTuringDistribution:
         distribution = self._unigram_distribution
         if distribution is None:
-            distribution = self.good_turing_dist(
+            distribution = self._good_turing_dist(
                 self.unigram_counts,
                 tot=self.unigram_tot,
-                lower_prob=self.uniform_prob,
+                lower_prob=self._uniform_prob,
             )
             self._unigram_distribution = distribution
         return distribution
 
-    def uniform_prob(self, token_id: int) -> float:
+    def _uniform_prob(self, token_id: int) -> float:
         if token_id not in self.cand_id_set or self.cand_count <= 0:
             return 0.0
         # P_0(w) = 1 / |V| is the final backoff distribution.
         return 1 / self.cand_count
 
-    def good_turing_dist(
+    def _good_turing_dist(
         self,
         counts: Mapping[int, int],
         *,

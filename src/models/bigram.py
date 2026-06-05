@@ -59,9 +59,9 @@ class Model(ngram.BaseNgramModel):
         top_k: int,
     ) -> list[ngram.NgramPrediction]:
         """Return top next-token prediction records for one bigram history h."""
-        counts = self.transition_counts(prev_id)
+        counts = self._transition_counts(prev_id)
         tot = sum(counts.values())  # c(h), candidate-filtered row total.
-        ranked_ids = self.ranked_ids(counts=counts)
+        ranked_ids = self._ranked_ids(counts=counts)
         if top_k > 0:
             ranked_ids = ranked_ids[:top_k]
 
@@ -82,7 +82,7 @@ class Model(ngram.BaseNgramModel):
             for token_id in ranked_ids
         ]
 
-    def transition_counts(self, prev_id: int) -> dict[int, int]:
+    def _transition_counts(self, prev_id: int) -> dict[int, int]:
         """Return candidate counts c(h, w) for one previous-token history h."""
         row = self.transitions.get(prev_id, ())
         return self.candidate_counts(row)
@@ -115,7 +115,7 @@ class Model(ngram.BaseNgramModel):
                 prev_id = counting.single_token_context_id(context)
                 row = row_cache.get(prev_id)
                 if row is None:
-                    row = self.evaluation_row(
+                    row = self._evaluation_row(
                         prev_id,
                         top_k=top_k,
                     )
@@ -125,7 +125,7 @@ class Model(ngram.BaseNgramModel):
                     actual_id=next_id,
                     greedy_id=row.greedy_id,
                     top_k_ids=row.top_k_ids,
-                    prob=self.transition_prob(
+                    prob=self._transition_prob(
                         next_id,
                         row=row,
                     ),
@@ -133,16 +133,16 @@ class Model(ngram.BaseNgramModel):
 
         return summary
 
-    def evaluation_row(
+    def _evaluation_row(
         self,
         prev_id: int,
         *,
         top_k: int,
     ) -> EvaluationRow:
         """Precompute one history row for repeated evaluation events."""
-        counts = self.transition_counts(prev_id)
+        counts = self._transition_counts(prev_id)
         denom = sum(counts.values()) + self.smoothing * self.cand_count
-        ranked_ids = self.ranked_ids(
+        ranked_ids = self._ranked_ids(
             counts=counts,
         )
         return EvaluationRow(
@@ -152,7 +152,7 @@ class Model(ngram.BaseNgramModel):
             top_k_ids=ngram.top_k_id_set(ranked_ids, top_k=top_k),
         )
 
-    def ranked_ids(
+    def _ranked_ids(
         self,
         *,
         counts: dict[int, int],
@@ -169,7 +169,7 @@ class Model(ngram.BaseNgramModel):
             )
         return sorted(counts, key=lambda token_id: (-counts[token_id], token_id))
 
-    def transition_prob(
+    def _transition_prob(
         self,
         next_id: int,
         *,

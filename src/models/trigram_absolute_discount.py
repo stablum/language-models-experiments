@@ -37,9 +37,9 @@ class Model(trigrams.DiscountedTrigramModel):
         next_id: int,
         counts: trigrams.ResolvedTrigramContextCounts,
     ) -> float:
-        return self.trigram_prob(next_id, counts)
+        return self._trigram_prob(next_id, counts)
 
-    def trigram_prob(
+    def _trigram_prob(
         self,
         token_id: int,
         counts: trigrams.ResolvedTrigramContextCounts,
@@ -49,7 +49,7 @@ class Model(trigrams.DiscountedTrigramModel):
         # Absolute discounting removes D mass from every observed trigram type.
         # The helper redistributes the total removed mass through this lower
         # order bigram probability.
-        lower_prob = self.lower_order_prob(
+        lower_prob = self._lower_order_prob(
             token_id,
             counts=counts.bigram_counts,
             tot=counts.bigram_tot,
@@ -62,7 +62,7 @@ class Model(trigrams.DiscountedTrigramModel):
             lower_prob=lower_prob,
         )
 
-    def lower_order_prob(
+    def _lower_order_prob(
         self,
         token_id: int,
         *,

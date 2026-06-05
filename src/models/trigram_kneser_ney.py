@@ -64,9 +64,9 @@ class Model(trigrams.DiscountedTrigramModel):
         next_id: int,
         counts: trigrams.ResolvedTrigramContextCounts,
     ) -> float:
-        return self.trigram_prob(next_id, counts)
+        return self._trigram_prob(next_id, counts)
 
-    def trigram_prob(
+    def _trigram_prob(
         self,
         token_id: int,
         counts: trigrams.ResolvedTrigramContextCounts,
@@ -77,7 +77,7 @@ class Model(trigrams.DiscountedTrigramModel):
         # For trigrams, the observed row is the ordinary c(prev2, prev1, next)
         # row. The backed-off probability is the Kneser-Ney bigram row for the
         # same prev1 token, built from continuation counts at training time.
-        lower_prob = self.bigram_prob(
+        lower_prob = self._bigram_prob(
             token_id,
             prev_id=counts.prev_id,
             counts=counts.bigram_counts,
@@ -90,7 +90,7 @@ class Model(trigrams.DiscountedTrigramModel):
             lower_prob=lower_prob,
         )
 
-    def bigram_prob(
+    def _bigram_prob(
         self,
         token_id: int,
         *,
@@ -113,10 +113,10 @@ class Model(trigrams.DiscountedTrigramModel):
             token_id,
             counts=counts,
             tot=tot,
-            lower_prob=self.unigram_prob(token_id),
+            lower_prob=self._unigram_prob(token_id),
         )
 
-    def unigram_prob(self, token_id: int) -> float:
+    def _unigram_prob(self, token_id: int) -> float:
         cand_count = self.cand_count
         if cand_count <= 0:
             return 0.0
