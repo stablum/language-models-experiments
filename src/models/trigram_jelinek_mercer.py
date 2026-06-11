@@ -75,16 +75,5 @@ def fit(
         tokenizer,
         text_normalization=text_normalization,
         params=interp_params,
+        summary_type=trigrams.InterpolatedTrigramTrainingSummary,
     )
-
-
-def format_summary(
-    summary: trigrams.InterpolatedTrigramTrainingSummary,
-) -> list[tuple[str, str]]:
-    return [
-        *trigrams.base_training_summary_items(
-            summary=summary,
-            artifact_label="Jelinek-Mercer trigram model file",
-        ),
-        *interp.items(summary),
-    ]

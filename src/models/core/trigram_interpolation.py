@@ -47,6 +47,10 @@ InterpolatedModelT = TypeVar(
     "InterpolatedModelT",
     bound=trigrams.InterpolatedTrigramModel,
 )
+SummaryT = TypeVar(
+    "SummaryT",
+    bound=trigrams.InterpolatedTrigramTrainingSummary,
+)
 ExtraFieldsFn = Callable[[dict[str, object]], Mapping[str, object]]
 
 
@@ -167,16 +171,18 @@ def fit_interpolated_trigram_model(
     tokenizer: tok_core.TokenizerCodec,
     *,
     params: InterpolationParams,
+    summary_type: type[SummaryT],
+    summary_fields: Mapping[str, object] | None = None,
     text_normalization: normalization.TextNormalization,
     extra_model_payload: Mapping[str, object] | None = None,
-) -> ngram.TrainingResult[trigrams.InterpolatedTrigramTrainingSummary]:
+) -> ngram.TrainingResult[SummaryT]:
     """Fit shared count state for interpolated trigram models."""
     counts = trigrams.collect_trigram_counts(
         texts,
         tokenizer=tokenizer,
         text_normalization=text_normalization,
     )
-    summary = trigrams.InterpolatedTrigramTrainingSummary(
+    summary = summary_type(
         vocab_size=tokenizer.vocab_size,
         **trigrams.trigram_summary_fields(counts),
         unigram_weight=params.unigram_weight,
@@ -184,6 +190,7 @@ def fit_interpolated_trigram_model(
         trigram_weight=params.trigram_weight,
         beta_2=params.beta_2,
         beta_3=params.beta_3,
+        **dict(summary_fields or {}),
         text_normalization=text_normalization,
     )
 
@@ -193,7 +200,7 @@ def fit_interpolated_trigram_model(
         **payload(summary),
     }
 
-    return ngram.TrainingResult[trigrams.InterpolatedTrigramTrainingSummary](
+    return ngram.TrainingResult[SummaryT](
         summary=summary,
         payload=model,
     )

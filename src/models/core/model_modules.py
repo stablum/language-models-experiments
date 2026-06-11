@@ -16,6 +16,7 @@ from src.ml_core.models import definition as model_def
 from src.models.core import formatting
 from src.models.core import naming
 from src.models.core import ngram
+from src.models.core import training_summaries
 from src.models.core import trigram_interpolation as interp
 
 
@@ -67,8 +68,8 @@ class RegisteredModel(core_cfg.BaseCfg):
 
     @property
     def summary_formatter(self) -> model_def.SummaryFormatter:
-        """Return the concrete module training-summary formatter."""
-        return required_module_callable(self.module, "format_summary")
+        """Return the shared formatter for this model module's summary data."""
+        return self.format_summary
 
     @property
     def query_formatter(self) -> model_def.QueryFormatter:
@@ -124,6 +125,16 @@ class RegisteredModel(core_cfg.BaseCfg):
     def load(self, model_path: Path) -> Any:
         """Hydrate a persisted model artifact through the module loader."""
         return self.load_fn(model_path)
+
+    def format_summary(
+        self,
+        summary: ngram.NgramTrainingSummary,
+    ) -> list[tuple[str, str]]:
+        """Format common and model-owned summary rows for display."""
+        return training_summaries.format_items(
+            summary,
+            model_label=self.label,
+        )
 
 
 def registry_enabled(module_path: Path, *, module_name: str) -> bool:
@@ -207,7 +218,6 @@ def registered_model_from_module(module: ModuleType) -> RegisteredModel | None:
     if (
         get_module_callable(module, FIT_FN_NAME) is None
         or get_module_callable(module, "load") is None
-        or get_module_callable(module, "format_summary") is None
     ):
         return None
 

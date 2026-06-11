@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
-from typing import ClassVar, Protocol, TypeVar
+from typing import ClassVar, TypeVar
 
 from src.corpora import normalization
 from src.models.core import counting, ngram
@@ -53,10 +53,6 @@ class TrigramTrainingSummary(ngram.NgramTrainingSummary):
 
 
 SummaryT = TypeVar("SummaryT", bound=TrigramTrainingSummary)
-
-
-class DiscountSummary(Protocol):
-    discount: float  # D, the absolute discount.
 
 
 class InterpolatedTrigramTrainingSummary(TrigramTrainingSummary):
@@ -436,24 +432,6 @@ def trigram_summary_fields(counts: TrigramCounts) -> dict[str, int]:
         "bigram_transition_count": counts.bigram_transition_count,
         "trigram_transition_count": counts.trigram_transition_count,
     }
-
-
-def base_training_summary_items(
-    *,
-    summary: TrigramTrainingSummary,
-    artifact_label: str,
-) -> list[tuple[str, str]]:
-    return [
-        *ngram.base_training_summary_items(summary=summary, artifact_label=artifact_label),
-        ("Unigrams", f"{summary.unigram_count:,}"),
-        ("Bigram transitions", f"{summary.bigram_transition_count:,}"),
-        ("Trigram transitions", f"{summary.trigram_transition_count:,}"),
-    ]
-
-
-def discount_item(summary: DiscountSummary) -> tuple[str, str]:
-    return "Discount", f"{summary.discount:.3f}"
-
 
 def load_standard_trigram_model_fields(
     model_path: Path,

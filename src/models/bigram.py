@@ -16,7 +16,10 @@ from src.tokenizers import core as tok_core
 
 
 class TrainingSummary(ngram.NgramTrainingSummary):
+    """Store bigram training counts and add-k hyperparams for reports."""
+
     transition_count: int = 0  # sum_h c(h), the number of bigram events.
+    smoothing: float = 0.0  # k, the additive smoothing pseudo-count.
 
 
 class BigramCounts(counting.NgramCorpusCounts):
@@ -230,6 +233,7 @@ def fit(
         sequence_count=counts.sequence_count,
         token_count=counts.token_count,
         transition_count=counts.transition_count,
+        smoothing=smoothing,
         text_normalization=text_normalization,
     )
 
@@ -268,14 +272,3 @@ def collect_bigram_counts(
         token_count=counts.token_count,
         orders=counts.orders,
     )
-
-
-def format_summary(summary: TrainingSummary) -> list[tuple[str, str]]:
-    """Format bigram training metrics for CLI and tracker display."""
-    return [
-        *ngram.base_training_summary_items(
-            summary=summary,
-            artifact_label="Bigram model file",
-        ),
-        ("Transitions", f"{summary.transition_count:,}"),
-    ]

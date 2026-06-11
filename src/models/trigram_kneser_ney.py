@@ -26,6 +26,8 @@ from src.tokenizers import core as tok_core
 
 
 class TrainingSummary(trigrams.TrigramTrainingSummary):
+    """Store Kneser-Ney continuation counts and discount metadata."""
+
     continuation_unigram_count: int = 0  # sum_w c_KN(w), unigram continuation mass.
     continuation_bigram_type_count: int = 0  # |{(v, w): N_{1+}(*, v, w) > 0}|.
     discount: float = 0.0  # D, the absolute discount.
@@ -214,21 +216,6 @@ def fit(
         summary_fields={"discount": discount},
         extra_payload=payload,
     )
-
-
-def format_summary(
-    summary: TrainingSummary,
-) -> list[tuple[str, str]]:
-    return [
-        *trigrams.base_training_summary_items(
-            summary=summary,
-            artifact_label="Interpolated Kneser-Ney trigram model file",
-        ),
-        ("Continuation unigrams", f"{summary.continuation_unigram_count:,}"),
-        ("Continuation bigram types", f"{summary.continuation_bigram_type_count:,}"),
-        trigrams.discount_item(summary),
-    ]
-
 
 def collect_kneser_ney_continuation_counts(
     trigram_transitions: (

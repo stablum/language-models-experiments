@@ -23,6 +23,9 @@ from src.tokenizers import core as tok_core
 
 
 class TrainingSummary(trigrams.TrigramTrainingSummary):
+    """Store absolute-discount hyperparams with trigram count metadata."""
+
+    smoothing: float = 0.0  # k, the lower-order add-k pseudo-count.
     discount: float = 0.0  # D, the absolute discount.
 
 
@@ -110,25 +113,13 @@ def fit(
         summary: TrainingSummary,
     ) -> dict[str, object]:
         # Training stores raw counts; smoothing/discounting are applied lazily.
-        return {"smoothing": smoothing, "discount": summary.discount}
+        return {"smoothing": summary.smoothing, "discount": summary.discount}
 
     return trigrams.fit_counted_trigram_model(
         texts,
         tokenizer,
         text_normalization=text_normalization,
         summary_type=TrainingSummary,
-        summary_fields={"discount": discount},
+        summary_fields={"smoothing": smoothing, "discount": discount},
         extra_payload=payload,
     )
-
-
-def format_summary(
-    summary: TrainingSummary,
-) -> list[tuple[str, str]]:
-    return [
-        *trigrams.base_training_summary_items(
-            summary=summary,
-            artifact_label="Absolute-discount trigram model file",
-        ),
-        trigrams.discount_item(summary),
-    ]

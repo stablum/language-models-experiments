@@ -26,6 +26,12 @@ from src.models.core import trigrams
 from src.tokenizers import core as tok_core
 
 
+class TrainingSummary(trigrams.TrigramTrainingSummary):
+    """Store the smoothing family label with Good-Turing training counts."""
+
+    smoothing_label: str = "Good-Turing"
+
+
 class Model(trigrams.BaseTrigramModel):
     unigram_counts: dict[int, int]  # c(w), unigram counts.
     unigram_tot: int  # tot = N = sum_w c(w), the unigram normalizer.
@@ -299,24 +305,14 @@ def fit(
     *,
     tokenizer: tok_core.TokenizerCodec,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
-) -> ngram.TrainingResult[trigrams.TrigramTrainingSummary]:
+) -> ngram.TrainingResult[TrainingSummary]:
     """Fit trigram counts used by Good-Turing probability rows."""
     return trigrams.fit_counted_trigram_model(
         texts,
         tokenizer,
         text_normalization=text_normalization,
-        summary_type=trigrams.TrigramTrainingSummary,
+        summary_type=TrainingSummary,
     )
-
-
-def format_summary(summary: trigrams.TrigramTrainingSummary) -> list[tuple[str, str]]:
-    return [
-        *trigrams.base_training_summary_items(
-            summary=summary,
-            artifact_label="Good-Turing trigram model file",
-        ),
-        ("Smoothing", "Good-Turing"),
-    ]
 
 
 def format_evaluation(summary: ngram.NgramEvaluationSummary) -> list[tuple[str, str]]:

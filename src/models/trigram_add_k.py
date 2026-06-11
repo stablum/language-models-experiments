@@ -15,6 +15,12 @@ from src.models.core import ngram, trigram_interpolation as interp, trigrams
 from src.tokenizers import core as tok_core
 
 
+class TrainingSummary(trigrams.InterpolatedTrigramTrainingSummary):
+    """Store add-k smoothing together with interpolation training metadata."""
+
+    smoothing: float = 0.0  # k, the additive smoothing pseudo-count.
+
+
 class Model(trigrams.InterpolatedTrigramModel):
     smoothing: float  # k, the additive smoothing pseudo-count.
     unigram_counts: dict[int, int]  # c(w), unigram counts.
@@ -67,7 +73,7 @@ def fit(
     beta_2: float | None = None,
     beta_3: float | None = None,
     text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
-) -> ngram.TrainingResult[trigrams.InterpolatedTrigramTrainingSummary]:
+) -> ngram.TrainingResult[TrainingSummary]:
     """Fit interpolated add-k trigram counts and hyperparameters."""
     # lambda_i are stored as weights; beta_i are an equivalent recursive form.
     interp_params = interp.resolve_params(
@@ -82,17 +88,7 @@ def fit(
         tokenizer,
         text_normalization=text_normalization,
         params=interp_params,
+        summary_type=TrainingSummary,
+        summary_fields={"smoothing": smoothing},
         extra_model_payload={"smoothing": smoothing},
     )
-
-
-def format_summary(
-    summary: trigrams.InterpolatedTrigramTrainingSummary,
-) -> list[tuple[str, str]]:
-    return [
-        *trigrams.base_training_summary_items(
-            summary=summary,
-            artifact_label="Interpolated add-k trigram model file",
-        ),
-        *interp.items(summary),
-    ]

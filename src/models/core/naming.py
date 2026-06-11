@@ -16,7 +16,8 @@ def registered_name_from_module(module_name: str) -> str:
 
 
 def label_from_registered_name(name: str) -> str:
-    return name.replace("-", " ").capitalize()
+    """Return a compact human label from a CLI model name."""
+    return name.replace("-", " ").title()
 
 
 def schema_label(model_type: str) -> str:
