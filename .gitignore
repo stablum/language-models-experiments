@@ -11,4 +11,5 @@ __pycache__/
 
 # git --git-dir=.git-agents --work-tree=. log
 AGENTS.md
-.git-agents
+.git-local
+

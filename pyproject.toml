@@ -1,6 +1,6 @@
 [project]
 name = "language-models-experiments"
-version = "0.6.35"
+version = "0.6.36"
 license = "GPL-3.0-only"
 license-files = ["LICENSE"]
 requires-python = ">=3.14"
@@ -8,9 +8,11 @@ dependencies = [
     "clearml>=2.1.5,<3",
     "click>=8.3.2,<9",
     "datasets>=4.0.0,<5",
+    "jax>=0.10.1",
     "optuna>=4,<5",
     "pydantic>=2,<3",
     "sentencepiece>=0.2.1,<0.3",
+    "sympy>=1.14.0",
     "tokenizers>=0.22,<1",
 ]
 
