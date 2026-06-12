@@ -7,7 +7,7 @@ For history ``h`` and next token ``w``, this model uses the add-k estimator
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable
 from pathlib import Path
 
 from src.corpora import normalization
@@ -107,9 +107,11 @@ class Model(ngram.BaseNgramModel):
             top_k=top_k,
             text_normalization=text_norm,
         )
-        for tok_ids in iter_token_sequences(
+        for tok_ids in ngram.iter_token_sequences(
             texts,
             self.tokenizer,
+            bos_count=1,
+            min_length=2,
             text_normalization=text_norm,
         ):
             summary.observe_sequence(tok_ids)
@@ -199,22 +201,6 @@ def load(model_path: Path) -> Model:
     )
 
 
-def iter_token_sequences(
-    texts: Iterable[str],
-    tokenizer: tok_core.TokenizerCodec,
-    *,
-    text_normalization: normalization.TextNormalization = "none",
-) -> Iterator[list[int]]:
-    """Yield tokenized sentences with one BOS context token for bigrams."""
-    yield from ngram.iter_token_sequences(
-        texts,
-        tokenizer,
-        bos_count=1,
-        min_length=2,
-        text_normalization=text_normalization,
-    )
-
-
 def fit(
     texts: Iterable[str],
     *,
@@ -259,9 +245,11 @@ def collect_bigram_counts(
 ) -> BigramCounts:
     """Count c(h, w) rows for all bigram prediction events in the corpus."""
     counts = counting.collect_ngram_counts(
-        iter_token_sequences(
+        ngram.iter_token_sequences(
             texts,
             tokenizer,
+            bos_count=1,
+            min_length=2,
             text_normalization=text_normalization,
         ),
         orders=(2,),
