@@ -107,7 +107,7 @@ class Model(ngram.BaseNgramModel):
             top_k=top_k,
             text_normalization=text_norm,
         )
-        for tok_ids in ngram.iter_token_sequences(
+        for tok_ids in tok_core.iter_token_sequences(
             texts,
             self.tokenizer,
             bos_count=1,
@@ -245,7 +245,7 @@ def collect_bigram_counts(
 ) -> BigramCounts:
     """Count c(h, w) rows for all bigram prediction events in the corpus."""
     counts = counting.collect_ngram_counts(
-        ngram.iter_token_sequences(
+        tok_core.iter_token_sequences(
             texts,
             tokenizer,
             bos_count=1,

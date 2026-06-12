@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import random
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Generic, Literal, TypeVar
 
@@ -644,21 +644,3 @@ def token_transition_payload(
 def token_counts_payload(counts: Counter[int] | Mapping[int, int]) -> list[tuple[int, int]]:
     """Serialize token counts as sorted token-count pairs."""
     return sorted(counts.items())
-
-
-def iter_token_sequences(
-    texts: Iterable[str],
-    tokenizer: tok_core.TokenizerCodec,
-    *,
-    bos_count: int,
-    min_length: int,
-    text_normalization: normalization.TextNormalization = "none",
-) -> Iterator[list[int]]:
-    """Yield normalized token sequences with configured BOS/EOS handling."""
-    yield from tok_core.iter_token_sequences(
-        texts,
-        tokenizer,
-        bos_count=bos_count,
-        min_length=min_length,
-        text_normalization=text_normalization,
-    )

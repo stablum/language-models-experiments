@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import ClassVar, TypeVar
 
@@ -139,9 +139,11 @@ class BaseTrigramModel(ngram.BaseNgramModel):
             top_k=top_k,
             text_normalization=text_norm,
         )
-        for tok_ids in iter_trigram_token_sequences(
+        for tok_ids in tok_core.iter_token_sequences(
             texts,
             self.tokenizer,
+            bos_count=2,
+            min_length=3,
             text_normalization=text_norm,
         ):
             summary.observe_sequence(tok_ids)
@@ -366,9 +368,11 @@ def collect_trigram_counts(
     ),
 ) -> TrigramCounts:
     counts = counting.collect_ngram_counts(
-        iter_trigram_token_sequences(
+        tok_core.iter_token_sequences(
             texts,
             tokenizer,
+            bos_count=2,
+            min_length=3,
             text_normalization=text_normalization,
         ),
         orders=(1, 2, 3),
@@ -481,18 +485,3 @@ def parse_context_transitions(
             for next_id, count in next_counts
         )
     return transitions
-
-
-def iter_trigram_token_sequences(
-    texts: Iterable[str],
-    tokenizer: tok_core.TokenizerCodec,
-    *,
-    text_normalization: normalization.TextNormalization = "none",
-) -> Iterator[list[int]]:
-    yield from ngram.iter_token_sequences(
-        texts,
-        tokenizer,
-        bos_count=2,
-        min_length=3,
-        text_normalization=text_normalization,
-    )
