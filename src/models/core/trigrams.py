@@ -149,27 +149,27 @@ class BaseTrigramModel(ngram.BaseNgramModel):
             top_k=top_k,
             text_normalization=self.text_normalization,
         )
-        for tok_seq in corpus:
-            summary.observe_sequence(tok_seq)
+        for raw_context, next_id in corpus.iter_context_targets(
+            order=3,
+            seq_observer=summary,
+        ):
+            prev_prev_id, prev_id = raw_context
+            context = (prev_prev_id, prev_id)
+            row = row_cache.get(context)
+            if row is None:
+                row = self.evaluation_row(context, top_k=top_k)
+                row_cache[context] = row
 
-            for raw_context, next_id in tok_seq.iter_context_targets(order=3):
-                prev_prev_id, prev_id = raw_context
-                context = (prev_prev_id, prev_id)
-                row = row_cache.get(context)
-                if row is None:
-                    row = self.evaluation_row(context, top_k=top_k)
-                    row_cache[context] = row
-
-                summary.score_next_token(
-                    actual_id=next_id,
-                    greedy_id=row.greedy_id,
-                    top_k_ids=row.top_k_ids,
-                    prob=self.transition_prob(
-                        next_id,
-                        context,
-                        counts=row.counts,
-                    ),
-                )
+            summary.score_next_token(
+                actual_id=next_id,
+                greedy_id=row.greedy_id,
+                top_k_ids=row.top_k_ids,
+                prob=self.transition_prob(
+                    next_id,
+                    context,
+                    counts=row.counts,
+                ),
+            )
 
         return summary
 

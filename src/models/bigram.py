@@ -107,28 +107,28 @@ class Model(ngram.BaseNgramModel):
             top_k=top_k,
             text_normalization=self.text_normalization,
         )
-        for tok_seq in corpus:
-            summary.observe_sequence(tok_seq)
-
-            for context, next_id in tok_seq.iter_context_targets(order=2):
-                prev_id = token_sequences.single_token_context_id(context)
-                row = row_cache.get(prev_id)
-                if row is None:
-                    row = self._evaluation_row(
-                        prev_id,
-                        top_k=top_k,
-                    )
-                    row_cache[prev_id] = row
-
-                summary.score_next_token(
-                    actual_id=next_id,
-                    greedy_id=row.greedy_id,
-                    top_k_ids=row.top_k_ids,
-                    prob=self._transition_prob(
-                        next_id,
-                        row=row,
-                    ),
+        for context, next_id in corpus.iter_context_targets(
+            order=2,
+            seq_observer=summary,
+        ):
+            prev_id = token_sequences.single_token_context_id(context)
+            row = row_cache.get(prev_id)
+            if row is None:
+                row = self._evaluation_row(
+                    prev_id,
+                    top_k=top_k,
                 )
+                row_cache[prev_id] = row
+
+            summary.score_next_token(
+                actual_id=next_id,
+                greedy_id=row.greedy_id,
+                top_k_ids=row.top_k_ids,
+                prob=self._transition_prob(
+                    next_id,
+                    row=row,
+                ),
+            )
 
         return summary
 

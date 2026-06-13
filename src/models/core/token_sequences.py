@@ -3,10 +3,38 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Sequence
-from typing import Self
+from typing import Protocol, Self
+
+import pydantic
 
 
 type Context = tuple[int, ...]  # h, the recent token history before target w.
+type OrderedContextTarget = tuple[int, Context, int]  # n, h, w.
+
+
+class TokenSeqObserver(Protocol):
+    """Accept sequence-level events during one-pass corpus traversal."""
+
+    def observe_sequence(self, tok_seq: Sequence[int]) -> None:
+        """Record that one token sequence has entered a traversal."""
+        ...
+
+
+class TokenCorpusStats(pydantic.BaseModel):
+    """Accumulate sequence and token totals while streaming a token corpus.
+
+    Example: count collection observes each sequence while yielding n-gram rows.
+    """
+
+    model_config = pydantic.ConfigDict(validate_assignment=True)
+
+    sequence_count: int = 0
+    token_count: int = 0
+
+    def observe_sequence(self, tok_seq: Sequence[int]) -> None:
+        """Add one sequence and its length to corpus-level totals."""
+        self.sequence_count += 1
+        self.token_count += len(tok_seq)
 
 
 class TokenSeq(tuple[int, ...]):
@@ -72,10 +100,31 @@ class TokenCorpus:
         self,
         *,
         order: int,
+        seq_observer: TokenSeqObserver | None = None,
     ) -> Iterator[tuple[Context, int]]:
-        """Yield all context-target pairs across the corpus."""
+        """Yield all context-target pairs, observing each sequence if requested."""
         for seq in self:
+            if seq_observer is not None:
+                seq_observer.observe_sequence(seq)
             yield from seq.iter_context_targets(order=order)
+
+    def iter_aligned_context_targets(
+        self,
+        *,
+        orders: Iterable[int],
+        target_order: int,
+        seq_observer: TokenSeqObserver | None = None,
+    ) -> Iterator[OrderedContextTarget]:
+        """Yield (n, h, w) events for several orders on one target frontier."""
+        norm_orders = tuple(orders)
+        for seq in self:
+            if seq_observer is not None:
+                seq_observer.observe_sequence(seq)
+
+            for target_idx in seq.target_indices(order=target_order):
+                target_id = seq[target_idx]  # w, the observed next token.
+                for order in norm_orders:
+                    yield order, seq.context_at(target_idx, order=order), target_id
 
 
 def single_token_context_id(context: Context) -> int:

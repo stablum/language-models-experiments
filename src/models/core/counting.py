@@ -76,23 +76,20 @@ def collect_ngram_counts(
         for order in norm_orders
     }
     event_counts = {order: 0 for order in norm_orders}
-    seq_count = 0  # seq = input token sequence.
-    tok_count = 0  # tok = token.
+    stats = token_sequences.TokenCorpusStats()
 
-    for tok_seq in corpus:
-        seq_count += 1
-        tok_count += len(tok_seq)
-        for target_idx in tok_seq.target_indices(order=target_order):
-            target_id = tok_seq[target_idx]  # w, the observed next token.
-            for order in norm_orders:
-                context = tok_seq.context_at(target_idx, order=order)
-                rows_by_order[order][context][target_id] += 1
-                event_counts[order] += 1
+    for order, context, target_id in corpus.iter_aligned_context_targets(
+        orders=norm_orders,
+        target_order=target_order,
+        seq_observer=stats,
+    ):
+        rows_by_order[order][context][target_id] += 1
+        event_counts[order] += 1
 
     return NgramCorpusCounts(
         vocab_size=corpus.vocab_size,
-        sequence_count=seq_count,
-        token_count=tok_count,
+        sequence_count=stats.sequence_count,
+        token_count=stats.token_count,
         orders={
             order: NgramOrderCounts(
                 order=order,
