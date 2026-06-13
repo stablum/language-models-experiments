@@ -167,7 +167,6 @@ def resolve_params(
 def fit_interpolated_trigram_model(
     tok_seqs: Iterable[Sequence[int]],
     *,
-    token_space: ngram.TokenSpace,
     params: InterpolationParams,
     summary_type: type[SummaryT],
     summary_fields: Mapping[str, object] | None = None,
@@ -176,7 +175,6 @@ def fit_interpolated_trigram_model(
     """Fit shared count state for interpolated trigram models."""
     counts = trigrams.collect_trigram_counts(tok_seqs)
     summary = summary_type(
-        vocab_size=token_space.vocab_size,
         **trigrams.trigram_summary_fields(counts),
         unigram_weight=params.unigram_weight,
         bigram_weight=params.bigram_weight,

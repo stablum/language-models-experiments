@@ -69,7 +69,6 @@ def load(model_path: Path) -> Model:
 def fit(
     tok_seqs: Iterable[Sequence[int]],
     *,
-    token_space: ngram.TokenSpace,
     # model hyperparameters go here
 ) -> ngram.TrainingResult[TrainingSummary]:
     """Fit learned state from token IDs and return a JSON-ready payload."""
@@ -150,11 +149,12 @@ return a checkpoint/artifact summary.
 Required shape:
 
 - first parameter: `tok_seqs: Iterable[Sequence[int]]`
-- keyword-only parameter: `token_space: ngram.TokenSpace`
 
 `tok_seqs` are already normalized, tokenized, and padded with the model's BOS
-context tokens by the runtime adapter. `token_space` describes the finite token
-coordinate system: vocabulary size, BOS/EOS/UNK IDs, and display pieces.
+context tokens by the runtime adapter. Fit functions should not accept raw
+text, tokenizer objects, text-normalization settings, artifact paths, or
+token-space display metadata unless the learner genuinely uses them to estimate
+its own parameters.
 
 `fit(...)` should return `ngram.TrainingResult[SummaryType]`, which contains:
 

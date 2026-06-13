@@ -46,7 +46,6 @@ def fit(
         if opt_name in opts
     }
     fit_kwargs: dict[str, object] = {
-        "token_space": tok_space,
         **fit_opts,
     }
     if model.uses_validation_tokens:

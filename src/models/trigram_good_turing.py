@@ -303,13 +303,10 @@ def load(model_path: Path) -> Model:
 
 def fit(
     tok_seqs: Iterable[Sequence[int]],
-    *,
-    token_space: ngram.TokenSpace,
 ) -> ngram.TrainingResult[TrainingSummary]:
     """Fit trigram counts used by Good-Turing probability rows."""
     return trigrams.fit_counted_trigram_model(
         tok_seqs,
-        token_space=token_space,
         summary_type=TrainingSummary,
     )
 

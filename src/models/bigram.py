@@ -200,13 +200,11 @@ def load(model_path: Path) -> Model:
 def fit(
     tok_seqs: Iterable[Sequence[int]],
     *,
-    token_space: ngram.TokenSpace,
     smoothing: float = 0.1,
 ) -> ngram.TrainingResult[TrainingSummary]:
     """Fit bigram counts from token ID sequences."""
     counts = collect_bigram_counts(tok_seqs)
     summary = TrainingSummary(
-        vocab_size=token_space.vocab_size,
         sequence_count=counts.sequence_count,
         token_count=counts.token_count,
         transition_count=counts.transition_count,

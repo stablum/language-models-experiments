@@ -54,7 +54,6 @@ def load(model_path: Path) -> Model:
 def fit(
     tok_seqs: Iterable[Sequence[int]],
     *,
-    token_space: ngram.TokenSpace,
     unigram_weight: float = interp.DEFAULT_UNIGRAM_WEIGHT,
     bigram_weight: float = interp.DEFAULT_BIGRAM_WEIGHT,
     trigram_weight: float = interp.DEFAULT_TRIGRAM_WEIGHT,
@@ -72,7 +71,6 @@ def fit(
     )
     return interp.fit_interpolated_trigram_model(
         tok_seqs,
-        token_space=token_space,
         params=interp_params,
         summary_type=trigrams.InterpolatedTrigramTrainingSummary,
     )

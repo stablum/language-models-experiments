@@ -370,7 +370,6 @@ def collect_trigram_counts(
 def fit_counted_trigram_model(
     tok_seqs: Iterable[Sequence[int]],
     *,
-    token_space: ngram.TokenSpace,
     summary_type: type[SummaryT],
     summary_fields: Mapping[str, object] | None = None,
     extra_payload: (
@@ -380,7 +379,6 @@ def fit_counted_trigram_model(
     """Fit shared trigram count state for counted trigram models."""
     counts = collect_trigram_counts(tok_seqs)
     summary = summary_type(
-        vocab_size=token_space.vocab_size,
         **trigram_summary_fields(counts),
         **dict(summary_fields or {}),
     )

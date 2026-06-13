@@ -182,7 +182,6 @@ def load(model_path: Path) -> Model:
 def fit(
     tok_seqs: Iterable[Sequence[int]],
     *,
-    token_space: ngram.TokenSpace,
     discount: float = 0.75,
 ) -> ngram.TrainingResult[TrainingSummary]:
     """Fit raw trigram counts plus Kneser-Ney continuation tables."""
@@ -210,7 +209,6 @@ def fit(
 
     return trigrams.fit_counted_trigram_model(
         tok_seqs,
-        token_space=token_space,
         summary_type=TrainingSummary,
         summary_fields={"discount": discount},
         extra_payload=payload,

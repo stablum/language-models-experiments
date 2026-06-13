@@ -26,7 +26,6 @@ CONTEXT_LENGTH_NAME = "CONTEXT_LENGTH"
 
 _FIT_INFRA_OPTION_NAMES = frozenset(
     (
-        "token_space",
         "validation_tok_seqs",
     )
 )
