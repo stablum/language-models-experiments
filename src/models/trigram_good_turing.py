@@ -13,17 +13,18 @@ candidate next token, and ``N_r`` for count-of-counts within one row.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 
 import pydantic
 
-from src.corpora import normalization
 from src.models.core import formatting
 from src.models.core import good_turing
 from src.models.core import ngram
 from src.models.core import trigrams
-from src.tokenizers import core as tok_core
+
+
+CONTEXT_LENGTH = trigrams.CONTEXT_LENGTH  # len(h), inherited trigram history size.
 
 
 class TrainingSummary(trigrams.TrigramTrainingSummary):
@@ -301,16 +302,14 @@ def load(model_path: Path) -> Model:
 
 
 def fit(
-    texts: Iterable[str],
+    tok_seqs: Iterable[Sequence[int]],
     *,
-    tokenizer: tok_core.TokenizerCodec,
-    text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
+    token_space: ngram.TokenSpace,
 ) -> ngram.TrainingResult[TrainingSummary]:
     """Fit trigram counts used by Good-Turing probability rows."""
     return trigrams.fit_counted_trigram_model(
-        texts,
-        tokenizer,
-        text_normalization=text_normalization,
+        tok_seqs,
+        token_space=token_space,
         summary_type=TrainingSummary,
     )
 

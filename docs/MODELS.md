@@ -16,17 +16,22 @@ where h_i is the available history. The bigram history is the previous token, an
 
 ## Implementation Boundary
 
-Registered model modules follow a fit/load/query split. The concrete module
-function `fit(...)` estimates learned state from data and returns a
-JSON-ready training artifact payload. The `load(model_path)` function hydrates
-that artifact into the live `Model` object used for query and evaluation.
+Registered model modules follow a token-space fit/load/scoring split. The
+concrete module function `fit(...)` receives token ID sequences plus token-space
+metadata, estimates learned state, and returns a JSON-ready training artifact
+payload. The `load(model_path)` function hydrates that artifact into the live
+`Model` object used for token-space next-token scoring.
+
+Text normalization, tokenizer encoding/decoding, BOS/EOS sequence padding, and
+artifact tokenizer references are runtime adapter responsibilities, not
+concrete model-module responsibilities.
 
 For the n-gram models below, fitting computes sufficient statistics such as
 `c(v,w)` and `c(u,v,w)` rather than updating a live neural parameter tensor.
 The same registry contract also leaves room for gradient-based models: their
 `fit(...)` can instantiate a model, pass it to a trainer, update weights
 through the forward/loss/backward/optimizer loop, and consume optional
-validation data for epoch metrics or checkpoint selection.
+validation token sequences for epoch metrics or checkpoint selection.
 
 ## Notation
 

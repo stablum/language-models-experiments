@@ -15,14 +15,15 @@ distinct-context count.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import ClassVar
 
-from src.corpora import normalization
 from src.models.core import ngram
 from src.models.core import trigrams
-from src.tokenizers import core as tok_core
+
+
+CONTEXT_LENGTH = trigrams.CONTEXT_LENGTH  # len(h), inherited trigram history size.
 
 
 class TrainingSummary(trigrams.TrigramTrainingSummary):
@@ -179,11 +180,10 @@ def load(model_path: Path) -> Model:
 
 
 def fit(
-    texts: Iterable[str],
+    tok_seqs: Iterable[Sequence[int]],
     *,
-    tokenizer: tok_core.TokenizerCodec,
+    token_space: ngram.TokenSpace,
     discount: float = 0.75,
-    text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> ngram.TrainingResult[TrainingSummary]:
     """Fit raw trigram counts plus Kneser-Ney continuation tables."""
     def payload(
@@ -209,9 +209,8 @@ def fit(
         }
 
     return trigrams.fit_counted_trigram_model(
-        texts,
-        tokenizer,
-        text_normalization=text_normalization,
+        tok_seqs,
+        token_space=token_space,
         summary_type=TrainingSummary,
         summary_fields={"discount": discount},
         extra_payload=payload,

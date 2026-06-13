@@ -52,6 +52,16 @@ class FrozenNgramPydanticBase(NgramPydanticBase):
     )
 
 
+class TokenSpace(FrozenNgramPydanticBase):
+    """Describe the finite token-ID coordinate system used by token learners."""
+
+    vocab_size: int
+    bos_id: int
+    eos_id: int
+    unk_id: int
+    pieces: tuple[str, ...]
+
+
 class NgramPrediction(NgramPydanticBase):
     """Describe one next-token candidate with its evidence and probability."""
 
@@ -216,12 +226,12 @@ class NgramEvaluationSummary(
 class BaseNgramModel(NgramPydanticBase):
     """Runtime representation of a loaded fitted n-gram model.
 
-    Example: owns query/evaluate behavior; not the training-time artifact schema.
+    Example: owns token-space scoring behavior; text adapters live in runtime.
     """
 
     model_path: Path
     tokenizer_model: Path
-    tokenizer: tok_core.TokenizerCodec
+    tokenizer_algo: str
     vocab_size: int
     bos_id: int
     eos_id: int
@@ -270,14 +280,6 @@ class BaseNgramModel(NgramPydanticBase):
             if token_id in cand_ids and count > 0
         }
 
-    def encode_prompt(self, prompt: str) -> list[int]:
-        """Normalize and tokenize a query prompt with the model tokenizer."""
-        return tok_core.encode_prompt(
-            self.tokenizer,
-            prompt,
-            text_normalization=self.text_normalization,
-        )
-
     def context_for_tokens(self, token_ids: list[int]) -> Any:
         """Build a model-specific history context from prompt token IDs."""
         raise NotImplementedError
@@ -295,64 +297,14 @@ class BaseNgramModel(NgramPydanticBase):
         """Return ranked next-token predictions for a model-specific context."""
         raise NotImplementedError
 
-    def query(self, cfg: NgramQueryCfg | None = None) -> NgramQueryResult:
-        """Generate a continuation and expose the initial next-token row."""
-        cfg = cfg or NgramQueryCfg()
-        prompt_ids = self.encode_prompt(cfg.prompt)  # ids = token IDs for prompt.
-        context = self.context_for_tokens(prompt_ids)
-        next_preds = self.next_token_predictions(
-            context,
-            top_k=cfg.top_k,
-        )
-        gen_top_k = generation_prediction_top_k(
-            decoding=cfg.decoding,
-            temperature=cfg.temperature,
-        )
-        # Deterministic text sampling RNG; not used for secrets or security choices.
-        rng = random.Random(cfg.seed)  # nosec B311
-        all_ids = list(prompt_ids)  # ids = prompt plus generated token IDs.
-        gen_ids: list[int] = []  # gen = generated continuation token IDs.
-
-        for _ in range(cfg.max_tokens):
-            next_id = select_next_token(
-                self.next_token_predictions(context, top_k=gen_top_k),
-                eos_id=self.eos_id,
-                decoding=cfg.decoding,
-                rng=rng,
-                temperature=cfg.temperature,
-            )
-            if next_id == self.eos_id:
-                break
-
-            gen_ids.append(next_id)
-            all_ids.append(next_id)
-            context = self.advance_context(context, next_id)
-
-        prompt_text = self.tokenizer.decode(prompt_ids)
-        generated_text = self.tokenizer.decode(all_ids)
-        continuation_text = tok_core.decode_continuation(
-            self.tokenizer,
-            generated_text=generated_text,
-            prompt_text=prompt_text,
-            generated_token_ids=gen_ids,
-        )
-
-        return NgramQueryResult(
-            model_path=self.model_path,
-            tokenizer_model=self.tokenizer_model,
-            decoding=cfg.decoding,
-            bos_id=self.bos_id,
-            eos_id=self.eos_id,
-            unk_id=self.unk_id,
-            prompt=cfg.prompt,
-            prompt_token_ids=prompt_ids,
-            continuation_text=continuation_text,
-            generated_text=generated_text,
-            generated_token_ids=gen_ids,
-            token_ids=all_ids,
-            next_token_predictions=next_preds,
-            text_normalization=self.text_normalization,
-        )
+    def evaluate_token_ids(
+        self,
+        tok_seqs: Iterable[Sequence[int]],
+        *,
+        top_k: int = 5,
+    ) -> NgramEvaluationSummary:
+        """Score already-tokenized sequences without owning text adapters."""
+        raise NotImplementedError
 
 
 def select_next_token(
@@ -506,16 +458,26 @@ def tokenizer_model_payload(
     )
 
 
-def load_tokenizer_model_fields(
+def token_space_from_tokenizer(tokenizer: tok_core.TokenizerCodec) -> TokenSpace:
+    """Create token-space metadata from a tokenizer adapter at the boundary."""
+    return TokenSpace(
+        vocab_size=tokenizer.vocab_size,
+        bos_id=tokenizer.bos_id,
+        eos_id=tokenizer.eos_id,
+        unk_id=tokenizer.unk_id,
+        pieces=tuple(
+            tokenizer.id_to_piece(token_id)
+            for token_id in range(tokenizer.vocab_size)
+        ),
+    )
+
+
+def load_token_space_model_fields(
     data: dict[str, object],
     model_path: Path,
 ) -> dict[str, object]:
-    """Load tokenizer-dependent constructor fields from model JSON data."""
+    """Load token-space constructor fields from model JSON data."""
     tokenizer_model = resolve_stored_path(Path(data["tokenizer_model"]), model_path)
-    tokenizer = tok_core.load_tokenizer(
-        tokenizer_model,
-        tokenizer_algo=str(data["tokenizer_algo"]),
-    )
     vocab_size = int(data["vocab_size"])
     stored_pieces = data["pieces"]
     if isinstance(stored_pieces, str) or not isinstance(stored_pieces, Sequence):
@@ -529,7 +491,7 @@ def load_tokenizer_model_fields(
     return {
         "model_path": model_path,
         "tokenizer_model": tokenizer_model,
-        "tokenizer": tokenizer,
+        "tokenizer_algo": str(data["tokenizer_algo"]),
         "vocab_size": vocab_size,
         "bos_id": int(data["bos_id"]),
         "eos_id": int(data["eos_id"]),

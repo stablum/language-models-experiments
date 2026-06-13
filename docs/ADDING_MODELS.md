@@ -44,12 +44,13 @@ A typical n-gram model module should expose these pieces, in this order:
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-from src.corpora import normalization
 from src.models.core import ngram
-from src.tokenizers import core as tok_core
+
+
+CONTEXT_LENGTH = 1  # len(h), the token history size required by this model.
 
 
 class TrainingSummary(ngram.NgramTrainingSummary):
@@ -57,7 +58,7 @@ class TrainingSummary(ngram.NgramTrainingSummary):
 
 
 class Model(ngram.BaseNgramModel):
-    """Store learned state and expose query/evaluation behavior."""
+    """Store learned token-space state and expose scoring behavior."""
 
 
 def load(model_path: Path) -> Model:
@@ -66,15 +67,12 @@ def load(model_path: Path) -> Model:
 
 
 def fit(
-    texts: Iterable[str],
+    tok_seqs: Iterable[Sequence[int]],
     *,
-    tokenizer: tok_core.TokenizerCodec,
-    text_normalization: normalization.TextNormalization = (
-        normalization.DEFAULT_TEXT_NORMALIZATION
-    ),
+    token_space: ngram.TokenSpace,
     # model hyperparameters go here
 ) -> ngram.TrainingResult[TrainingSummary]:
-    """Fit learned state from texts and return a JSON-ready payload."""
+    """Fit learned state from token IDs and return a JSON-ready payload."""
     ...
 
 
@@ -103,33 +101,33 @@ When a module-local summary class is needed, use a module-local name such as
 
 `Model`
 
-For simple n-gram models, inherit from `ngram.BaseNgramModel`. It already
-implements prompt encoding and generic autoregressive query generation. You
-must provide:
+For simple n-gram models, inherit from `ngram.BaseNgramModel`. It stores
+token-space metadata and generic candidate helpers. You must provide:
 
 - `context_for_tokens(token_ids)`
 - `advance_context(context, next_id)`
 - `next_token_predictions(context, *, top_k)`
+- `evaluate_token_ids(tok_seqs, *, top_k)`
 
-If the model should support evaluation, also implement `evaluate(...)`, or
-inherit from a helper that already does. Trigram models should usually inherit
-from `trigrams.BaseTrigramModel`, `trigrams.InterpolatedTrigramModel`, or
-`trigrams.DiscountedTrigramModel`, which provide most of the query/evaluation
+The runtime owns text prompt encoding, generated-token decoding, and corpus
+tokenization. Trigram models should usually inherit from
+`trigrams.BaseTrigramModel`, `trigrams.InterpolatedTrigramModel`, or
+`trigrams.DiscountedTrigramModel`, which provide most of the token scoring
 machinery.
 
 For non-n-gram models, keep the same module-level `fit`, `load`, and
 `format_summary` contract. The loaded `Model` object should still expose
-`query(...)` and `evaluate(...)` when the full pipeline should support those
-stages.
+token-space context, next-token, and evaluation methods when the full pipeline
+should support query/evaluation stages.
 
 `load(model_path)`
 
 Read the persisted artifact, validate the current schema version plus
-`model_type`, load any tokenizer/model fields, and return the model object.
+`model_type`, load any token-space/model fields, and return the model object.
 Reuse helpers such as:
 
 - `ngram.load_json_model_payload(...)`
-- `ngram.load_tokenizer_model_fields(...)`
+- `ngram.load_token_space_model_fields(...)`
 - `trigrams.load_standard_trigram_model_fields(...)`
 - `ngram.parse_token_counts(...)`
 - `ngram.parse_token_transitions(...)`
@@ -149,25 +147,29 @@ For gradient-based models, `fit(...)` may instantiate a live `Model`, pass it
 to a trainer, update its weights batch by batch, run epoch validation, and then
 return a checkpoint/artifact summary.
 
-Required keyword parameters:
+Required shape:
 
-- `tokenizer: tok_core.TokenizerCodec`
-- `text_normalization: normalization.TextNormalization`
+- first parameter: `tok_seqs: Iterable[Sequence[int]]`
+- keyword-only parameter: `token_space: ngram.TokenSpace`
+
+`tok_seqs` are already normalized, tokenized, and padded with the model's BOS
+context tokens by the runtime adapter. `token_space` describes the finite token
+coordinate system: vocabulary size, BOS/EOS/UNK IDs, and display pieces.
 
 `fit(...)` should return `ngram.TrainingResult[SummaryType]`, which contains:
 
 - `summary`: the training summary object
 - `payload`: only the model-owned JSON payload fields
 
-The pipeline owns artifact paths, tokenizer metadata, schema envelope fields,
-and portable tokenizer references. Do not write the final JSON model artifact
-inside the model module's `fit(...)`.
+The pipeline/runtime owns artifact paths, tokenizer metadata, text
+normalization, schema envelope fields, and portable tokenizer references. Do
+not write the final JSON model artifact inside the model module's `fit(...)`.
 
 If a model needs validation data during fitting, add this keyword-only
 parameter:
 
 ```python
-validation_texts: Iterable[str] | None = None
+validation_tok_seqs: Iterable[Sequence[int]] | None = None
 ```
 
 Use validation data for epoch metrics, early stopping, or checkpoint selection.
@@ -176,6 +178,15 @@ genuinely needs validation feedback while fitting.
 
 Model hyperparameters should be keyword-only parameters on `fit(...)`. The
 pipeline passes matching CLI/pipeline options through to the model module.
+
+`CONTEXT_LENGTH`
+
+Expose a non-negative module-level `CONTEXT_LENGTH`. This is `len(h)`, the
+number of previous token IDs the model needs before a target token. The runtime
+uses it to build token sequences from text:
+
+- bigram: `CONTEXT_LENGTH = 1`
+- trigram: `CONTEXT_LENGTH = 2`
 
 `format_summary(summary)`
 

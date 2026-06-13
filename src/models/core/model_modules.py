@@ -22,15 +22,12 @@ from src.models.core import trigram_interpolation as interp
 
 REGISTRY_FLAG = "REGISTER_MODEL"
 FIT_FN_NAME = "fit"
+CONTEXT_LENGTH_NAME = "CONTEXT_LENGTH"
 
 _FIT_INFRA_OPTION_NAMES = frozenset(
     (
-        "tokenizer",
-        "tokenizer_model",
-        "output_path",
-        "stored_tokenizer_model",
-        "text_normalization",
-        "validation_texts",
+        "token_space",
+        "validation_tok_seqs",
     )
 )
 _INTERPOLATION_OPTION_NAMES = frozenset(
@@ -101,19 +98,34 @@ class RegisteredModel(core_cfg.BaseCfg):
         )
 
     @property
-    def uses_validation_data(self) -> bool:
-        """Return whether fit accepts the validation-text partition."""
-        return accepts_keyword(self.fit_fn, "validation_texts")
+    def uses_validation_tokens(self) -> bool:
+        """Return whether fit accepts the validation token-sequence partition."""
+        return accepts_keyword(self.fit_fn, "validation_tok_seqs")
+
+    @property
+    def context_length(self) -> int:
+        """Return len(h), the token history size needed by this model."""
+        value = getattr(self.module, CONTEXT_LENGTH_NAME, None)
+        if not isinstance(value, int) or value < 0:
+            raise TypeError(
+                f"{self.module.__name__}.{CONTEXT_LENGTH_NAME} must be "
+                "a non-negative integer."
+            )
+        return value
 
     @property
     def supports_query(self) -> bool:
         """Return whether the module model class exposes query behavior."""
-        return self.model_has_method("query")
+        return (
+            self.model_has_method("context_for_tokens")
+            and self.model_has_method("advance_context")
+            and self.model_has_method("next_token_predictions")
+        )
 
     @property
     def supports_evaluation(self) -> bool:
         """Return whether the module model class exposes evaluation behavior."""
-        return self.model_has_method("evaluate")
+        return self.model_has_method("evaluate_token_ids")
 
     def model_has_method(self, method_name: str) -> bool:
         """Check a method on the declared module Model class."""
@@ -221,7 +233,9 @@ def registered_model_from_module(module: ModuleType) -> RegisteredModel | None:
     ):
         return None
 
-    return RegisteredModel(module=module)
+    registered_model = RegisteredModel(module=module)
+    _ = registered_model.context_length
+    return registered_model
 
 
 def get_module_callable(module: ModuleType, name: str) -> Callable[..., Any] | None:

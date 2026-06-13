@@ -12,14 +12,15 @@ candidate next token, ``D`` for the discount, and ``k`` for add-k smoothing.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import ClassVar
 
-from src.corpora import normalization
 from src.models.core import ngram
 from src.models.core import trigrams
-from src.tokenizers import core as tok_core
+
+
+CONTEXT_LENGTH = trigrams.CONTEXT_LENGTH  # len(h), inherited trigram history size.
 
 
 class TrainingSummary(trigrams.TrigramTrainingSummary):
@@ -100,14 +101,13 @@ def load(model_path: Path) -> Model:
 
 
 def fit(
-    texts: Iterable[str],
+    tok_seqs: Iterable[Sequence[int]],
     *,
-    tokenizer: tok_core.TokenizerCodec,
+    token_space: ngram.TokenSpace,
     smoothing: float = 0.1,
     discount: float = 0.75,
-    text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> ngram.TrainingResult[TrainingSummary]:
-    """Fit absolute-discount trigram counts and discount metadata."""
+    """Fit absolute-discount trigram counts from token ID sequences."""
     def payload(
         _counts: trigrams.TrigramCounts,
         summary: TrainingSummary,
@@ -116,9 +116,8 @@ def fit(
         return {"smoothing": summary.smoothing, "discount": summary.discount}
 
     return trigrams.fit_counted_trigram_model(
-        texts,
-        tokenizer,
-        text_normalization=text_normalization,
+        tok_seqs,
+        token_space=token_space,
         summary_type=TrainingSummary,
         summary_fields={"smoothing": smoothing, "discount": discount},
         extra_payload=payload,

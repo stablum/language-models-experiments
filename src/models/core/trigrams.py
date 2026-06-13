@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import ClassVar, TypeVar
 
-from src.corpora import normalization
 from src.models.core import context_targets, counting, ngram
-from src.tokenizers import core as tok_core
 
 
+CONTEXT_LENGTH = 2  # len(h), the two-token trigram history size.
 Context = tuple[int, int]  # h = (u, v), the trigram history.
 
 
@@ -125,27 +124,20 @@ class BaseTrigramModel(ngram.BaseNgramModel):
         )
         return ngram.sorted_predictions(predictions, top_k=top_k)
 
-    def evaluate(
+    def evaluate_token_ids(
         self,
-        texts: Iterable[str],
+        tok_seqs: Iterable[Sequence[int]],
         *,
         top_k: int = 5,
-        text_normalization: normalization.TextNormalization | None = None,
     ) -> ngram.NgramEvaluationSummary:
+        """Score token ID sequences by cached trigram rows."""
         row_cache: dict[Context, TrigramEvaluationRow] = {}
 
-        text_norm = text_normalization or self.text_normalization
         summary = self.evaluation_summary(
             top_k=top_k,
-            text_normalization=text_norm,
+            text_normalization=self.text_normalization,
         )
-        for tok_ids in tok_core.iter_token_sequences(
-            texts,
-            self.tokenizer,
-            bos_count=2,
-            min_length=3,
-            text_normalization=text_norm,
-        ):
+        for tok_ids in tok_seqs:
             summary.observe_sequence(tok_ids)
 
             for raw_context, next_id in context_targets.iter_context_targets(
@@ -360,21 +352,11 @@ class DiscountedTrigramModel(BaseTrigramModel):
 
 
 def collect_trigram_counts(
-    texts: Iterable[str],
-    tokenizer: tok_core.TokenizerCodec,
-    *,
-    text_normalization: normalization.TextNormalization = (
-        normalization.DEFAULT_TEXT_NORMALIZATION
-    ),
+    tok_seqs: Iterable[Sequence[int]],
 ) -> TrigramCounts:
+    """Count c(h, w) rows for all trigram context-target pairs."""
     counts = counting.collect_ngram_counts(
-        tok_core.iter_token_sequences(
-            texts,
-            tokenizer,
-            bos_count=2,
-            min_length=3,
-            text_normalization=text_normalization,
-        ),
+        tok_seqs,
         orders=(1, 2, 3),
         target_order=3,
     )
@@ -386,10 +368,9 @@ def collect_trigram_counts(
 
 
 def fit_counted_trigram_model(
-    texts: Iterable[str],
-    tokenizer: tok_core.TokenizerCodec,
+    tok_seqs: Iterable[Sequence[int]],
     *,
-    text_normalization: normalization.TextNormalization,
+    token_space: ngram.TokenSpace,
     summary_type: type[SummaryT],
     summary_fields: Mapping[str, object] | None = None,
     extra_payload: (
@@ -397,14 +378,9 @@ def fit_counted_trigram_model(
     ) = None,
 ) -> ngram.TrainingResult[SummaryT]:
     """Fit shared trigram count state for counted trigram models."""
-    counts = collect_trigram_counts(
-        texts,
-        tokenizer=tokenizer,
-        text_normalization=text_normalization,
-    )
+    counts = collect_trigram_counts(tok_seqs)
     summary = summary_type(
-        vocab_size=tokenizer.vocab_size,
-        text_normalization=text_normalization,
+        vocab_size=token_space.vocab_size,
         **trigram_summary_fields(counts),
         **dict(summary_fields or {}),
     )
@@ -444,7 +420,7 @@ def load_standard_trigram_model_fields(
     label: str | None = None,
 ) -> tuple[dict[str, object], dict[str, object]]:
     data = ngram.load_json_model_payload(model_path, module_name=module_name, label=label)
-    return data, ngram.load_tokenizer_model_fields(data, model_path)
+    return data, ngram.load_token_space_model_fields(data, model_path)
 
 
 def parse_unigram_counts(data: dict[str, object]) -> dict[int, int]:

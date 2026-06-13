@@ -7,12 +7,13 @@ For history ``h`` and next token ``w``, this model uses the add-k estimator
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-from src.corpora import normalization
 from src.models.core import context_targets, counting, ngram
-from src.tokenizers import core as tok_core
+
+
+CONTEXT_LENGTH = 1  # len(h), the previous-token history size.
 
 
 class TrainingSummary(ngram.NgramTrainingSummary):
@@ -90,30 +91,22 @@ class Model(ngram.BaseNgramModel):
         row = self.transitions.get(prev_id, ())
         return self.candidate_counts(row)
 
-    def evaluate(
+    def evaluate_token_ids(
         self,
-        texts: Iterable[str],
+        tok_seqs: Iterable[Sequence[int]],
         *,
         top_k: int = 5,
-        text_normalization: normalization.TextNormalization | None = None,
     ) -> ngram.NgramEvaluationSummary:
-        """Score texts by cached bigram rows and aggregate evaluation metrics."""
+        """Score token ID sequences by cached bigram rows."""
         row_cache: dict[int, EvaluationRow] = {}
 
-        text_norm = text_normalization or self.text_normalization
         summary = ngram.NgramEvaluationSummary(
             model_path=self.model_path,
             tokenizer_model=self.tokenizer_model,
             top_k=top_k,
-            text_normalization=text_norm,
+            text_normalization=self.text_normalization,
         )
-        for tok_ids in tok_core.iter_token_sequences(
-            texts,
-            self.tokenizer,
-            bos_count=1,
-            min_length=2,
-            text_normalization=text_norm,
-        ):
+        for tok_ids in tok_seqs:
             summary.observe_sequence(tok_ids)
 
             for context, next_id in context_targets.iter_context_targets(
@@ -198,32 +191,26 @@ def load(model_path: Path) -> Model:
     )
 
     return Model(
-        **ngram.load_tokenizer_model_fields(data, model_path),
+        **ngram.load_token_space_model_fields(data, model_path),
         smoothing=float(data["smoothing"]),
         transitions=ngram.parse_token_transitions(data, "transitions"),
     )
 
 
 def fit(
-    texts: Iterable[str],
+    tok_seqs: Iterable[Sequence[int]],
     *,
-    tokenizer: tok_core.TokenizerCodec,
+    token_space: ngram.TokenSpace,
     smoothing: float = 0.1,
-    text_normalization: normalization.TextNormalization = normalization.DEFAULT_TEXT_NORMALIZATION,
 ) -> ngram.TrainingResult[TrainingSummary]:
-    """Fit bigram counts and return the JSON-ready training payload."""
-    counts = collect_bigram_counts(
-        texts,
-        tokenizer=tokenizer,
-        text_normalization=text_normalization,
-    )
+    """Fit bigram counts from token ID sequences."""
+    counts = collect_bigram_counts(tok_seqs)
     summary = TrainingSummary(
-        vocab_size=tokenizer.vocab_size,
+        vocab_size=token_space.vocab_size,
         sequence_count=counts.sequence_count,
         token_count=counts.token_count,
         transition_count=counts.transition_count,
         smoothing=smoothing,
-        text_normalization=text_normalization,
     )
 
     return ngram.TrainingResult[TrainingSummary](
@@ -239,22 +226,11 @@ def fit(
 
 
 def collect_bigram_counts(
-    texts: Iterable[str],
-    tokenizer: tok_core.TokenizerCodec,
-    *,
-    text_normalization: normalization.TextNormalization = (
-        normalization.DEFAULT_TEXT_NORMALIZATION
-    ),
+    tok_seqs: Iterable[Sequence[int]],
 ) -> BigramCounts:
     """Count c(h, w) rows for all bigram context-target pairs in the corpus."""
     counts = counting.collect_ngram_counts(
-        tok_core.iter_token_sequences(
-            texts,
-            tokenizer,
-            bos_count=1,
-            min_length=2,
-            text_normalization=text_normalization,
-        ),
+        tok_seqs,
         orders=(2,),
         target_order=2,
     )

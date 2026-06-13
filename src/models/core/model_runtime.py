@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import random
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -32,20 +33,31 @@ def fit(
     tok_model = resolve_tokenizer_model(opts)
     out_path = resolve_output(opts, model_suffix=model.name)
     tokenizer = tok_core.load_tokenizer(tok_model)
+    tok_space = ngram.token_space_from_tokenizer(tokenizer)
+    train_tok_seqs = iter_model_token_sequences(
+        data.train_items,
+        tokenizer,
+        model=model,
+        text_normalization=opts["text_normalization"],
+    )
     fit_opts = {
         opt_name: opts[opt_name]
         for opt_name in model.fit_option_names
         if opt_name in opts
     }
     fit_kwargs: dict[str, object] = {
-        "tokenizer": tokenizer,
-        "text_normalization": opts["text_normalization"],
+        "token_space": tok_space,
         **fit_opts,
     }
-    if model.uses_validation_data:
-        fit_kwargs["validation_texts"] = data.validation_items
+    if model.uses_validation_tokens:
+        fit_kwargs["validation_tok_seqs"] = iter_optional_model_token_sequences(
+            data.validation_items,
+            tokenizer,
+            model=model,
+            text_normalization=opts["text_normalization"],
+        )
 
-    result = model.fit_fn(data.train_items, **fit_kwargs)
+    result = model.fit_fn(train_tok_seqs, **fit_kwargs)
     return save_training_result(
         result,
         module_name=model.module.__name__,
@@ -53,6 +65,7 @@ def fit(
         tokenizer_model=tok_model,
         stored_tokenizer_model=Path(stored_tok_model) if stored_tok_model else None,
         tokenizer=tokenizer,
+        token_space=tok_space,
         text_normalization=opts["text_normalization"],
     )
 
@@ -63,15 +76,18 @@ def query(
 ) -> Any:
     """Query a persisted registered model artifact with generation options."""
     loaded_model = model.load(resolve_model(opts, model_suffix=model.name))
-    return loaded_model.query(
-        ngram.NgramQueryCfg(
-            prompt=opts["prompt"],
-            max_tokens=opts["max_tokens"],
-            top_k=opts["top_k"],
+    tokenizer = load_model_tokenizer(loaded_model)
+    return query_token_model(
+        loaded_model,
+        tokenizer,
+        cfg=ngram.NgramQueryCfg(
+            prompt=str(opts["prompt"]),
+            max_tokens=int(opts["max_tokens"]),
+            top_k=int(opts["top_k"]),
             decoding=opts["decoding"],
-            temperature=opts["temperature"],
+            temperature=float(opts["temperature"]),
             seed=opts["seed"],
-        ),
+        )
     )
 
 
@@ -82,7 +98,14 @@ def evaluate(
 ) -> Any:
     """Evaluate a persisted registered model artifact over text rows."""
     loaded_model = model.load(resolve_model(opts, model_suffix=model.name))
-    return loaded_model.evaluate(texts, top_k=opts["top_k"])
+    tokenizer = load_model_tokenizer(loaded_model)
+    tok_seqs = iter_model_token_sequences(
+        texts,
+        tokenizer,
+        model=model,
+        text_normalization=loaded_model.text_normalization,
+    )
+    return loaded_model.evaluate_token_ids(tok_seqs, top_k=opts["top_k"])
 
 
 def validate_fit_options(
@@ -129,6 +152,7 @@ def save_training_result(
     tokenizer_model: Path,
     stored_tokenizer_model: Path | None,
     tokenizer: tok_core.TokenizerCodec,
+    token_space: ngram.TokenSpace,
     text_normalization: normalization.TextNormalization,
 ) -> TrainSummaryT:
     """Wrap model-owned fields in the standard artifact envelope.
@@ -158,9 +182,119 @@ def save_training_result(
     summary = result.summary
     summary.output_path = output_path
     summary.tokenizer_model = tokenizer_model
-    summary.vocab_size = tokenizer.vocab_size
+    summary.vocab_size = token_space.vocab_size
     summary.text_normalization = text_normalization
     return summary
+
+
+def iter_model_token_sequences(
+    texts: Iterable[str],
+    tokenizer: tok_core.TokenizerCodec,
+    *,
+    model: model_modules.RegisteredModel,
+    text_normalization: normalization.TextNormalization,
+) -> Iterable[Sequence[int]]:
+    """Adapt raw text rows into token-space sequences for one model family."""
+    return tok_core.iter_token_sequences(
+        texts,
+        tokenizer,
+        bos_count=model.context_length,
+        min_length=model.context_length + 1,
+        text_normalization=text_normalization,
+    )
+
+
+def iter_optional_model_token_sequences(
+    texts: Iterable[str] | None,
+    tokenizer: tok_core.TokenizerCodec,
+    *,
+    model: model_modules.RegisteredModel,
+    text_normalization: normalization.TextNormalization,
+) -> Iterable[Sequence[int]] | None:
+    """Tokenize an optional validation stream only when the model requests it."""
+    if texts is None:
+        return None
+    return iter_model_token_sequences(
+        texts,
+        tokenizer,
+        model=model,
+        text_normalization=text_normalization,
+    )
+
+
+def load_model_tokenizer(model: ngram.BaseNgramModel) -> tok_core.TokenizerCodec:
+    """Load the text adapter stored beside a persisted token-space model."""
+    return tok_core.load_tokenizer(
+        model.tokenizer_model,
+        tokenizer_algo=model.tokenizer_algo,
+    )
+
+
+def query_token_model(
+    model: ngram.BaseNgramModel,
+    tokenizer: tok_core.TokenizerCodec,
+    *,
+    cfg: ngram.NgramQueryCfg,
+) -> ngram.NgramQueryResult:
+    """Run text query adaptation around a token-space next-token model."""
+    prompt_ids = tok_core.encode_prompt(
+        tokenizer,
+        cfg.prompt,
+        text_normalization=model.text_normalization,
+    )
+    context = model.context_for_tokens(prompt_ids)
+    next_preds = model.next_token_predictions(
+        context,
+        top_k=cfg.top_k,
+    )
+    gen_top_k = ngram.generation_prediction_top_k(
+        decoding=cfg.decoding,
+        temperature=cfg.temperature,
+    )
+    rng = random.Random(cfg.seed)  # nosec B311
+    all_ids = list(prompt_ids)  # ids = prompt plus generated token IDs.
+    gen_ids: list[int] = []  # gen = generated continuation token IDs.
+
+    for _ in range(cfg.max_tokens):
+        next_id = ngram.select_next_token(
+            model.next_token_predictions(context, top_k=gen_top_k),
+            eos_id=model.eos_id,
+            decoding=cfg.decoding,
+            rng=rng,
+            temperature=cfg.temperature,
+        )
+        if next_id == model.eos_id:
+            break
+
+        gen_ids.append(next_id)
+        all_ids.append(next_id)
+        context = model.advance_context(context, next_id)
+
+    prompt_text = tokenizer.decode(prompt_ids)
+    generated_text = tokenizer.decode(all_ids)
+    continuation_text = tok_core.decode_continuation(
+        tokenizer,
+        generated_text=generated_text,
+        prompt_text=prompt_text,
+        generated_token_ids=gen_ids,
+    )
+
+    return ngram.NgramQueryResult(
+        model_path=model.model_path,
+        tokenizer_model=model.tokenizer_model,
+        decoding=cfg.decoding,
+        bos_id=model.bos_id,
+        eos_id=model.eos_id,
+        unk_id=model.unk_id,
+        prompt=cfg.prompt,
+        prompt_token_ids=prompt_ids,
+        continuation_text=continuation_text,
+        generated_text=generated_text,
+        generated_token_ids=gen_ids,
+        token_ids=all_ids,
+        next_token_predictions=next_preds,
+        text_normalization=model.text_normalization,
+    )
 
 
 def default_tokenizer_model(corpus: str) -> Path:
