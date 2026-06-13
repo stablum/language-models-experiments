@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
-from src.models.core import ngram
+from src.models.core import ngram, prediction_events
 
 
-type Context = tuple[int, ...]  # h, the n-gram history before predicted token w.
-type TransitionRows = dict[Context, Counter[int]]
+type TransitionRows = dict[prediction_events.Context, Counter[int]]
+type MutableTransitionRows = defaultdict[prediction_events.Context, Counter[int]]
 
 
 class NgramOrderCounts(ngram.FrozenNgramPydanticBase):
@@ -69,7 +69,7 @@ def collect_ngram_counts(
     """
 
     norm_orders = normalize_orders(orders, prediction_order=prediction_order)
-    rows_by_order: dict[int, defaultdict[Context, Counter[int]]] = {
+    rows_by_order: dict[int, MutableTransitionRows] = {
         order: defaultdict(Counter)
         for order in norm_orders
     }
@@ -80,10 +80,13 @@ def collect_ngram_counts(
     for tok_ids in tok_seqs:
         seq_count += 1
         tok_count += len(tok_ids)
-        for next_idx in prediction_indices(tok_ids, order=prediction_order):
+        for next_idx in prediction_events.prediction_indices(
+            tok_ids,
+            order=prediction_order,
+        ):
             next_id = tok_ids[next_idx]  # w, the predicted token.
             for order in norm_orders:
-                context = context_at(tok_ids, next_idx, order=order)
+                context = prediction_events.context_at(tok_ids, next_idx, order=order)
                 rows_by_order[order][context][next_id] += 1
                 event_counts[order] += 1
 
@@ -123,36 +126,8 @@ def normalize_orders(orders: Iterable[int], *, prediction_order: int) -> tuple[i
     return norm_orders
 
 
-def iter_prediction_events(
-    tok_ids: Sequence[int],
-    *,
-    order: int,
-) -> Iterator[tuple[Context, int]]:
-    """Yield each n-gram history h with its predicted next token w."""
-    for next_idx in prediction_indices(tok_ids, order=order):
-        yield context_at(tok_ids, next_idx, order=order), tok_ids[next_idx]
-
-
-def prediction_indices(tok_ids: Sequence[int], *, order: int) -> range:
-    """Return sequence positions that have enough history for prediction."""
-    if order < 1:
-        raise ValueError("order must be positive")
-    return range(order - 1, len(tok_ids))
-
-
-def context_at(tok_ids: Sequence[int], next_idx: int, *, order: int) -> Context:
-    """Return the n-gram history h immediately before one token index."""
-    if order < 1:
-        raise ValueError("order must be positive")
-
-    ctx_start = next_idx - order + 1  # ctx = n-gram history context.
-    if ctx_start < 0:
-        raise ValueError("Not enough previous tokens for requested n-gram order")
-    return tuple(tok_ids[ctx_start:next_idx])
-
-
 def single_token_context_rows(
-    rows: Mapping[Context, Counter[int]],
+    rows: Mapping[prediction_events.Context, Counter[int]],
 ) -> dict[int, Counter[int]]:
     """Flatten one-token context tuples into integer-keyed transition rows."""
     return {
@@ -161,7 +136,7 @@ def single_token_context_rows(
     }
 
 
-def single_token_context_id(context: Context) -> int:
+def single_token_context_id(context: prediction_events.Context) -> int:
     """Extract the token ID from a one-token history context."""
     if len(context) != 1:
         raise ValueError(f"Expected a 1-token context, got {len(context)}")

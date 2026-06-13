@@ -11,7 +11,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from src.corpora import normalization
-from src.models.core import counting, ngram
+from src.models.core import counting, ngram, prediction_events
 from src.tokenizers import core as tok_core
 
 
@@ -116,7 +116,10 @@ class Model(ngram.BaseNgramModel):
         ):
             summary.observe_sequence(tok_ids)
 
-            for context, next_id in counting.iter_prediction_events(tok_ids, order=2):
+            for context, next_id in prediction_events.iter_prediction_events(
+                tok_ids,
+                order=2,
+            ):
                 prev_id = counting.single_token_context_id(context)
                 row = row_cache.get(prev_id)
                 if row is None:
