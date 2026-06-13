@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import ClassVar, TypeVar
 
-from src.models.core import context_targets, counting, ngram
+from src.models.core import counting
+from src.models.core import ngram
+from src.models.core import token_sequences
 
 
 CONTEXT_LENGTH = 2  # len(h), the two-token trigram history size.
@@ -15,20 +17,26 @@ Context = tuple[int, int]  # h = (u, v), the trigram history.
 
 
 class TrigramCounts(counting.NgramCorpusCounts):
+    """Expose trigram-specific views over aligned n-gram count tables."""
+
     @property
     def unigram_counts(self) -> Counter[int]:
+        """Return c(w), the aligned unigram counts for trigram targets."""
         return self.token_counts(1)
 
     @property
     def unigram_count(self) -> int:
+        """Return N, the total aligned unigram count."""
         return sum(self.unigram_counts.values())
 
     @property
     def bigram_transitions(self) -> dict[int, Counter[int]]:
+        """Return c(v, w) rows keyed by one-token history v."""
         return counting.single_token_context_rows(self.rows(2))
 
     @property
     def trigram_transitions(self) -> dict[Context, Counter[int]]:
+        """Return c(u, v, w) rows keyed by two-token history h = (u, v)."""
         transitions: dict[Context, Counter[int]] = {}
         for context, next_counts in self.rows(3).items():
             if len(context) != 2:
@@ -38,14 +46,18 @@ class TrigramCounts(counting.NgramCorpusCounts):
 
     @property
     def bigram_transition_count(self) -> int:
+        """Return the aligned number of observed bigram events."""
         return self.event_count(2)
 
     @property
     def trigram_transition_count(self) -> int:
+        """Return the number of observed trigram context-target events."""
         return self.event_count(3)
 
 
 class TrigramTrainingSummary(ngram.NgramTrainingSummary):
+    """Store shared count totals for trigram-family training reports."""
+
     unigram_count: int = 0
     bigram_transition_count: int = 0
     trigram_transition_count: int = 0
@@ -124,9 +136,9 @@ class BaseTrigramModel(ngram.BaseNgramModel):
         )
         return ngram.sorted_predictions(predictions, top_k=top_k)
 
-    def evaluate_token_ids(
+    def evaluate_token_corpus(
         self,
-        tok_seqs: Iterable[Sequence[int]],
+        corpus: token_sequences.TokenCorpus,
         *,
         top_k: int = 5,
     ) -> ngram.NgramEvaluationSummary:
@@ -137,13 +149,10 @@ class BaseTrigramModel(ngram.BaseNgramModel):
             top_k=top_k,
             text_normalization=self.text_normalization,
         )
-        for tok_ids in tok_seqs:
-            summary.observe_sequence(tok_ids)
+        for tok_seq in corpus:
+            summary.observe_sequence(tok_seq)
 
-            for raw_context, next_id in context_targets.iter_context_targets(
-                tok_ids,
-                order=3,
-            ):
+            for raw_context, next_id in tok_seq.iter_context_targets(order=3):
                 prev_prev_id, prev_id = raw_context
                 context = (prev_prev_id, prev_id)
                 row = row_cache.get(context)
@@ -338,10 +347,14 @@ class InterpolatedTrigramModel(BaseTrigramModel):
 
 
 class DiscountedTrigramEvaluationSummary(ngram.NgramEvaluationSummary):
+    """Carry the absolute discount param with standard evaluation counters."""
+
     discount: float = 0.0  # D, the absolute discount.
 
 
 class DiscountedTrigramModel(BaseTrigramModel):
+    """Share evaluation metadata for discounted trigram models."""
+
     evaluation_summary_type: ClassVar[type[ngram.NgramEvaluationSummary]] = (
         DiscountedTrigramEvaluationSummary
     )
@@ -352,15 +365,16 @@ class DiscountedTrigramModel(BaseTrigramModel):
 
 
 def collect_trigram_counts(
-    tok_seqs: Iterable[Sequence[int]],
+    corpus: token_sequences.TokenCorpus,
 ) -> TrigramCounts:
     """Count c(h, w) rows for all trigram context-target pairs."""
     counts = counting.collect_ngram_counts(
-        tok_seqs,
+        corpus,
         orders=(1, 2, 3),
         target_order=3,
     )
     return TrigramCounts(
+        vocab_size=counts.vocab_size,
         sequence_count=counts.sequence_count,
         token_count=counts.token_count,
         orders=counts.orders,
@@ -368,7 +382,7 @@ def collect_trigram_counts(
 
 
 def fit_counted_trigram_model(
-    tok_seqs: Iterable[Sequence[int]],
+    corpus: token_sequences.TokenCorpus,
     *,
     summary_type: type[SummaryT],
     summary_fields: Mapping[str, object] | None = None,
@@ -377,7 +391,7 @@ def fit_counted_trigram_model(
     ) = None,
 ) -> ngram.TrainingResult[SummaryT]:
     """Fit shared trigram count state for counted trigram models."""
-    counts = collect_trigram_counts(tok_seqs)
+    counts = collect_trigram_counts(corpus)
     summary = summary_type(
         **trigram_summary_fields(counts),
         **dict(summary_fields or {}),
@@ -403,13 +417,16 @@ def trigram_counts_payload(counts: TrigramCounts) -> dict[str, object]:
 
 
 def trigram_summary_fields(counts: TrigramCounts) -> dict[str, int]:
+    """Return shared trigram summary fields from collected count tables."""
     return {
+        "vocab_size": counts.vocab_size,
         "sequence_count": counts.sequence_count,
         "token_count": counts.token_count,
         "unigram_count": counts.unigram_count,
         "bigram_transition_count": counts.bigram_transition_count,
         "trigram_transition_count": counts.trigram_transition_count,
     }
+
 
 def load_standard_trigram_model_fields(
     model_path: Path,

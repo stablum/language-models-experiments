@@ -26,7 +26,7 @@ CONTEXT_LENGTH_NAME = "CONTEXT_LENGTH"
 
 _FIT_INFRA_OPTION_NAMES = frozenset(
     (
-        "validation_tok_seqs",
+        "validation_corpus",
     )
 )
 _INTERPOLATION_OPTION_NAMES = frozenset(
@@ -97,9 +97,9 @@ class RegisteredModel(core_cfg.BaseCfg):
         )
 
     @property
-    def uses_validation_tokens(self) -> bool:
-        """Return whether fit accepts the validation token-sequence partition."""
-        return accepts_keyword(self.fit_fn, "validation_tok_seqs")
+    def uses_validation_corpus(self) -> bool:
+        """Return whether fit accepts the validation token corpus partition."""
+        return accepts_keyword(self.fit_fn, "validation_corpus")
 
     @property
     def context_length(self) -> int:
@@ -124,7 +124,7 @@ class RegisteredModel(core_cfg.BaseCfg):
     @property
     def supports_evaluation(self) -> bool:
         """Return whether the module model class exposes evaluation behavior."""
-        return self.model_has_method("evaluate_token_ids")
+        return self.model_has_method("evaluate_token_corpus")
 
     def model_has_method(self, method_name: str) -> bool:
         """Check a method on the declared module Model class."""

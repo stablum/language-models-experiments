@@ -15,6 +15,7 @@ from src.corpora import normalization
 from src.ml_core import json_io
 from src.models.core import formatting
 from src.models.core import naming
+from src.models.core import token_sequences
 from src.tokenizers import core as tok_core
 
 
@@ -297,13 +298,13 @@ class BaseNgramModel(NgramPydanticBase):
         """Return ranked next-token predictions for a model-specific context."""
         raise NotImplementedError
 
-    def evaluate_token_ids(
+    def evaluate_token_corpus(
         self,
-        tok_seqs: Iterable[Sequence[int]],
+        corpus: token_sequences.TokenCorpus,
         *,
         top_k: int = 5,
     ) -> NgramEvaluationSummary:
-        """Score already-tokenized sequences without owning text adapters."""
+        """Score a token-space corpus without owning text adapters."""
         raise NotImplementedError
 
 

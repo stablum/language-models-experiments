@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 
-from src.models.core import context_targets, ngram
+from src.models.core import ngram
+from src.models.core import token_sequences
 
 
-type TransitionRows = dict[context_targets.Context, Counter[int]]
-type MutableTransitionRows = defaultdict[context_targets.Context, Counter[int]]
+type TransitionRows = dict[token_sequences.Context, Counter[int]]
+type MutableTransitionRows = defaultdict[token_sequences.Context, Counter[int]]
 
 
 class NgramOrderCounts(ngram.FrozenNgramPydanticBase):
@@ -30,6 +31,7 @@ class NgramOrderCounts(ngram.FrozenNgramPydanticBase):
 class NgramCorpusCounts(ngram.FrozenNgramPydanticBase):
     """Bundle aligned count tables across n-gram orders for one corpus."""
 
+    vocab_size: int
     sequence_count: int
     token_count: int
     orders: dict[int, NgramOrderCounts]
@@ -55,7 +57,7 @@ class NgramCorpusCounts(ngram.FrozenNgramPydanticBase):
 
 
 def collect_ngram_counts(
-    tok_seqs: Iterable[Sequence[int]],
+    corpus: token_sequences.TokenCorpus,
     *,
     orders: Iterable[int],
     target_order: int,
@@ -77,20 +79,18 @@ def collect_ngram_counts(
     seq_count = 0  # seq = input token sequence.
     tok_count = 0  # tok = token.
 
-    for tok_ids in tok_seqs:
+    for tok_seq in corpus:
         seq_count += 1
-        tok_count += len(tok_ids)
-        for target_idx in context_targets.target_indices(
-            tok_ids,
-            order=target_order,
-        ):
-            target_id = tok_ids[target_idx]  # w, the observed next token.
+        tok_count += len(tok_seq)
+        for target_idx in tok_seq.target_indices(order=target_order):
+            target_id = tok_seq[target_idx]  # w, the observed next token.
             for order in norm_orders:
-                context = context_targets.context_at(tok_ids, target_idx, order=order)
+                context = tok_seq.context_at(target_idx, order=order)
                 rows_by_order[order][context][target_id] += 1
                 event_counts[order] += 1
 
     return NgramCorpusCounts(
+        vocab_size=corpus.vocab_size,
         sequence_count=seq_count,
         token_count=tok_count,
         orders={
@@ -127,17 +127,10 @@ def normalize_orders(orders: Iterable[int], *, target_order: int) -> tuple[int, 
 
 
 def single_token_context_rows(
-    rows: Mapping[context_targets.Context, Counter[int]],
+    rows: Mapping[token_sequences.Context, Counter[int]],
 ) -> dict[int, Counter[int]]:
     """Flatten one-token context tuples into integer-keyed transition rows."""
     return {
-        single_token_context_id(context): Counter(next_counts)
+        token_sequences.single_token_context_id(context): Counter(next_counts)
         for context, next_counts in rows.items()
     }
-
-
-def single_token_context_id(context: context_targets.Context) -> int:
-    """Extract the token ID from a one-token history context."""
-    if len(context) != 1:
-        raise ValueError(f"Expected a 1-token context, got {len(context)}")
-    return context[0]

@@ -44,10 +44,10 @@ A typical n-gram model module should expose these pieces, in this order:
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 from src.models.core import ngram
+from src.models.core import token_sequences
 
 
 CONTEXT_LENGTH = 1  # len(h), the token history size required by this model.
@@ -67,7 +67,7 @@ def load(model_path: Path) -> Model:
 
 
 def fit(
-    tok_seqs: Iterable[Sequence[int]],
+    corpus: token_sequences.TokenCorpus,
     *,
     # model hyperparameters go here
 ) -> ngram.TrainingResult[TrainingSummary]:
@@ -106,7 +106,7 @@ token-space metadata and generic candidate helpers. You must provide:
 - `context_for_tokens(token_ids)`
 - `advance_context(context, next_id)`
 - `next_token_predictions(context, *, top_k)`
-- `evaluate_token_ids(tok_seqs, *, top_k)`
+- `evaluate_token_corpus(corpus, *, top_k)`
 
 The runtime owns text prompt encoding, generated-token decoding, and corpus
 tokenization. Trigram models should usually inherit from
@@ -148,13 +148,13 @@ return a checkpoint/artifact summary.
 
 Required shape:
 
-- first parameter: `tok_seqs: Iterable[Sequence[int]]`
+- first parameter: `corpus: token_sequences.TokenCorpus`
 
-`tok_seqs` are already normalized, tokenized, and padded with the model's BOS
-context tokens by the runtime adapter. Fit functions should not accept raw
-text, tokenizer objects, text-normalization settings, artifact paths, or
-token-space display metadata unless the learner genuinely uses them to estimate
-its own parameters.
+`corpus` streams `token_sequences.TokenSeq` rows that are already normalized,
+tokenized, and padded with the model's BOS context tokens by the runtime
+adapter. It also carries `corpus.vocab_size`, the token-space dimension |V|.
+Fit functions should not accept raw text, tokenizer objects,
+text-normalization settings, artifact paths, or tokenizer display metadata.
 
 `fit(...)` should return `ngram.TrainingResult[SummaryType]`, which contains:
 
@@ -169,7 +169,7 @@ If a model needs validation data during fitting, add this keyword-only
 parameter:
 
 ```python
-validation_tok_seqs: Iterable[Sequence[int]] | None = None
+validation_corpus: token_sequences.TokenCorpus | None = None
 ```
 
 Use validation data for epoch metrics, early stopping, or checkpoint selection.

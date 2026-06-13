@@ -8,12 +8,15 @@ The recursive form uses ``beta_3 = lambda_3`` and
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Protocol, TypeVar
 
 from src.ml_core.models import definition as model_def
-from src.models.core import formatting, ngram, trigrams
+from src.models.core import formatting
+from src.models.core import ngram
+from src.models.core import token_sequences
+from src.models.core import trigrams
 
 
 DEFAULT_UNIGRAM_WEIGHT = 0.1  # lambda_1.
@@ -165,7 +168,7 @@ def resolve_params(
 
 
 def fit_interpolated_trigram_model(
-    tok_seqs: Iterable[Sequence[int]],
+    corpus: token_sequences.TokenCorpus,
     *,
     params: InterpolationParams,
     summary_type: type[SummaryT],
@@ -173,7 +176,7 @@ def fit_interpolated_trigram_model(
     extra_model_payload: Mapping[str, object] | None = None,
 ) -> ngram.TrainingResult[SummaryT]:
     """Fit shared count state for interpolated trigram models."""
-    counts = trigrams.collect_trigram_counts(tok_seqs)
+    counts = trigrams.collect_trigram_counts(corpus)
     summary = summary_type(
         **trigrams.trigram_summary_fields(counts),
         unigram_weight=params.unigram_weight,

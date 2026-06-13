@@ -15,11 +15,12 @@ distinct-context count.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
 from typing import ClassVar
 
 from src.models.core import ngram
+from src.models.core import token_sequences
 from src.models.core import trigrams
 
 
@@ -180,7 +181,7 @@ def load(model_path: Path) -> Model:
 
 
 def fit(
-    tok_seqs: Iterable[Sequence[int]],
+    corpus: token_sequences.TokenCorpus,
     *,
     discount: float = 0.75,
 ) -> ngram.TrainingResult[TrainingSummary]:
@@ -208,7 +209,7 @@ def fit(
         }
 
     return trigrams.fit_counted_trigram_model(
-        tok_seqs,
+        corpus,
         summary_type=TrainingSummary,
         summary_fields={"discount": discount},
         extra_payload=payload,

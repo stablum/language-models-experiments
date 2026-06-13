@@ -17,10 +17,12 @@ where h_i is the available history. The bigram history is the previous token, an
 ## Implementation Boundary
 
 Registered model modules follow a token-space fit/load/scoring split. The
-concrete module function `fit(...)` receives token ID sequences plus token-space
-metadata, estimates learned state, and returns a JSON-ready training artifact
-payload. The `load(model_path)` function hydrates that artifact into the live
-`Model` object used for token-space next-token scoring.
+concrete module function `fit(...)` receives a `TokenCorpus`, estimates learned
+state, and returns a JSON-ready training artifact payload. `TokenCorpus`
+streams token-ID sequences and carries the vocabulary size |V| for learners
+that need the token-space dimension during fitting. The `load(model_path)`
+function hydrates the persisted artifact into the live `Model` object used for
+token-space next-token scoring.
 
 Text normalization, tokenizer encoding/decoding, BOS/EOS sequence padding, and
 artifact tokenizer references are runtime adapter responsibilities, not

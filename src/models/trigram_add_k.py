@@ -7,10 +7,13 @@ trigram rows with ``lambda_1``, ``lambda_2``, and ``lambda_3``.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
 
-from src.models.core import ngram, trigram_interpolation as interp, trigrams
+from src.models.core import ngram
+from src.models.core import token_sequences
+from src.models.core import trigram_interpolation as interp
+from src.models.core import trigrams
 
 
 CONTEXT_LENGTH = trigrams.CONTEXT_LENGTH  # len(h), inherited trigram history size.
@@ -64,7 +67,7 @@ def load(model_path: Path) -> Model:
 
 
 def fit(
-    tok_seqs: Iterable[Sequence[int]],
+    corpus: token_sequences.TokenCorpus,
     *,
     smoothing: float = 0.1,
     unigram_weight: float = interp.DEFAULT_UNIGRAM_WEIGHT,
@@ -83,7 +86,7 @@ def fit(
         beta_3=beta_3,
     )
     return interp.fit_interpolated_trigram_model(
-        tok_seqs,
+        corpus,
         params=interp_params,
         summary_type=TrainingSummary,
         summary_fields={"smoothing": smoothing},

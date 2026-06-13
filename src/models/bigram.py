@@ -7,10 +7,11 @@ For history ``h`` and next token ``w``, this model uses the add-k estimator
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-from src.models.core import context_targets, counting, ngram
+from src.models.core import counting
+from src.models.core import ngram
+from src.models.core import token_sequences
 
 
 CONTEXT_LENGTH = 1  # len(h), the previous-token history size.
@@ -91,9 +92,9 @@ class Model(ngram.BaseNgramModel):
         row = self.transitions.get(prev_id, ())
         return self.candidate_counts(row)
 
-    def evaluate_token_ids(
+    def evaluate_token_corpus(
         self,
-        tok_seqs: Iterable[Sequence[int]],
+        corpus: token_sequences.TokenCorpus,
         *,
         top_k: int = 5,
     ) -> ngram.NgramEvaluationSummary:
@@ -106,14 +107,11 @@ class Model(ngram.BaseNgramModel):
             top_k=top_k,
             text_normalization=self.text_normalization,
         )
-        for tok_ids in tok_seqs:
-            summary.observe_sequence(tok_ids)
+        for tok_seq in corpus:
+            summary.observe_sequence(tok_seq)
 
-            for context, next_id in context_targets.iter_context_targets(
-                tok_ids,
-                order=2,
-            ):
-                prev_id = counting.single_token_context_id(context)
+            for context, next_id in tok_seq.iter_context_targets(order=2):
+                prev_id = token_sequences.single_token_context_id(context)
                 row = row_cache.get(prev_id)
                 if row is None:
                     row = self._evaluation_row(
@@ -198,13 +196,14 @@ def load(model_path: Path) -> Model:
 
 
 def fit(
-    tok_seqs: Iterable[Sequence[int]],
+    corpus: token_sequences.TokenCorpus,
     *,
     smoothing: float = 0.1,
 ) -> ngram.TrainingResult[TrainingSummary]:
     """Fit bigram counts from token ID sequences."""
-    counts = collect_bigram_counts(tok_seqs)
+    counts = collect_bigram_counts(corpus)
     summary = TrainingSummary(
+        vocab_size=counts.vocab_size,
         sequence_count=counts.sequence_count,
         token_count=counts.token_count,
         transition_count=counts.transition_count,
@@ -224,15 +223,16 @@ def fit(
 
 
 def collect_bigram_counts(
-    tok_seqs: Iterable[Sequence[int]],
+    corpus: token_sequences.TokenCorpus,
 ) -> BigramCounts:
     """Count c(h, w) rows for all bigram context-target pairs in the corpus."""
     counts = counting.collect_ngram_counts(
-        tok_seqs,
+        corpus,
         orders=(2,),
         target_order=2,
     )
     return BigramCounts(
+        vocab_size=counts.vocab_size,
         sequence_count=counts.sequence_count,
         token_count=counts.token_count,
         orders=counts.orders,

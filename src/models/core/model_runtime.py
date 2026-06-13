@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import random
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -11,6 +11,7 @@ from src.corpora import normalization
 from src.ml_core.models import definition as model_def
 from src.models.core import ngram
 from src.models.core import model_modules
+from src.models.core import token_sequences
 from src.tokenizers import core as tok_core
 
 
@@ -34,7 +35,7 @@ def fit(
     out_path = resolve_output(opts, model_suffix=model.name)
     tokenizer = tok_core.load_tokenizer(tok_model)
     tok_space = ngram.token_space_from_tokenizer(tokenizer)
-    train_tok_seqs = iter_model_token_sequences(
+    train_corpus = model_token_corpus(
         data.train_items,
         tokenizer,
         model=model,
@@ -48,15 +49,15 @@ def fit(
     fit_kwargs: dict[str, object] = {
         **fit_opts,
     }
-    if model.uses_validation_tokens:
-        fit_kwargs["validation_tok_seqs"] = iter_optional_model_token_sequences(
+    if model.uses_validation_corpus:
+        fit_kwargs["validation_corpus"] = optional_model_token_corpus(
             data.validation_items,
             tokenizer,
             model=model,
             text_normalization=opts["text_normalization"],
         )
 
-    result = model.fit_fn(train_tok_seqs, **fit_kwargs)
+    result = model.fit_fn(train_corpus, **fit_kwargs)
     return save_training_result(
         result,
         module_name=model.module.__name__,
@@ -98,13 +99,13 @@ def evaluate(
     """Evaluate a persisted registered model artifact over text rows."""
     loaded_model = model.load(resolve_model(opts, model_suffix=model.name))
     tokenizer = load_model_tokenizer(loaded_model)
-    tok_seqs = iter_model_token_sequences(
+    corpus = model_token_corpus(
         texts,
         tokenizer,
         model=model,
         text_normalization=loaded_model.text_normalization,
     )
-    return loaded_model.evaluate_token_ids(tok_seqs, top_k=opts["top_k"])
+    return loaded_model.evaluate_token_corpus(corpus, top_k=opts["top_k"])
 
 
 def validate_fit_options(
@@ -186,34 +187,38 @@ def save_training_result(
     return summary
 
 
-def iter_model_token_sequences(
+def model_token_corpus(
     texts: Iterable[str],
     tokenizer: tok_core.TokenizerCodec,
     *,
     model: model_modules.RegisteredModel,
     text_normalization: normalization.TextNormalization,
-) -> Iterable[Sequence[int]]:
-    """Adapt raw text rows into token-space sequences for one model family."""
-    return tok_core.iter_token_sequences(
+) -> token_sequences.TokenCorpus:
+    """Adapt raw text rows into a token-space corpus for one model family."""
+    seqs = tok_core.iter_token_sequences(
         texts,
         tokenizer,
         bos_count=model.context_length,
         min_length=model.context_length + 1,
         text_normalization=text_normalization,
     )
+    return token_sequences.TokenCorpus(
+        seqs,
+        vocab_size=tokenizer.vocab_size,
+    )
 
 
-def iter_optional_model_token_sequences(
+def optional_model_token_corpus(
     texts: Iterable[str] | None,
     tokenizer: tok_core.TokenizerCodec,
     *,
     model: model_modules.RegisteredModel,
     text_normalization: normalization.TextNormalization,
-) -> Iterable[Sequence[int]] | None:
+) -> token_sequences.TokenCorpus | None:
     """Tokenize an optional validation stream only when the model requests it."""
     if texts is None:
         return None
-    return iter_model_token_sequences(
+    return model_token_corpus(
         texts,
         tokenizer,
         model=model,

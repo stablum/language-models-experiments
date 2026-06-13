@@ -153,7 +153,7 @@ def train_model_pipeline_step(
             limit=limit,
         )
         validation_items = None
-        if model.uses_validation_tokens:
+        if model.uses_validation_corpus:
             validation_items = corpus_splits.load_partition_texts(
                 corpus_definition,
                 dataset_id=dataset_id,
