@@ -11,7 +11,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from src.corpora import normalization
-from src.models.core import counting, ngram, prediction_events
+from src.models.core import context_targets, counting, ngram
 from src.tokenizers import core as tok_core
 
 
@@ -30,7 +30,7 @@ class BigramCounts(counting.NgramCorpusCounts):
 
     @property
     def transition_count(self) -> int:
-        """Return the number of observed bigram prediction events."""
+        """Return the number of observed bigram context-target pairs."""
         return self.event_count(2)
 
 
@@ -116,7 +116,7 @@ class Model(ngram.BaseNgramModel):
         ):
             summary.observe_sequence(tok_ids)
 
-            for context, next_id in prediction_events.iter_prediction_events(
+            for context, next_id in context_targets.iter_context_targets(
                 tok_ids,
                 order=2,
             ):
@@ -246,7 +246,7 @@ def collect_bigram_counts(
         normalization.DEFAULT_TEXT_NORMALIZATION
     ),
 ) -> BigramCounts:
-    """Count c(h, w) rows for all bigram prediction events in the corpus."""
+    """Count c(h, w) rows for all bigram context-target pairs in the corpus."""
     counts = counting.collect_ngram_counts(
         tok_core.iter_token_sequences(
             texts,
@@ -256,7 +256,7 @@ def collect_bigram_counts(
             text_normalization=text_normalization,
         ),
         orders=(2,),
-        prediction_order=2,
+        target_order=2,
     )
     return BigramCounts(
         sequence_count=counts.sequence_count,

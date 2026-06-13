@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import ClassVar, TypeVar
 
 from src.corpora import normalization
-from src.models.core import counting, ngram, prediction_events
+from src.models.core import context_targets, counting, ngram
 from src.tokenizers import core as tok_core
 
 
@@ -148,7 +148,7 @@ class BaseTrigramModel(ngram.BaseNgramModel):
         ):
             summary.observe_sequence(tok_ids)
 
-            for raw_context, next_id in prediction_events.iter_prediction_events(
+            for raw_context, next_id in context_targets.iter_context_targets(
                 tok_ids,
                 order=3,
             ):
@@ -376,7 +376,7 @@ def collect_trigram_counts(
             text_normalization=text_normalization,
         ),
         orders=(1, 2, 3),
-        prediction_order=3,
+        target_order=3,
     )
     return TrigramCounts(
         sequence_count=counts.sequence_count,
