@@ -1,6 +1,6 @@
 # Models
 
-This project currently contains small token-level autoregressive language models. Each model predicts a SentencePiece token, written w_i, from a finite vocabulary V. The beginning-of-sequence token is used only as context, so generated candidates live in
+This project currently contains small token-level autoregressive language models. Each model predicts a tokenizer token, written w_i, from a finite vocabulary V supplied by the runtime `TokenizerCodec`. The beginning-of-sequence token is used only as context, so generated candidates live in
 
 ```math
 \mathcal{V}_\star = \mathcal{V} \setminus \{\mathrm{BOS}\}.

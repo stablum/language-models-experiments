@@ -21,7 +21,7 @@ does not start with `_`. A module is registered when it exposes:
 
 - `fit(...)`
 - `load(model_path)`
-- `format_summary(summary)`
+- `CONTEXT_LENGTH`
 
 To keep a work-in-progress module in `src/models` without registering or
 importing it, add this top-level source flag:
@@ -73,16 +73,11 @@ def fit(
 ) -> ngram.TrainingResult[TrainingSummary]:
     """Fit learned state from token IDs and return a JSON-ready payload."""
     ...
-
-
-def format_summary(summary: TrainingSummary) -> list[tuple[str, str]]:
-    """Format training metrics for CLI and tracker display."""
-    ...
 ```
 
 Omit the module-local `TrainingSummary` when a shared summary type already has
 all the fields the module needs. In that case, annotate `fit(...)` and
-`format_summary(...)` with the shared type directly.
+the returned `ngram.TrainingResult[...]` with the shared type directly.
 
 ## Required Pieces
 
@@ -115,7 +110,7 @@ tokenization. Trigram models should usually inherit from
 machinery.
 
 For non-n-gram models, keep the same module-level `fit`, `load`, and
-`format_summary` contract. The loaded `Model` object should still expose
+`CONTEXT_LENGTH` contract. The loaded `Model` object should still expose
 token-space context, next-token, and evaluation methods when the full pipeline
 should support query/evaluation stages.
 
@@ -188,11 +183,14 @@ uses it to build token sequences from text:
 - bigram: `CONTEXT_LENGTH = 1`
 - trigram: `CONTEXT_LENGTH = 2`
 
-`format_summary(summary)`
+Training-summary display
 
-Return a `list[tuple[str, str]]` for CLI/ClearML display. Reuse
-`ngram.base_training_summary_items(...)` or
-`trigrams.base_training_summary_items(...)` when possible.
+Do not add a module-level `format_summary(...)`. Training display is centralized
+in `src/models/core/training_summaries.py`: the registry formats common artifact
+fields, then introspects the returned `TrainingSummary` for model-owned fields
+such as `transition_count`, `smoothing`, `discount`, interpolation weights, or
+continuation counts. Add concise pydantic fields to the summary object when the
+training report needs new model-owned scalar values.
 
 ## Optional Hooks
 

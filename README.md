@@ -389,7 +389,7 @@ See [ADDING_CORPORA.md](docs/ADDING_CORPORA.md) for the full corpus integration 
 
 ## Models
 
-The model training, query, and evaluation CLIs are model-generic. `bigram`, `trigram-add-k`, `trigram-jelinek-mercer`, `trigram-absolute-discount`, `trigram-good-turing`, and `trigram-kneser-ney` are currently registered.
+The model training, query, and evaluation CLIs are model-generic. `bigram`, `trigram-absolute-discount`, `trigram-add-k`, `trigram-good-turing`, `trigram-jelinek-mercer`, and `trigram-kneser-ney` are currently registered.
 
 See [MODELS.md](docs/MODELS.md) for the probability formulas and brief model descriptions.
 
